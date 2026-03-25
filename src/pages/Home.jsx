@@ -48,7 +48,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 w-full max-w-md p-8">
         
         <div className="text-center mb-8">
-          <div className="text-xs tracking-widest text-gray-400 uppercase mb-2">Nigeria</div>
+          <div className="text-xs tracking-widest text-gray-400 uppercase mb-2">ADEOLA MEMORIAL COLLEDGE</div>
           <h1 className="text-3xl font-bold text-gray-900">JAMB Weekly Quiz</h1>
           <p className="text-gray-500 mt-2 text-sm">Every Friday · 5:00pm – 6:30pm</p>
         </div>
