@@ -1,15 +1,19 @@
 import { useState, useEffect } from 'react'
-import { load } from '../store/useStore'
+import { listenScores } from '../store/useStore'
 
 export default function Results({ student, lastScore, setView }) {
   const [scores, setScores] = useState([])
   const [filter, setFilter] = useState('all')
 
-  useEffect(() => {
-    const allScores = load('jamb_scores', [])
-    const mine = allScores.filter((s) => s.studentId === student.id)
-    setScores(mine.reverse())
-  }, [student])
+useEffect(() => {
+  const unsubscribe = listenScores((allScores) => {
+    const mine = allScores
+      .filter((s) => s.studentId === student.id)
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+    setScores(mine)
+  })
+  return () => unsubscribe()
+}, [student])
 
   const filtered = filter === 'all' ? scores : scores.filter((s) => s.subject === filter)
 
