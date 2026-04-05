@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { SUBJECTS, WEEKS, load, addQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics } from '../store/useStore'
+import { SUBJECTS, WEEKS, load, addQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, deleteStudent, updateStudent, setTopics, getTopics } from '../store/useStore'
 
 export default function Admin({ setView }) {
   const [tab, setTab] = useState('students')
@@ -24,6 +24,8 @@ export default function Admin({ setView }) {
   const [topicSuccess, setTopicSuccess] = useState('')
   const [expandedQuestion, setExpandedQuestion] = useState(null)
   const [questionLimit, setQuestionLimit] = useState(25)
+  const [editingStudent, setEditingStudent] = useState(null)
+  const [editName, setEditName] = useState('')
 
   useEffect(() => {
     const unsubStudents = listenStudents((all) => setStudents(all))
@@ -99,6 +101,26 @@ export default function Admin({ setView }) {
     return Math.round(s.reduce((a, b) => a + b.score, 0) / s.length)
   }
 
+  const handleDeleteStudent = async (id) => {
+    if (!window.confirm('Delete this student? This cannot be undone.')) return
+    try {
+      await deleteStudent(id)
+    } catch (e) {
+      alert('Failed to delete student.')
+    }
+  }
+
+  const handleRenameStudent = async (id) => {
+    if (!editName.trim()) return
+    try {
+      await updateStudent(id, { name: editName.trim() })
+      setEditingStudent(null)
+      setEditName('')
+    } catch (e) {
+      alert('Failed to rename student.')
+    }
+  }
+
   const getTotalScore = (studentId) => {
     const s = getStudentScores(studentId)
     if (!s.length) return null
@@ -159,13 +181,33 @@ export default function Admin({ setView }) {
                   return (
                     <div key={student.id} className="bg-white border border-gray-200 rounded-xl p-4">
                       <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <p className="text-sm font-bold text-gray-900">{student.name}</p>
+                        <div className="flex-1 min-w-0 mr-3">
+                          {editingStudent === student.id ? (
+                            <div className="flex gap-2 items-center">
+                              <input
+                                value={editName}
+                                onChange={(e) => setEditName(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleRenameStudent(student.id)}
+                                className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-full focus:outline-none focus:border-gray-500"
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => handleRenameStudent(student.id)}
+                                className="text-xs text-white bg-gray-900 px-2 py-1 rounded-lg shrink-0"
+                              >Save</button>
+                              <button
+                                onClick={() => { setEditingStudent(null); setEditName('') }}
+                                className="text-xs text-gray-400 hover:text-gray-600 shrink-0"
+                              >✕</button>
+                            </div>
+                          ) : (
+                            <p className="text-sm font-bold text-gray-900">{student.name}</p>
+                          )}
                           <p className="text-xs text-gray-400 mt-0.5">
                             Joined {new Date(student.joinedAt).toLocaleDateString('en-NG')}
                           </p>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right shrink-0">
                           {total !== null && (
                             <p className="text-xs text-gray-400">Total: <span className="font-bold text-gray-900">{total}/400</span></p>
                           )}
@@ -176,6 +218,16 @@ export default function Admin({ setView }) {
                           </p>
                           <p className="text-xs text-gray-400">{attempts} attempt{attempts !== 1 ? 's' : ''}</p>
                         </div>
+                      </div>
+                      <div className="flex gap-2 mb-2">
+                        <button
+                          onClick={() => { setEditingStudent(student.id); setEditName(student.name) }}
+                          className="text-xs text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg px-2 py-1 hover:bg-gray-50 transition-colors"
+                        >Rename</button>
+                        <button
+                          onClick={() => handleDeleteStudent(student.id)}
+                          className="text-xs text-red-400 hover:text-red-600 border border-red-200 rounded-lg px-2 py-1 hover:bg-red-50 transition-colors"
+                        >Delete</button>
                       </div>
 
                       {student.subjects?.length > 0 && (

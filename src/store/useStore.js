@@ -169,6 +169,7 @@ export {
   save,
   registerStudent,
   updateStudent,
+  deleteStudent,
   findStudent,
   listenStudents,
   addQuestion,
