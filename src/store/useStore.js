@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, query, orderBy } from '../firebase'
+import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from '../firebase'
 
 const SUBJECTS = [
   'Mathematics',
@@ -141,6 +141,23 @@ function listenTopics(callback) {
   })
 }
 
+async function saveQuestionLimit(subject, week, limit) {
+  const snapshot = await getDocs(collection(db, 'question_limits'))
+  const existing = snapshot.docs.find(
+    (d) => d.data().subject === subject && d.data().week === week
+  )
+  if (existing) await deleteDoc(doc(db, 'question_limits', existing.id))
+  await addDoc(collection(db, 'question_limits'), { subject, week, limit })
+}
+
+async function getQuestionLimit(subject, week) {
+  const snapshot = await getDocs(collection(db, 'question_limits'))
+  const found = snapshot.docs.find(
+    (d) => d.data().subject === subject && d.data().week === week
+  )
+  return found ? found.data().limit : 25
+}
+
 export {
   SUBJECTS,
   WEEKS,
@@ -159,4 +176,6 @@ export {
   setTopics,
   getTopics,
   listenTopics,
+  saveQuestionLimit,
+  getQuestionLimit,
 }
