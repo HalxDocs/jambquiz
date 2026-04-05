@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useRegisterSW } from 'virtual:pwa-register/react'
 import Home from './pages/Home'
 import SubjectSelect from './pages/SubjectSelect'
 import Dashboard from './pages/Dashboard'
@@ -13,6 +14,15 @@ export default function App() {
   const [adminAuthed, setAdminAuthed] = useState(false)
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [showInstallToast, setShowInstallToast] = useState(false)
+
+  const {
+    needRefresh: [needRefresh, setNeedRefresh],
+    updateServiceWorker,
+  } = useRegisterSW({
+    onRegistered(r) {
+      if (r) setInterval(() => r.update(), 60 * 60 * 1000)
+    },
+  })
 
   useEffect(() => {
     const handler = (e) => {
@@ -32,10 +42,6 @@ export default function App() {
       setShowInstallToast(false)
       setDeferredPrompt(null)
     }
-  }
-
-  const dismissToast = () => {
-    setShowInstallToast(false)
   }
 
   return (
@@ -80,6 +86,34 @@ export default function App() {
         />
       )}
 
+      {needRefresh && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm">
+          <div className="bg-blue-600 text-white rounded-2xl shadow-lg px-4 py-4 flex items-center gap-3">
+            <div className="bg-white/10 rounded-xl p-2">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold">Update Available</p>
+              <p className="text-xs text-blue-200">New content is ready</p>
+            </div>
+            <button
+              onClick={() => updateServiceWorker(true)}
+              className="bg-white text-blue-600 text-xs font-bold px-3 py-2 rounded-xl hover:bg-blue-50 transition-colors"
+            >
+              Update
+            </button>
+            <button
+              onClick={() => setNeedRefresh(false)}
+              className="text-blue-200 hover:text-white text-lg leading-none"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       {showInstallToast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm">
           <div className="bg-gray-900 text-white rounded-2xl shadow-lg px-4 py-4 flex items-center gap-3">
@@ -99,7 +133,7 @@ export default function App() {
               Install
             </button>
             <button
-              onClick={dismissToast}
+              onClick={() => setShowInstallToast(false)}
               className="text-gray-400 hover:text-white text-lg leading-none"
             >
               ×

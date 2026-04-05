@@ -70,21 +70,38 @@ export default function Quiz({ student, setView, setLastScore }) {
 
   const submitQuiz = () => {
     let correct = 0
+    let wrong = 0
+    let unanswered = 0
+
     questions.forEach((q, i) => {
-      if (answers[i] === q.answer) correct++
+      if (answers[i] === null) {
+        unanswered++
+      } else if (answers[i] === q.answer) {
+        correct++
+      } else {
+        wrong++
+      }
     })
-    const score = Math.round((correct / questions.length) * 100)
+
+    const rawMarks = correct * 4 - wrong * 1
+    const marks = Math.max(0, rawMarks)
+    const outOf = questions.length * 4
+
     const result = {
       studentId: student.id,
       studentName: student.name,
       subject: selectedSubject,
       week: currentWeek,
-      score,
+      score: marks,
+      outOf,
       correct,
+      wrong,
+      unanswered,
       total: questions.length,
       answers,
       date: new Date().toISOString(),
     }
+
     const allScores = load('jamb_scores', [])
     save('jamb_scores', [...allScores, result])
     setLastScore(result)
@@ -123,6 +140,10 @@ export default function Quiz({ student, setView, setLastScore }) {
               ← Back
             </button>
             <h2 className="text-xl font-bold text-gray-900">Choose Subject</h2>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">
+            <p className="text-blue-700 text-xs font-medium">📝 JAMB Scoring: +4 correct · -1 wrong · 0 unanswered</p>
           </div>
 
           <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-5 text-center">
@@ -195,11 +216,32 @@ export default function Quiz({ student, setView, setLastScore }) {
           </div>
         </div>
 
-        <div className="w-full bg-gray-200 rounded-full h-1.5 mb-6">
+        <div className="w-full bg-gray-200 rounded-full h-1.5 mb-4">
           <div
             className="bg-gray-900 h-1.5 rounded-full transition-all"
             style={{ width: `${((current + 1) / questions.length) * 100}%` }}
           />
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          <div className="bg-green-50 border border-green-200 rounded-xl p-2 text-center">
+            <p className="text-xs text-green-600 font-medium">Correct</p>
+            <p className="text-lg font-bold text-green-700">
+              {answers.filter((a, i) => a !== null && a === questions[i]?.answer).length}
+            </p>
+          </div>
+          <div className="bg-red-50 border border-red-200 rounded-xl p-2 text-center">
+            <p className="text-xs text-red-500 font-medium">Wrong</p>
+            <p className="text-lg font-bold text-red-600">
+              {answers.filter((a, i) => a !== null && a !== questions[i]?.answer).length}
+            </p>
+          </div>
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-2 text-center">
+            <p className="text-xs text-gray-500 font-medium">Skipped</p>
+            <p className="text-lg font-bold text-gray-600">
+              {answers.filter((a) => a === null).length}
+            </p>
+          </div>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
@@ -241,24 +283,14 @@ export default function Quiz({ student, setView, setLastScore }) {
           {current < questions.length - 1 ? (
             <button
               onClick={() => setCurrent(current + 1)}
-              disabled={answers[current] === null}
-              className={`flex-1 rounded-xl py-3 text-sm font-semibold transition-colors ${
-                answers[current] !== null
-                  ? 'bg-gray-900 text-white hover:bg-gray-700'
-                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              }`}
+              className="flex-1 rounded-xl py-3 text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 transition-colors"
             >
               Next →
             </button>
           ) : (
             <button
               onClick={submitQuiz}
-              disabled={answers.includes(null)}
-              className={`flex-1 rounded-xl py-3 text-sm font-semibold transition-colors ${
-                !answers.includes(null)
-                  ? 'bg-green-600 text-white hover:bg-green-700'
-                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              }`}
+              className="flex-1 rounded-xl py-3 text-sm font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors"
             >
               Submit Quiz ✓
             </button>
@@ -274,13 +306,19 @@ export default function Quiz({ student, setView, setLastScore }) {
                 i === current
                   ? 'bg-gray-900 text-white'
                   : answers[i] !== null
-                  ? 'bg-green-100 text-green-700'
+                  ? answers[i] === questions[i]?.answer
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-red-100 text-red-500'
                   : 'bg-gray-100 text-gray-400'
               }`}
             >
               {i + 1}
             </button>
           ))}
+        </div>
+
+        <div className="mt-3 text-center">
+          <p className="text-xs text-gray-400">+4 correct · -1 wrong · 0 skipped</p>
         </div>
 
       </div>
