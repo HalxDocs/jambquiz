@@ -1,19 +1,28 @@
 import { useState, useEffect } from 'react'
-import { load, addScore, getQuestions } from '../store/useStore'
+import { load, save, addScore, getQuestions, getTopics } from '../store/useStore'
 
-function isQuizTime() {
+function getQuizStatus() {
   const now = new Date()
   const day = now.getDay()
   const h = now.getHours()
   const m = now.getMinutes()
   const mins = h * 60 + m
-  return day === 5 && mins >= 17 * 60 && mins < 18 * 60 + 30
+  const isFriday = day === 5
+  const isLoginWindow = mins >= 17 * 60 && mins < 18 * 60
+  const isQuizOpen = mins >= 17 * 60 && mins < 19 * 60 + 30
+  return { isFriday, isLoginWindow, isQuizOpen }
 }
 
 function getCurrentWeek() {
   const weeks = ['Week 1', 'Week 2', 'Week 3', 'Week 4']
   const w = Math.floor(((Date.now() / 86400000) % 28) / 7)
   return weeks[Math.min(w, 3)]
+}
+
+function getNextWeek() {
+  const weeks = ['Week 1', 'Week 2', 'Week 3', 'Week 4']
+  const w = Math.floor(((Date.now() / 86400000) % 28) / 7)
+  return weeks[Math.min(w + 1, 3)]
 }
 
 export default function Quiz({ student, setView, setLastScore }) {
@@ -27,17 +36,17 @@ export default function Quiz({ student, setView, setLastScore }) {
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [attemptedSubjects, setAttemptedSubjects] = useState([])
+  const [nextWeekTopics, setNextWeekTopics] = useState({})
+  const [showCorrections, setShowCorrections] = useState(false)
+  const [lastResult, setLastResult] = useState(null)
 
   const currentWeek = getCurrentWeek()
+  const nextWeek = getNextWeek()
+  const { isFriday, isLoginWindow, isQuizOpen } = getQuizStatus()
 
   useEffect(() => {
-    loadAttempted()
-  }, [])
-
-  const loadAttempted = async () => {
-    const { listenScores } = await import('../store/useStore')
-    const allScores = load('jamb_scores_cache', [])
-    const attempted = allScores
+    const cached = load('jamb_scores_cache', [])
+    const attempted = cached
       .filter(
         (s) =>
           s.studentId === student.id &&
@@ -46,7 +55,9 @@ export default function Quiz({ student, setView, setLastScore }) {
       )
       .map((s) => s.subject)
     setAttemptedSubjects(attempted)
-  }
+
+    getTopics(nextWeek).then((t) => setNextWeekTopics(t || {}))
+  }, [])
 
   useEffect(() => {
     if (step !== 'quiz') return
@@ -75,12 +86,13 @@ export default function Quiz({ student, setView, setLastScore }) {
   }
 
   const startSubject = async (subject) => {
+    if (!isLoginWindow && !isQuizOpen) return
     setLoading(true)
     setErr('')
     try {
       const weekQ = await getQuestions(subject, currentWeek)
       if (weekQ.length === 0) {
-        setErr(`No questions available for ${subject} - ${currentWeek} yet. Please check back later.`)
+        setErr(`No questions available for ${subject} - ${currentWeek} yet.`)
         setLoading(false)
         return
       }
@@ -134,31 +146,172 @@ export default function Quiz({ student, setView, setLastScore }) {
       unanswered,
       total: questions.length,
       answers,
+      questions: questions.map((q) => ({
+        question: q.question,
+        options: q.options,
+        answer: q.answer,
+      })),
       date: new Date().toISOString(),
     }
 
     try {
       await addScore(result)
       const cached = load('jamb_scores_cache', [])
-      const { save } = await import('../store/useStore')
       save('jamb_scores_cache', [...cached, result])
+      setAttemptedSubjects((prev) => [...prev, selectedSubject])
     } catch (e) {
       console.error('Failed to save score:', e)
     }
 
+    setLastResult(result)
     setLastScore(result)
-    setView('results')
+    setStep('done')
     setSubmitting(false)
   }
 
-  if (!isQuizTime()) {
+  if (step === 'done' && lastResult) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4">
+        <div className="max-w-lg mx-auto">
+          <div className="py-6 text-center">
+            <p className="text-4xl mb-2">✅</p>
+            <h2 className="text-xl font-bold text-gray-900">Quiz Submitted!</h2>
+            <p className="text-gray-500 text-sm mt-1">{lastResult.subject} · {lastResult.week}</p>
+          </div>
+
+          <div className="bg-gray-900 text-white rounded-2xl p-5 mb-4 text-center">
+            <p className="text-xs text-gray-400 mb-1">Your Score</p>
+            <p className="text-5xl font-bold">{lastResult.score}</p>
+            <p className="text-gray-400 text-sm mt-1">out of {lastResult.outOf}</p>
+            <div className="grid grid-cols-3 gap-3 mt-4">
+              <div>
+                <p className="text-lg font-bold text-green-400">{lastResult.correct}</p>
+                <p className="text-xs text-gray-400">Correct (+{lastResult.correct * 4})</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-red-400">{lastResult.wrong}</p>
+                <p className="text-xs text-gray-400">Wrong (-{lastResult.wrong})</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-gray-400">{lastResult.unanswered}</p>
+                <p className="text-xs text-gray-400">Skipped</p>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowCorrections(!showCorrections)}
+            className="w-full bg-blue-50 border border-blue-200 rounded-xl py-3 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition-colors mb-4"
+          >
+            {showCorrections ? 'Hide Corrections' : '📖 View Corrections'}
+          </button>
+
+          {showCorrections && (
+            <div className="bg-white border border-gray-200 rounded-2xl p-4 mb-4">
+              <p className="text-sm font-bold text-gray-900 mb-4">Corrections</p>
+              <div className="space-y-4">
+                {lastResult.questions.map((q, i) => {
+                  const studentAns = lastResult.answers[i]
+                  const isCorrect = studentAns === q.answer
+                  const isSkipped = studentAns === null
+                  return (
+                    <div key={i} className={`rounded-xl p-3 border ${
+                      isCorrect ? 'bg-green-50 border-green-200' :
+                      isSkipped ? 'bg-gray-50 border-gray-200' :
+                      'bg-red-50 border-red-200'
+                    }`}>
+                      <p className="text-sm font-medium text-gray-900 mb-2">
+                        {i + 1}. {q.question}
+                      </p>
+                      <div className="space-y-1">
+                        {q.options.map((opt, oi) => (
+                          <p key={oi} className={`text-xs px-2 py-1 rounded-lg ${
+                            oi === q.answer
+                              ? 'bg-green-200 text-green-800 font-semibold'
+                              : oi === studentAns && !isCorrect
+                              ? 'bg-red-200 text-red-800'
+                              : 'text-gray-500'
+                          }`}>
+                            {String.fromCharCode(65 + oi)}. {opt}
+                            {oi === q.answer && ' ✓'}
+                            {oi === studentAns && !isCorrect && ' ✗'}
+                          </p>
+                        ))}
+                      </div>
+                      {isSkipped && (
+                        <p className="text-xs text-gray-400 mt-1">You skipped this question</p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {Object.keys(nextWeekTopics).length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-4">
+              <p className="text-sm font-bold text-blue-900 mb-3">📚 {nextWeek} Topics to Revise</p>
+              <div className="space-y-2">
+                {Object.entries(nextWeekTopics).map(([subject, topic]) => (
+                  <div key={subject} className="flex justify-between items-center">
+                    <p className="text-xs text-blue-700 font-medium">{subject}</p>
+                    <p className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-lg">{topic}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => setStep('subject')}
+              className="flex-1 border border-gray-200 rounded-xl py-3 text-sm font-medium text-gray-600 hover:bg-gray-100"
+            >
+              Another Subject
+            </button>
+            <button
+              onClick={() => setView('results')}
+              className="flex-1 bg-gray-900 text-white rounded-xl py-3 text-sm font-semibold hover:bg-gray-700"
+            >
+              View All Results
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isFriday || !isQuizOpen) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white border border-gray-200 rounded-2xl p-8 max-w-md w-full text-center">
           <p className="text-4xl mb-4">🔒</p>
           <h2 className="text-xl font-bold text-gray-900 mb-2">Quiz is Locked</h2>
+          <p className="text-gray-500 text-sm mb-2">
+            Login window: <strong>Friday 5:00pm – 6:00pm</strong>
+          </p>
           <p className="text-gray-500 text-sm mb-6">
-            The quiz is only available every Friday between 5:00pm and 6:30pm
+            Once started, you have <strong>1 hour 30 minutes</strong>
+          </p>
+          <button
+            onClick={() => setView('dashboard')}
+            className="bg-gray-900 text-white px-6 py-3 rounded-xl text-sm font-semibold hover:bg-gray-700"
+          >
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isLoginWindow && step === 'subject') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white border border-gray-200 rounded-2xl p-8 max-w-md w-full text-center">
+          <p className="text-4xl mb-4">⏰</p>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Login Window Closed</h2>
+          <p className="text-gray-500 text-sm mb-6">
+            New logins closed at 6:00pm. You can only start the quiz between 5:00pm and 6:00pm.
           </p>
           <button
             onClick={() => setView('dashboard')}
@@ -191,6 +344,7 @@ export default function Quiz({ student, setView, setLastScore }) {
 
           <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-5 text-center">
             <p className="text-green-700 text-sm font-medium">🟢 Quiz is Live · {currentWeek}</p>
+            <p className="text-green-600 text-xs mt-1">Login closes 6:00pm · 1hr 30mins per subject</p>
           </div>
 
           {err && (
