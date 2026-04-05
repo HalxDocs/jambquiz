@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from '../firebase'
+import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, query, orderBy } from '../firebase'
 
 const SUBJECTS = [
   'Mathematics',
@@ -27,6 +27,45 @@ function load(key, fallback) {
 
 function save(key, value) {
   localStorage.setItem(key, JSON.stringify(value))
+}
+
+async function registerStudent(student) {
+  const snapshot = await getDocs(collection(db, 'students'))
+  const existing = snapshot.docs.find(
+    (d) => d.data().name.toLowerCase() === student.name.toLowerCase()
+  )
+  if (existing) {
+    return { id: existing.id, ...existing.data() }
+  }
+  const ref = await addDoc(collection(db, 'students'), {
+    ...student,
+    createdAt: new Date().toISOString(),
+  })
+  return { id: ref.id, ...student }
+}
+
+async function updateStudent(id, data) {
+  const snapshot = await getDocs(collection(db, 'students'))
+  const existing = snapshot.docs.find((d) => d.id === id)
+  if (existing) {
+    await deleteDoc(doc(db, 'students', id))
+    await addDoc(collection(db, 'students'), { ...existing.data(), ...data })
+  }
+}
+
+async function findStudent(name) {
+  const snapshot = await getDocs(collection(db, 'students'))
+  const found = snapshot.docs.find(
+    (d) => d.data().name.toLowerCase() === name.toLowerCase()
+  )
+  return found ? { id: found.id, ...found.data() } : null
+}
+
+function listenStudents(callback) {
+  return onSnapshot(collection(db, 'students'), (snapshot) => {
+    const students = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+    callback(students)
+  })
 }
 
 async function addQuestion(subject, week, question) {
@@ -107,6 +146,10 @@ export {
   WEEKS,
   load,
   save,
+  registerStudent,
+  updateStudent,
+  findStudent,
+  listenStudents,
   addQuestion,
   deleteQuestion,
   getQuestions,

@@ -1,14 +1,13 @@
 import { useState, useEffect } from 'react'
-import { SUBJECTS, load, WEEKS, addQuestion, deleteQuestion, listenQuestions, listenScores } from '../store/useStore'
+import { SUBJECTS, WEEKS, load, addQuestion, deleteQuestion, listenQuestions, listenScores, setTopics, getTopics } from '../store/useStore'
 
 export default function Admin({ setView }) {
   const [tab, setTab] = useState('students')
   const [students, setStudents] = useState([])
   const [scores, setScores] = useState([])
-  const [questions, setQuestions] = useState({})
+  const [currentQuestions, setCurrentQuestions] = useState([])
   const [selectedSubject, setSelectedSubject] = useState(SUBJECTS[0])
   const [selectedWeek, setSelectedWeek] = useState(WEEKS[0])
-  const [currentQuestions, setCurrentQuestions] = useState([])
   const [form, setForm] = useState({
     question: '',
     optionA: '',
@@ -17,49 +16,54 @@ export default function Admin({ setView }) {
     optionD: '',
     answer: 0,
   })
+  const [topics, setTopicsState] = useState({})
+  const [topicInputs, setTopicInputs] = useState({})
+  const [topicWeek, setTopicWeek] = useState(WEEKS[0])
   const [err, setErr] = useState('')
   const [success, setSuccess] = useState('')
+  const [topicSuccess, setTopicSuccess] = useState('')
 
-useEffect(() => {
-  setStudents(load('jamb_students', []))
-  const unsubScores = listenScores((allScores) => {
-    setScores(allScores)
-  })
-  return () => unsubScores()
-}, [])
+  useEffect(() => {
+    setStudents(load('jamb_students', []))
+    const unsubScores = listenScores((allScores) => setScores(allScores))
+    return () => unsubScores()
+  }, [])
 
-useEffect(() => {
-  const unsubQ = listenQuestions(selectedSubject, selectedWeek, (qs) => {
-    setCurrentQuestions(qs)
-  })
-  return () => unsubQ()
-}, [selectedSubject, selectedWeek])
+  useEffect(() => {
+    const unsubQ = listenQuestions(selectedSubject, selectedWeek, (qs) => {
+      setCurrentQuestions(qs)
+    })
+    return () => unsubQ()
+  }, [selectedSubject, selectedWeek])
 
-  const getCurrentQuestions = () => currentQuestions
+  useEffect(() => {
+    getTopics(topicWeek).then((t) => {
+      setTopicsState(t || {})
+      setTopicInputs(t || {})
+    })
+  }, [topicWeek])
 
-  const handleAddQuestion = async() => {
+  const handleAddQuestion = async () => {
     if (!form.question.trim()) { setErr('Enter a question'); return }
     if (!form.optionA.trim() || !form.optionB.trim() || !form.optionC.trim() || !form.optionD.trim()) {
       setErr('Fill in all 4 options')
       return
     }
-
     const newQ = {
       id: Date.now(),
       question: form.question.trim(),
       options: [form.optionA.trim(), form.optionB.trim(), form.optionC.trim(), form.optionD.trim()],
       answer: parseInt(form.answer),
     }
-
-try {
-  await addQuestion(selectedSubject, selectedWeek, newQ)
-  setForm({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0 })
-  setErr('')
-  setSuccess('Question added successfully!')
-  setTimeout(() => setSuccess(''), 3000)
-} catch (e) {
-  setErr('Failed to add question. Check your connection.')
-}
+    try {
+      await addQuestion(selectedSubject, selectedWeek, newQ)
+      setForm({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0 })
+      setErr('')
+      setSuccess('Question added!')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (e) {
+      setErr('Failed to add question. Check your connection.')
+    }
   }
 
   const handleDeleteQuestion = async (qId) => {
@@ -70,9 +74,18 @@ try {
     }
   }
 
-  const getStudentScores = (studentId) => {
-    return scores.filter((s) => s.studentId === studentId)
+  const handleSaveTopics = async () => {
+    try {
+      await setTopics(topicWeek, topicInputs)
+      setTopicsState(topicInputs)
+      setTopicSuccess('Topics saved!')
+      setTimeout(() => setTopicSuccess(''), 3000)
+    } catch (e) {
+      alert('Failed to save topics. Check your connection.')
+    }
   }
+
+  const getStudentScores = (studentId) => scores.filter((s) => s.studentId === studentId)
 
   const getAverage = (studentId) => {
     const s = getStudentScores(studentId)
@@ -97,18 +110,18 @@ try {
           </button>
         </div>
 
-        <div className="flex border-b border-gray-200 mb-6">
-          {['students', 'questions'].map((t) => (
+        <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
+          {['students', 'questions', 'topics'].map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`flex-1 pb-3 text-sm font-medium transition-colors capitalize ${
+              className={`flex-1 pb-3 text-sm font-medium transition-colors capitalize whitespace-nowrap px-2 ${
                 tab === t
                   ? 'border-b-2 border-gray-900 text-gray-900'
                   : 'text-gray-400 hover:text-gray-600'
               }`}
             >
-              {t === 'students' ? `Students (${students.length})` : 'Add Questions'}
+              {t === 'students' ? `Students (${students.length})` : t === 'questions' ? 'Questions' : 'Topics'}
             </button>
           ))}
         </div>
@@ -137,12 +150,11 @@ try {
                           <p className={`text-lg font-bold ${
                             avg >= 70 ? 'text-green-600' : avg >= 50 ? 'text-yellow-600' : 'text-red-500'
                           }`}>
-                            {avg}%
+                            {avg}
                           </p>
                           <p className="text-xs text-gray-400">{attempts} attempt{attempts !== 1 ? 's' : ''}</p>
                         </div>
                       </div>
-
                       {student.subjects?.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-3">
                           {student.subjects.map((s) => (
@@ -152,7 +164,6 @@ try {
                           ))}
                         </div>
                       )}
-
                       {getStudentScores(student.id).length > 0 && (
                         <div className="border-t border-gray-100 pt-3">
                           <p className="text-xs text-gray-400 mb-2">Recent scores</p>
@@ -163,7 +174,7 @@ try {
                                 <span className={`text-xs font-semibold ${
                                   sc.score >= 70 ? 'text-green-600' : sc.score >= 50 ? 'text-yellow-600' : 'text-red-500'
                                 }`}>
-                                  {sc.score}%
+                                  {sc.score}/{sc.outOf || 160}
                                 </span>
                               </div>
                             ))}
@@ -211,7 +222,6 @@ try {
               <p className="text-sm font-semibold text-gray-900 mb-4">
                 Add Question — {selectedSubject} · {selectedWeek}
               </p>
-
               <div className="space-y-3">
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Question</label>
@@ -223,8 +233,7 @@ try {
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400 resize-none"
                   />
                 </div>
-
-                {['A', 'B', 'C', 'D'].map((letter, i) => (
+                {['A', 'B', 'C', 'D'].map((letter) => (
                   <div key={letter}>
                     <label className="text-xs text-gray-500 block mb-1">Option {letter}</label>
                     <input
@@ -235,7 +244,6 @@ try {
                     />
                   </div>
                 ))}
-
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Correct Answer</label>
                   <select
@@ -250,10 +258,8 @@ try {
                   </select>
                 </div>
               </div>
-
               {err && <p className="text-red-500 text-xs mt-3">{err}</p>}
               {success && <p className="text-green-600 text-xs mt-3">{success}</p>}
-
               <button
                 onClick={handleAddQuestion}
                 className="w-full mt-4 bg-gray-900 text-white rounded-xl py-3 text-sm font-semibold hover:bg-gray-700 transition-colors"
@@ -264,21 +270,18 @@ try {
 
             <div className="bg-white border border-gray-200 rounded-2xl p-5">
               <div className="flex justify-between items-center mb-4">
-                <p className="text-sm font-semibold text-gray-900">
-                  Existing Questions
-                </p>
+                <p className="text-sm font-semibold text-gray-900">Existing Questions</p>
                 <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg">
-                  {getCurrentQuestions().length} questions
+                  {currentQuestions.length} questions
                 </span>
               </div>
-
-              {getCurrentQuestions().length === 0 ? (
+              {currentQuestions.length === 0 ? (
                 <p className="text-gray-400 text-sm text-center py-4">
-                  No questions added yet for {selectedSubject} · {selectedWeek}
+                  No questions for {selectedSubject} · {selectedWeek}
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {getCurrentQuestions().map((q, i) => (
+                  {currentQuestions.map((q, i) => (
                     <div key={q.id} className="border border-gray-100 rounded-xl p-3">
                       <div className="flex justify-between items-start gap-2">
                         <p className="text-sm text-gray-900 font-medium flex-1">
@@ -310,6 +313,70 @@ try {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {tab === 'topics' && (
+          <div>
+            <div className="mb-5">
+              <label className="text-xs text-gray-500 block mb-1">Select Week</label>
+              <select
+                value={topicWeek}
+                onChange={(e) => setTopicWeek(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400 bg-white"
+              >
+                {WEEKS.map((w) => (
+                  <option key={w} value={w}>{w}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
+              <p className="text-sm font-semibold text-gray-900 mb-1">
+                Topics for {topicWeek}
+              </p>
+              <p className="text-xs text-gray-400 mb-4">
+                Enter the topic for each subject. Students will see these after completing their quiz.
+              </p>
+              <div className="space-y-3">
+                {SUBJECTS.map((subject) => (
+                  <div key={subject}>
+                    <label className="text-xs text-gray-500 block mb-1">{subject}</label>
+                    <input
+                      value={topicInputs[subject] || ''}
+                      onChange={(e) =>
+                        setTopicInputs({ ...topicInputs, [subject]: e.target.value })
+                      }
+                      placeholder={`e.g. Vectors, Adaptation...`}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400"
+                    />
+                  </div>
+                ))}
+              </div>
+              {topicSuccess && (
+                <p className="text-green-600 text-xs mt-3">{topicSuccess}</p>
+              )}
+              <button
+                onClick={handleSaveTopics}
+                className="w-full mt-4 bg-gray-900 text-white rounded-xl py-3 text-sm font-semibold hover:bg-gray-700 transition-colors"
+              >
+                Save Topics for {topicWeek}
+              </button>
+            </div>
+
+            {Object.keys(topics).length > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
+                <p className="text-sm font-semibold text-blue-900 mb-3">Current Topics — {topicWeek}</p>
+                <div className="space-y-2">
+                  {Object.entries(topics).map(([subject, topic]) => (
+                    <div key={subject} className="flex justify-between items-center">
+                      <p className="text-xs text-blue-700 font-medium">{subject}</p>
+                      <p className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-lg">{topic}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
