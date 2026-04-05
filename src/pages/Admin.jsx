@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { SUBJECTS, WEEKS, load, addQuestion, deleteQuestion, listenQuestions, listenScores, setTopics, getTopics } from '../store/useStore'
+import { SUBJECTS, WEEKS, load, addQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics } from '../store/useStore'
 
 export default function Admin({ setView }) {
   const [tab, setTab] = useState('students')
@@ -22,11 +22,16 @@ export default function Admin({ setView }) {
   const [err, setErr] = useState('')
   const [success, setSuccess] = useState('')
   const [topicSuccess, setTopicSuccess] = useState('')
+  const [expandedQuestion, setExpandedQuestion] = useState(null)
+  const [questionLimit, setQuestionLimit] = useState(25)
 
   useEffect(() => {
-    setStudents(load('jamb_students', []))
+    const unsubStudents = listenStudents((all) => setStudents(all))
     const unsubScores = listenScores((allScores) => setScores(allScores))
-    return () => unsubScores()
+    return () => {
+      unsubStudents()
+      unsubScores()
+    }
   }, [])
 
   useEffect(() => {
@@ -67,6 +72,7 @@ export default function Admin({ setView }) {
   }
 
   const handleDeleteQuestion = async (qId) => {
+    if (!window.confirm('Delete this question?')) return
     try {
       await deleteQuestion(qId)
     } catch (e) {
@@ -91,6 +97,18 @@ export default function Admin({ setView }) {
     const s = getStudentScores(studentId)
     if (!s.length) return 0
     return Math.round(s.reduce((a, b) => a + b.score, 0) / s.length)
+  }
+
+  const getTotalScore = (studentId) => {
+    const s = getStudentScores(studentId)
+    if (!s.length) return null
+    const bySubject = {}
+    s.forEach((sc) => {
+      if (!bySubject[sc.subject]) bySubject[sc.subject] = sc
+    })
+    const subjects = Object.values(bySubject)
+    if (subjects.length < 4) return null
+    return subjects.slice(0, 4).reduce((a, sc) => a + sc.score, 0)
   }
 
   return (
@@ -137,9 +155,10 @@ export default function Admin({ setView }) {
                 {students.map((student) => {
                   const avg = getAverage(student.id)
                   const attempts = getStudentScores(student.id).length
+                  const total = getTotalScore(student.id)
                   return (
                     <div key={student.id} className="bg-white border border-gray-200 rounded-xl p-4">
-                      <div className="flex justify-between items-start mb-3">
+                      <div className="flex justify-between items-start mb-2">
                         <div>
                           <p className="text-sm font-bold text-gray-900">{student.name}</p>
                           <p className="text-xs text-gray-400 mt-0.5">
@@ -147,14 +166,18 @@ export default function Admin({ setView }) {
                           </p>
                         </div>
                         <div className="text-right">
+                          {total !== null && (
+                            <p className="text-xs text-gray-400">Total: <span className="font-bold text-gray-900">{total}/400</span></p>
+                          )}
                           <p className={`text-lg font-bold ${
                             avg >= 70 ? 'text-green-600' : avg >= 50 ? 'text-yellow-600' : 'text-red-500'
                           }`}>
-                            {avg}
+                            avg {avg}
                           </p>
                           <p className="text-xs text-gray-400">{attempts} attempt{attempts !== 1 ? 's' : ''}</p>
                         </div>
                       </div>
+
                       {student.subjects?.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-3">
                           {student.subjects.map((s) => (
@@ -164,18 +187,25 @@ export default function Admin({ setView }) {
                           ))}
                         </div>
                       )}
+
                       {getStudentScores(student.id).length > 0 && (
                         <div className="border-t border-gray-100 pt-3">
-                          <p className="text-xs text-gray-400 mb-2">Recent scores</p>
+                          <p className="text-xs text-gray-400 mb-2">All scores</p>
                           <div className="space-y-1">
-                            {getStudentScores(student.id).slice(-3).reverse().map((sc, i) => (
-                              <div key={i} className="flex justify-between items-center">
-                                <p className="text-xs text-gray-600">{sc.subject} · {sc.week}</p>
-                                <span className={`text-xs font-semibold ${
-                                  sc.score >= 70 ? 'text-green-600' : sc.score >= 50 ? 'text-yellow-600' : 'text-red-500'
-                                }`}>
-                                  {sc.score}/{sc.outOf || 160}
-                                </span>
+                            {getStudentScores(student.id).sort((a, b) => new Date(b.date) - new Date(a.date)).map((sc, i) => (
+                              <div key={i} className="flex justify-between items-center py-0.5">
+                                <div>
+                                  <p className="text-xs text-gray-600">{sc.subject} · {sc.week}</p>
+                                  <p className="text-xs text-gray-400">{new Date(sc.date).toLocaleDateString('en-NG')}</p>
+                                </div>
+                                <div className="text-right">
+                                  <span className={`text-xs font-semibold ${
+                                    sc.score >= 70 ? 'text-green-600' : sc.score >= 50 ? 'text-yellow-600' : 'text-red-500'
+                                  }`}>
+                                    {sc.score}/{sc.outOf || 160}
+                                  </span>
+                                  <p className="text-xs text-gray-400">{sc.correct}✓ {sc.wrong || 0}✗ {sc.unanswered || 0}–</p>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -191,7 +221,7 @@ export default function Admin({ setView }) {
 
         {tab === 'questions' && (
           <div>
-            <div className="grid grid-cols-2 gap-3 mb-5">
+            <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Subject</label>
                 <select
@@ -215,6 +245,27 @@ export default function Admin({ setView }) {
                     <option key={w} value={w}>{w}</option>
                   ))}
                 </select>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-xs text-blue-700 font-medium">Questions in pool: {currentQuestions.length}</p>
+                  <p className="text-xs text-blue-500 mt-0.5">Each student gets {Math.min(questionLimit, currentQuestions.length)} random questions</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-blue-700">Pick</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={currentQuestions.length || 100}
+                    value={questionLimit}
+                    onChange={(e) => setQuestionLimit(parseInt(e.target.value) || 25)}
+                    className="w-16 border border-blue-200 rounded-lg px-2 py-1 text-xs text-center bg-white focus:outline-none"
+                  />
+                  <label className="text-xs text-blue-700">per student</label>
+                </div>
               </div>
             </div>
 
@@ -270,9 +321,9 @@ export default function Admin({ setView }) {
 
             <div className="bg-white border border-gray-200 rounded-2xl p-5">
               <div className="flex justify-between items-center mb-4">
-                <p className="text-sm font-semibold text-gray-900">Existing Questions</p>
+                <p className="text-sm font-semibold text-gray-900">Question Pool</p>
                 <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg">
-                  {currentQuestions.length} questions
+                  {currentQuestions.length} total
                 </span>
               </div>
               {currentQuestions.length === 0 ? (
@@ -280,34 +331,52 @@ export default function Admin({ setView }) {
                   No questions for {selectedSubject} · {selectedWeek}
                 </p>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {currentQuestions.map((q, i) => (
-                    <div key={q.id} className="border border-gray-100 rounded-xl p-3">
-                      <div className="flex justify-between items-start gap-2">
-                        <p className="text-sm text-gray-900 font-medium flex-1">
-                          {i + 1}. {q.question}
+                    <div key={q.id} className="border border-gray-100 rounded-xl overflow-hidden">
+                      <button
+                        onClick={() => setExpandedQuestion(expandedQuestion === q.id ? null : q.id)}
+                        className="w-full flex justify-between items-center p-3 text-left hover:bg-gray-50 transition-colors"
+                      >
+                        <p className="text-sm text-gray-900 font-medium flex-1 pr-2">
+                          {i + 1}. {q.question.length > 60 ? q.question.slice(0, 60) + '...' : q.question}
                         </p>
-                        <button
-                          onClick={() => handleDeleteQuestion(q.id)}
-                          className="text-red-400 hover:text-red-600 text-xs shrink-0"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                      <div className="mt-2 grid grid-cols-2 gap-1">
-                        {q.options.map((opt, oi) => (
-                          <p
-                            key={oi}
-                            className={`text-xs px-2 py-1 rounded-lg ${
-                              oi === q.answer
-                                ? 'bg-green-100 text-green-700 font-semibold'
-                                : 'bg-gray-50 text-gray-500'
-                            }`}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-lg">
+                            Ans: {String.fromCharCode(65 + q.answer)}
+                          </span>
+                          <span className="text-gray-400 text-xs">
+                            {expandedQuestion === q.id ? '▲' : '▼'}
+                          </span>
+                        </div>
+                      </button>
+
+                      {expandedQuestion === q.id && (
+                        <div className="px-3 pb-3 border-t border-gray-100">
+                          <p className="text-sm text-gray-900 font-medium mt-2 mb-3">{q.question}</p>
+                          <div className="grid grid-cols-2 gap-1 mb-3">
+                            {q.options.map((opt, oi) => (
+                              <p
+                                key={oi}
+                                className={`text-xs px-2 py-1.5 rounded-lg ${
+                                  oi === q.answer
+                                    ? 'bg-green-100 text-green-700 font-semibold'
+                                    : 'bg-gray-50 text-gray-500'
+                                }`}
+                              >
+                                {String.fromCharCode(65 + oi)}. {opt}
+                                {oi === q.answer && ' ✓'}
+                              </p>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => handleDeleteQuestion(q.id)}
+                            className="text-red-400 hover:text-red-600 text-xs border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 transition-colors"
                           >
-                            {String.fromCharCode(65 + oi)}. {opt}
-                          </p>
-                        ))}
-                      </div>
+                            Delete Question
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -332,11 +401,9 @@ export default function Admin({ setView }) {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
-              <p className="text-sm font-semibold text-gray-900 mb-1">
-                Topics for {topicWeek}
-              </p>
+              <p className="text-sm font-semibold text-gray-900 mb-1">Topics for {topicWeek}</p>
               <p className="text-xs text-gray-400 mb-4">
-                Enter the topic for each subject. Students will see these after completing their quiz.
+                Students will see these after completing their quiz as next week topics to revise.
               </p>
               <div className="space-y-3">
                 {SUBJECTS.map((subject) => (
@@ -347,7 +414,7 @@ export default function Admin({ setView }) {
                       onChange={(e) =>
                         setTopicInputs({ ...topicInputs, [subject]: e.target.value })
                       }
-                      placeholder={`e.g. Vectors, Adaptation...`}
+                      placeholder="e.g. Vectors, Adaptation..."
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400"
                     />
                   </div>
@@ -366,14 +433,14 @@ export default function Admin({ setView }) {
 
             {Object.keys(topics).length > 0 && (
               <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
-                <p className="text-sm font-semibold text-blue-900 mb-3">Current Topics — {topicWeek}</p>
+                <p className="text-sm font-semibold text-blue-900 mb-3">Saved Topics — {topicWeek}</p>
                 <div className="space-y-2">
-                  {Object.entries(topics).map(([subject, topic]) => (
+                  {Object.entries(topics).map(([subject, topic]) => topic ? (
                     <div key={subject} className="flex justify-between items-center">
                       <p className="text-xs text-blue-700 font-medium">{subject}</p>
                       <p className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-lg">{topic}</p>
                     </div>
-                  ))}
+                  ) : null)}
                 </div>
               </div>
             )}
