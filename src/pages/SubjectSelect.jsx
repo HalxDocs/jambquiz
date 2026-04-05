@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { SUBJECTS, load, save } from '../store/useStore'
+import { SUBJECTS, updateStudent } from '../store/useStore'
 
 export default function SubjectSelect({ student, setStudent, setView }) {
   const [selected, setSelected] = useState(student?.subjects || [])
   const [err, setErr] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const toggle = (subject) => {
     if (selected.includes(subject)) {
@@ -18,17 +19,21 @@ export default function SubjectSelect({ student, setStudent, setView }) {
     setErr('')
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (selected.length !== 4) {
       setErr('Please select exactly 4 subjects')
       return
     }
-    const updated = { ...student, subjects: selected }
-    const students = load('jamb_students', [])
-    const newList = students.map((s) => (s.id === student.id ? updated : s))
-    save('jamb_students', newList)
-    setStudent(updated)
-    setView('dashboard')
+    setLoading(true)
+    try {
+      await updateStudent(student.id, { subjects: selected })
+      const updated = { ...student, subjects: selected }
+      setStudent(updated)
+      setView('dashboard')
+    } catch (e) {
+      setErr('Failed to save. Check your connection and try again.')
+    }
+    setLoading(false)
   }
 
   return (
@@ -88,14 +93,14 @@ export default function SubjectSelect({ student, setStudent, setView }) {
 
         <button
           onClick={handleSave}
-          disabled={selected.length !== 4}
+          disabled={selected.length !== 4 || loading}
           className={`w-full py-3 rounded-xl text-sm font-semibold transition-colors ${
-            selected.length === 4
+            selected.length === 4 && !loading
               ? 'bg-gray-900 text-white hover:bg-gray-700'
               : 'bg-gray-200 text-gray-400 cursor-not-allowed'
           }`}
         >
-          Save & Continue →
+          {loading ? 'Saving...' : 'Save & Continue →'}
         </button>
 
       </div>
