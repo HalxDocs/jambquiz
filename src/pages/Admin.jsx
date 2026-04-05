@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { SUBJECTS, WEEKS, load, save } from '../store/useStore'
+import { SUBJECTS, WEEKS, addQuestion, deleteQuestion, listenQuestions, listenScores } from '../store/useStore'
 
 export default function Admin({ setView }) {
   const [tab, setTab] = useState('students')
@@ -19,11 +19,20 @@ export default function Admin({ setView }) {
   const [err, setErr] = useState('')
   const [success, setSuccess] = useState('')
 
-  useEffect(() => {
-    setStudents(load('jamb_students', []))
-    setScores(load('jamb_scores', []))
-    setQuestions(load('jamb_questions', {}))
-  }, [])
+useEffect(() => {
+  setStudents(load('jamb_students', []))
+  const unsubScores = listenScores((allScores) => {
+    setScores(allScores)
+  })
+  return () => unsubScores()
+}, [])
+
+useEffect(() => {
+  const unsubQ = listenQuestions(selectedSubject, selectedWeek, (qs) => {
+    setCurrentQuestions(qs)
+  })
+  return () => unsubQ()
+}, [selectedSubject, selectedWeek])
 
   const getCurrentQuestions = () => {
     return questions[selectedSubject]?.[selectedWeek] || []
