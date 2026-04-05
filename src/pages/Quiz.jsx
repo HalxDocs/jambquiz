@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { load, save, addScore, getQuestions, getTopics } from '../store/useStore'
+import { load, save, addScore, getQuestions, getTopics, getQuestionLimit } from '../store/useStore'
 
 function getQuizStatus() {
   const now = new Date()
@@ -23,6 +23,11 @@ function getNextWeek() {
   const weeks = ['Week 1', 'Week 2', 'Week 3', 'Week 4']
   const w = Math.floor(((Date.now() / 86400000) % 28) / 7)
   return weeks[Math.min(w + 1, 3)]
+}
+
+function shuffleAndPick(arr, count) {
+  const shuffled = [...arr].sort(() => Math.random() - 0.5)
+  return shuffled.slice(0, Math.min(count, arr.length))
 }
 
 export default function Quiz({ student, setView, setLastScore }) {
@@ -55,7 +60,6 @@ export default function Quiz({ student, setView, setLastScore }) {
       )
       .map((s) => s.subject)
     setAttemptedSubjects(attempted)
-
     getTopics(nextWeek).then((t) => setNextWeekTopics(t || {}))
   }, [])
 
@@ -90,15 +94,18 @@ export default function Quiz({ student, setView, setLastScore }) {
     setLoading(true)
     setErr('')
     try {
-      const weekQ = await getQuestions(subject, currentWeek)
-      if (weekQ.length === 0) {
+      const allQ = await getQuestions(subject, currentWeek)
+      if (allQ.length === 0) {
         setErr(`No questions available for ${subject} - ${currentWeek} yet.`)
         setLoading(false)
         return
       }
+      const limit = await getQuestionLimit(subject, currentWeek)
+      const weekQ = shuffleAndPick(allQ, limit)
       setSelectedSubject(subject)
       setQuestions(weekQ)
       setAnswers(new Array(weekQ.length).fill(null))
+      setTimeLeft(90 * 60)
       setStep('quiz')
     } catch (e) {
       setErr('Failed to load questions. Check your connection and try again.')
@@ -252,19 +259,19 @@ export default function Quiz({ student, setView, setLastScore }) {
             <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-4">
               <p className="text-sm font-bold text-blue-900 mb-3">📚 {nextWeek} Topics to Revise</p>
               <div className="space-y-2">
-                {Object.entries(nextWeekTopics).map(([subject, topic]) => (
+                {Object.entries(nextWeekTopics).map(([subject, topic]) => topic ? (
                   <div key={subject} className="flex justify-between items-center">
                     <p className="text-xs text-blue-700 font-medium">{subject}</p>
                     <p className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-lg">{topic}</p>
                   </div>
-                ))}
+                ) : null)}
               </div>
             </div>
           )}
 
           <div className="flex gap-3">
             <button
-              onClick={() => setStep('subject')}
+              onClick={() => { setStep('subject'); setShowCorrections(false) }}
               className="flex-1 border border-gray-200 rounded-xl py-3 text-sm font-medium text-gray-600 hover:bg-gray-100"
             >
               Another Subject
