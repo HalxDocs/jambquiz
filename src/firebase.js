@@ -1,0 +1,25 @@
+import { initializeApp } from 'firebase/app'
+import { getFirestore, connectFirestoreEmulator, enableIndexedDbPersistence, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from 'firebase/firestore'
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBQA8XnuGt6ANrMe4zYvBzbHWnK-58Sf8U",
+  authDomain: "fitness-gym-fc040.firebaseapp.com",
+  projectId: "fitness-gym-fc040",
+  storageBucket: "fitness-gym-fc040.firebasestorage.app",
+  messagingSenderId: "818614046525",
+  appId: "1:818614046525:web:d94d915dd55ac925e2bf54",
+  measurementId: "G-FJPTYQ8G8G"
+}
+
+const app = initializeApp(firebaseConfig)
+const db = getFirestore(app)
+
+enableIndexedDbPersistence(db).catch((err) => {
+  if (err.code === 'failed-precondition') {
+    console.warn('Offline persistence unavailable: multiple tabs open')
+  } else if (err.code === 'unimplemented') {
+    console.warn('Offline persistence not supported in this browser')
+  }
+})
+
+export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot }
