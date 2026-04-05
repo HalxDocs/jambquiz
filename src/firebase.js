@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app'
-import { getFirestore, connectFirestoreEmulator, enableIndexedDbPersistence, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from 'firebase/firestore'
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: "AIzaSyBQA8XnuGt6ANrMe4zYvBzbHWnK-58Sf8U",
@@ -12,14 +12,11 @@ const firebaseConfig = {
 }
 
 const app = initializeApp(firebaseConfig)
-const db = getFirestore(app)
 
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code === 'failed-precondition') {
-    console.warn('Offline persistence unavailable: multiple tabs open')
-  } else if (err.code === 'unimplemented') {
-    console.warn('Offline persistence not supported in this browser')
-  }
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
 })
 
 export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot }

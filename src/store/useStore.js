@@ -53,6 +53,10 @@ async function updateStudent(id, data) {
   }
 }
 
+async function deleteStudent(id) {
+  await deleteDoc(doc(db, 'students', id))
+}
+
 async function findStudent(name) {
   const snapshot = await getDocs(collection(db, 'students'))
   const found = snapshot.docs.find(
