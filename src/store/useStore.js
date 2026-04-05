@@ -1,22 +1,17 @@
-import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, query, orderBy } from '../firebase'
+import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from '../firebase'
 
 const SUBJECTS = [
   'Mathematics',
-  'English Language',
   'Physics',
   'Chemistry',
   'Biology',
-  'Economics',
+  'English Language',
   'Government',
   'Literature in English',
-  'Geography',
-  'Commerce',
-  'Accounting',
-  'Agricultural Science',
-  'Further Mathematics',
-  'Civic Education',
   'Christian Religious Studies',
   'Islamic Religious Studies',
+  'Commerce',
+  'Economics',
 ]
 
 const WEEKS = ['Week 1', 'Week 2', 'Week 3', 'Week 4']
@@ -70,15 +65,40 @@ async function addScore(result) {
   })
 }
 
-async function getScores() {
-  const snapshot = await getDocs(collection(db, 'scores'))
-  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-}
-
 function listenScores(callback) {
   return onSnapshot(collection(db, 'scores'), (snapshot) => {
     const scores = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
     callback(scores)
+  })
+}
+
+async function setTopics(week, topics) {
+  const snapshot = await getDocs(collection(db, 'topics'))
+  const existing = snapshot.docs.find((d) => d.data().week === week)
+  if (existing) {
+    await deleteDoc(doc(db, 'topics', existing.id))
+  }
+  await addDoc(collection(db, 'topics'), {
+    week,
+    topics,
+    updatedAt: new Date().toISOString(),
+  })
+}
+
+async function getTopics(week) {
+  const snapshot = await getDocs(collection(db, 'topics'))
+  const found = snapshot.docs.find((d) => d.data().week === week)
+  return found ? found.data().topics : {}
+}
+
+function listenTopics(callback) {
+  return onSnapshot(collection(db, 'topics'), (snapshot) => {
+    const all = {}
+    snapshot.docs.forEach((d) => {
+      const data = d.data()
+      all[data.week] = data.topics
+    })
+    callback(all)
   })
 }
 
@@ -92,6 +112,8 @@ export {
   getQuestions,
   listenQuestions,
   addScore,
-  getScores,
   listenScores,
+  setTopics,
+  getTopics,
+  listenTopics,
 }
