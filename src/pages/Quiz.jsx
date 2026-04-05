@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { load, save } from '../store/useStore'
+import { load, addScore, getQuestions } from '../store/useStore'
 
 function isQuizTime() {
   const now = new Date()
@@ -24,8 +24,29 @@ export default function Quiz({ student, setView, setLastScore }) {
   const [answers, setAnswers] = useState([])
   const [timeLeft, setTimeLeft] = useState(90 * 60)
   const [err, setErr] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [attemptedSubjects, setAttemptedSubjects] = useState([])
 
   const currentWeek = getCurrentWeek()
+
+  useEffect(() => {
+    loadAttempted()
+  }, [])
+
+  const loadAttempted = async () => {
+    const { listenScores } = await import('../store/useStore')
+    const allScores = load('jamb_scores_cache', [])
+    const attempted = allScores
+      .filter(
+        (s) =>
+          s.studentId === student.id &&
+          s.week === currentWeek &&
+          new Date(s.date).toDateString() === new Date().toDateString()
+      )
+      .map((s) => s.subject)
+    setAttemptedSubjects(attempted)
+  }
 
   useEffect(() => {
     if (step !== 'quiz') return
@@ -33,7 +54,6 @@ export default function Quiz({ student, setView, setLastScore }) {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(t)
-          submitQuiz()
           return 0
         }
         return prev - 1
@@ -42,24 +62,36 @@ export default function Quiz({ student, setView, setLastScore }) {
     return () => clearInterval(t)
   }, [step])
 
+  useEffect(() => {
+    if (timeLeft === 0 && step === 'quiz') {
+      handleSubmit()
+    }
+  }, [timeLeft])
+
   const formatTime = (secs) => {
     const m = Math.floor(secs / 60).toString().padStart(2, '0')
     const s = (secs % 60).toString().padStart(2, '0')
     return `${m}:${s}`
   }
 
-  const startSubject = (subject) => {
-    const allQ = load('jamb_questions', {})
-    const weekQ = allQ[subject]?.[currentWeek] || []
-    if (weekQ.length === 0) {
-      setErr(`No questions available for ${subject} - ${currentWeek} yet. Please check back later.`)
-      return
-    }
-    setSelectedSubject(subject)
-    setQuestions(weekQ)
-    setAnswers(new Array(weekQ.length).fill(null))
-    setStep('quiz')
+  const startSubject = async (subject) => {
+    setLoading(true)
     setErr('')
+    try {
+      const weekQ = await getQuestions(subject, currentWeek)
+      if (weekQ.length === 0) {
+        setErr(`No questions available for ${subject} - ${currentWeek} yet. Please check back later.`)
+        setLoading(false)
+        return
+      }
+      setSelectedSubject(subject)
+      setQuestions(weekQ)
+      setAnswers(new Array(weekQ.length).fill(null))
+      setStep('quiz')
+    } catch (e) {
+      setErr('Failed to load questions. Check your connection and try again.')
+    }
+    setLoading(false)
   }
 
   const selectAnswer = (optionIndex) => {
@@ -68,7 +100,10 @@ export default function Quiz({ student, setView, setLastScore }) {
     setAnswers(updated)
   }
 
-  const submitQuiz = () => {
+  const handleSubmit = async () => {
+    if (submitting) return
+    setSubmitting(true)
+
     let correct = 0
     let wrong = 0
     let unanswered = 0
@@ -102,10 +137,18 @@ export default function Quiz({ student, setView, setLastScore }) {
       date: new Date().toISOString(),
     }
 
-    const allScores = load('jamb_scores', [])
-    save('jamb_scores', [...allScores, result])
+    try {
+      await addScore(result)
+      const cached = load('jamb_scores_cache', [])
+      const { save } = await import('../store/useStore')
+      save('jamb_scores_cache', [...cached, result])
+    } catch (e) {
+      console.error('Failed to save score:', e)
+    }
+
     setLastScore(result)
     setView('results')
+    setSubmitting(false)
   }
 
   if (!isQuizTime()) {
@@ -158,19 +201,12 @@ export default function Quiz({ student, setView, setLastScore }) {
 
           <div className="space-y-3">
             {student.subjects.map((subject) => {
-              const allScores = load('jamb_scores', [])
-              const attempted = allScores.some(
-                (s) =>
-                  s.studentId === student.id &&
-                  s.subject === subject &&
-                  s.week === currentWeek &&
-                  new Date(s.date).toDateString() === new Date().toDateString()
-              )
+              const attempted = attemptedSubjects.includes(subject)
               return (
                 <button
                   key={subject}
-                  onClick={() => !attempted && startSubject(subject)}
-                  disabled={attempted}
+                  onClick={() => !attempted && !loading && startSubject(subject)}
+                  disabled={attempted || loading}
                   className={`w-full p-4 rounded-xl border text-left transition-all ${
                     attempted
                       ? 'bg-gray-50 border-gray-200 cursor-not-allowed'
@@ -183,6 +219,8 @@ export default function Quiz({ student, setView, setLastScore }) {
                     </p>
                     {attempted ? (
                       <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-lg">Done</span>
+                    ) : loading ? (
+                      <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-lg">Loading...</span>
                     ) : (
                       <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-lg">Start →</span>
                     )}
@@ -289,10 +327,15 @@ export default function Quiz({ student, setView, setLastScore }) {
             </button>
           ) : (
             <button
-              onClick={submitQuiz}
-              className="flex-1 rounded-xl py-3 text-sm font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors"
+              onClick={handleSubmit}
+              disabled={submitting}
+              className={`flex-1 rounded-xl py-3 text-sm font-semibold transition-colors ${
+                submitting
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-green-600 text-white hover:bg-green-700'
+              }`}
             >
-              Submit Quiz ✓
+              {submitting ? 'Submitting...' : 'Submit Quiz ✓'}
             </button>
           )}
         </div>
