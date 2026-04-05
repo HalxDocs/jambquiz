@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { SUBJECTS, WEEKS, addQuestion, deleteQuestion, listenQuestions, listenScores } from '../store/useStore'
+import { SUBJECTS, load, WEEKS, addQuestion, deleteQuestion, listenQuestions, listenScores } from '../store/useStore'
 
 export default function Admin({ setView }) {
   const [tab, setTab] = useState('students')
@@ -8,6 +8,7 @@ export default function Admin({ setView }) {
   const [questions, setQuestions] = useState({})
   const [selectedSubject, setSelectedSubject] = useState(SUBJECTS[0])
   const [selectedWeek, setSelectedWeek] = useState(WEEKS[0])
+  const [currentQuestions, setCurrentQuestions] = useState([])
   const [form, setForm] = useState({
     question: '',
     optionA: '',
@@ -34,11 +35,9 @@ useEffect(() => {
   return () => unsubQ()
 }, [selectedSubject, selectedWeek])
 
-  const getCurrentQuestions = () => {
-    return questions[selectedSubject]?.[selectedWeek] || []
-  }
+  const getCurrentQuestions = () => currentQuestions
 
-  const handleAddQuestion = () => {
+  const handleAddQuestion = async() => {
     if (!form.question.trim()) { setErr('Enter a question'); return }
     if (!form.optionA.trim() || !form.optionB.trim() || !form.optionC.trim() || !form.optionD.trim()) {
       setErr('Fill in all 4 options')
@@ -52,26 +51,23 @@ useEffect(() => {
       answer: parseInt(form.answer),
     }
 
-    const updated = { ...questions }
-    if (!updated[selectedSubject]) updated[selectedSubject] = {}
-    if (!updated[selectedSubject][selectedWeek]) updated[selectedSubject][selectedWeek] = []
-    updated[selectedSubject][selectedWeek] = [...updated[selectedSubject][selectedWeek], newQ]
-
-    save('jamb_questions', updated)
-    setQuestions(updated)
-    setForm({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0 })
-    setErr('')
-    setSuccess('Question added successfully!')
-    setTimeout(() => setSuccess(''), 3000)
+try {
+  await addQuestion(selectedSubject, selectedWeek, newQ)
+  setForm({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0 })
+  setErr('')
+  setSuccess('Question added successfully!')
+  setTimeout(() => setSuccess(''), 3000)
+} catch (e) {
+  setErr('Failed to add question. Check your connection.')
+}
   }
 
-  const handleDeleteQuestion = (qId) => {
-    const updated = { ...questions }
-    updated[selectedSubject][selectedWeek] = updated[selectedSubject][selectedWeek].filter(
-      (q) => q.id !== qId
-    )
-    save('jamb_questions', updated)
-    setQuestions(updated)
+  const handleDeleteQuestion = async (qId) => {
+    try {
+      await deleteQuestion(qId)
+    } catch (e) {
+      alert('Failed to delete. Check your connection.')
+    }
   }
 
   const getStudentScores = (studentId) => {
