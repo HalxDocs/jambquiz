@@ -1,5 +1,16 @@
 import { initializeApp } from 'firebase/app'
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from 'firebase/firestore'
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  collection,
+  addDoc,
+  getDocs,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  updateDoc,
+} from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: "AIzaSyBQA8XnuGt6ANrMe4zYvBzbHWnK-58Sf8U",
@@ -19,4 +30,4 @@ const db = initializeFirestore(app, {
   })
 })
 
-export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot }
+export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc }
