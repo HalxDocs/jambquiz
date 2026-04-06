@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from '../firebase'
+import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc } from '../firebase'
 
 const SUBJECTS = [
   'Mathematics',
@@ -34,9 +34,7 @@ async function registerStudent(student) {
   const existing = snapshot.docs.find(
     (d) => d.data().name.toLowerCase() === student.name.toLowerCase()
   )
-  if (existing) {
-    return { id: existing.id, ...existing.data() }
-  }
+  if (existing) return null
   const ref = await addDoc(collection(db, 'students'), {
     ...student,
     createdAt: new Date().toISOString(),
@@ -45,16 +43,7 @@ async function registerStudent(student) {
 }
 
 async function updateStudent(id, data) {
-  const snapshot = await getDocs(collection(db, 'students'))
-  const existing = snapshot.docs.find((d) => d.id === id)
-  if (existing) {
-    await deleteDoc(doc(db, 'students', id))
-    await addDoc(collection(db, 'students'), { ...existing.data(), ...data })
-  }
-}
-
-async function deleteStudent(id) {
-  await deleteDoc(doc(db, 'students', id))
+  await updateDoc(doc(db, 'students', id), data)
 }
 
 async function findStudent(name) {
@@ -79,6 +68,10 @@ async function addQuestion(subject, week, question) {
     ...question,
     createdAt: new Date().toISOString(),
   })
+}
+
+async function editQuestion(id, data) {
+  await updateDoc(doc(db, 'questions', id), data)
 }
 
 async function deleteQuestion(id) {
@@ -113,6 +106,14 @@ function listenScores(callback) {
     const scores = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
     callback(scores)
   })
+}
+
+async function getStudentScores(studentId) {
+  const snapshot = await getDocs(collection(db, 'scores'))
+  return snapshot.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((s) => s.studentId === studentId)
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
 }
 
 async function setTopics(week, topics) {
@@ -169,15 +170,16 @@ export {
   save,
   registerStudent,
   updateStudent,
-  deleteStudent,
   findStudent,
   listenStudents,
   addQuestion,
+  editQuestion,
   deleteQuestion,
   getQuestions,
   listenQuestions,
   addScore,
   listenScores,
+  getStudentScores,
   setTopics,
   getTopics,
   listenTopics,
