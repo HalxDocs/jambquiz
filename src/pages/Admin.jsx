@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics, saveQuestionLimit, getQuestionLimit } from '../store/useStore'
+import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics, saveQuestionLimit, getQuestionLimit, setActiveWeek, getActiveWeek } from '../store/useStore'
 
 export default function Admin({ setView }) {
   const [tab, setTab] = useState('students')
@@ -23,6 +23,7 @@ export default function Admin({ setView }) {
   const [topics, setTopicsState] = useState({})
   const [topicInputs, setTopicInputs] = useState({})
   const [topicWeek, setTopicWeek] = useState(WEEKS[0])
+  const [activeWeek, setActiveWeekState] = useState('Week 1')
   const [err, setErr] = useState('')
   const [success, setSuccess] = useState('')
   const [topicSuccess, setTopicSuccess] = useState('')
@@ -33,6 +34,7 @@ export default function Admin({ setView }) {
   useEffect(() => {
     const unsubStudents = listenStudents((all) => setStudents(all))
     const unsubScores = listenScores((allScores) => setScores(allScores))
+    getActiveWeek().then((w) => setActiveWeekState(w))
     return () => { unsubStudents(); unsubScores() }
   }, [])
 
@@ -132,6 +134,17 @@ export default function Admin({ setView }) {
     }
   }
 
+  const handleSetActiveWeek = async (week) => {
+    try {
+      await setActiveWeek(week)
+      setActiveWeekState(week)
+      setSuccess(`Active week set to ${week}!`)
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (e) {
+      alert('Failed to set active week.')
+    }
+  }
+
   const getScoresFor = (studentId) => scores.filter((s) => s.studentId === studentId)
 
   const getAverage = (studentId) => {
@@ -163,12 +176,17 @@ export default function Admin({ setView }) {
             <p className="text-xs text-gray-400 uppercase tracking-widest">Admin Panel</p>
             <h2 className="text-xl font-bold text-gray-900">JAMB Quiz Manager</h2>
           </div>
-          <button
-            onClick={() => setView('home')}
-            className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-3 py-2"
-          >
-            Logout
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-lg font-medium">
+              Active: {activeWeek}
+            </span>
+            <button
+              onClick={() => setView('home')}
+              className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-3 py-2"
+            >
+              Logout
+            </button>
+          </div>
         </div>
 
         <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
@@ -481,8 +499,34 @@ export default function Admin({ setView }) {
 
         {tab === 'topics' && (
           <div>
+            <div className="bg-gray-900 text-white rounded-2xl p-5 mb-5">
+              <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">Active Quiz Week</p>
+              <p className="text-sm text-gray-300 mb-4">
+                Controls which week students see when they take the quiz.
+              </p>
+              <div className="grid grid-cols-4 gap-2">
+                {WEEKS.map((w) => (
+                  <button
+                    key={w}
+                    onClick={() => handleSetActiveWeek(w)}
+                    className={`py-2 rounded-xl text-sm font-semibold transition-colors ${
+                      activeWeek === w
+                        ? 'bg-white text-gray-900'
+                        : 'bg-white/10 text-white hover:bg-white/20'
+                    }`}
+                  >
+                    {w}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 mt-3">
+                Currently active: <span className="text-white font-semibold">{activeWeek}</span>
+              </p>
+              {success && <p className="text-green-400 text-xs mt-2">{success}</p>}
+            </div>
+
             <div className="mb-5">
-              <label className="text-xs text-gray-500 block mb-1">Select Week</label>
+              <label className="text-xs text-gray-500 block mb-1">Select Week for Topics</label>
               <select
                 value={topicWeek}
                 onChange={(e) => setTopicWeek(e.target.value)}

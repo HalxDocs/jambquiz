@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { load, save, addScore, getQuestions, getTopics, getQuestionLimit } from '../store/useStore'
+import { load, save, addScore, getQuestions, getTopics, getQuestionLimit, listenActiveWeek } from '../store/useStore'
 
 function getQuizStatus() {
   const now = new Date()
@@ -13,16 +13,10 @@ function getQuizStatus() {
   return { isFriday, isLoginWindow, isQuizOpen }
 }
 
-function getCurrentWeek() {
+function getNextWeek(currentWeek) {
   const weeks = ['Week 1', 'Week 2', 'Week 3', 'Week 4']
-  const w = Math.floor(((Date.now() / 86400000) % 28) / 7)
-  return weeks[Math.min(w, 3)]
-}
-
-function getNextWeek() {
-  const weeks = ['Week 1', 'Week 2', 'Week 3', 'Week 4']
-  const w = Math.floor(((Date.now() / 86400000) % 28) / 7)
-  return weeks[Math.min(w + 1, 3)]
+  const idx = weeks.indexOf(currentWeek)
+  return weeks[Math.min(idx + 1, 3)]
 }
 
 function shuffleAndPick(arr, count) {
@@ -44,23 +38,27 @@ export default function Quiz({ student, setView, setLastScore }) {
   const [nextWeekTopics, setNextWeekTopics] = useState({})
   const [showCorrections, setShowCorrections] = useState(false)
   const [lastResult, setLastResult] = useState(null)
+  const [currentWeek, setCurrentWeek] = useState('Week 1')
 
-  const currentWeek = getCurrentWeek()
-  const nextWeek = getNextWeek()
+  const nextWeek = getNextWeek(currentWeek)
   const { isFriday, isLoginWindow, isQuizOpen } = getQuizStatus()
 
   useEffect(() => {
-    const cached = load('jamb_scores_cache', [])
-    const attempted = cached
-      .filter(
-        (s) =>
-          s.studentId === student.id &&
-          s.week === currentWeek &&
-          new Date(s.date).toDateString() === new Date().toDateString()
-      )
-      .map((s) => s.subject)
-    setAttemptedSubjects(attempted)
+    const unsubWeek = listenActiveWeek((week) => {
+      setCurrentWeek(week)
+      const cached = load('jamb_scores_cache', [])
+      const attempted = cached
+        .filter(
+          (s) =>
+            s.studentId === student.id &&
+            s.week === week &&
+            new Date(s.date).toDateString() === new Date().toDateString()
+        )
+        .map((s) => s.subject)
+      setAttemptedSubjects(attempted)
+    })
     getTopics(nextWeek).then((t) => setNextWeekTopics(t || {}))
+    return () => unsubWeek()
   }, [])
 
   useEffect(() => {
@@ -157,6 +155,7 @@ export default function Quiz({ student, setView, setLastScore }) {
         question: q.question,
         options: q.options,
         answer: q.answer,
+        explanation: q.explanation || '',
       })),
       date: new Date().toISOString(),
     }
@@ -230,7 +229,7 @@ export default function Quiz({ student, setView, setLastScore }) {
                       <p className="text-sm font-medium text-gray-900 mb-2">
                         {i + 1}. {q.question}
                       </p>
-                      <div className="space-y-1">
+                      <div className="space-y-1 mb-2">
                         {q.options.map((opt, oi) => (
                           <p key={oi} className={`text-xs px-2 py-1 rounded-lg ${
                             oi === q.answer
@@ -247,6 +246,12 @@ export default function Quiz({ student, setView, setLastScore }) {
                       </div>
                       {isSkipped && (
                         <p className="text-xs text-gray-400 mt-1">You skipped this question</p>
+                      )}
+                      {q.explanation && (
+                        <div className="bg-blue-50 border border-blue-100 rounded-xl p-2 mt-2">
+                          <p className="text-xs text-blue-700 font-medium mb-0.5">Explanation</p>
+                          <p className="text-xs text-blue-600">{q.explanation}</p>
+                        </div>
                       )}
                     </div>
                   )

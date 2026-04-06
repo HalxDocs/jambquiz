@@ -12,7 +12,8 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const years = ['JSS1', 'JSS2', 'JSS3', 'SS1', 'SS2', 'SS3', 'Graduate']
+  const currentYear = new Date().getFullYear()
+  const years = ['SS3', ...Array.from({ length: 10 }, (_, i) => String(currentYear + i))]
 
   const handleLogin = async () => {
     const trimmed = name.trim()
@@ -89,7 +90,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 w-full max-w-md p-8">
 
         <div className="text-center mb-8">
-          <div className="text-xs tracking-widest text-gray-400 uppercase mb-2">Nigeria</div>
+          <div className="text-xs tracking-widest text-gray-400 uppercase mb-2">Adeola Memorial College</div>
           <h1 className="text-3xl font-bold text-gray-900">JAMB Weekly Quiz</h1>
           <p className="text-gray-500 mt-2 text-sm">Every Friday · 5:00pm – 6:00pm login window</p>
         </div>
@@ -141,16 +142,17 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
 
               {mode === 'register' && (
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">Year / Class</label>
+                  <label className="text-xs text-gray-500 block mb-1">JAMB Year</label>
                   <select
                     value={year}
                     onChange={(e) => setYear(e.target.value)}
                     className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400 bg-white"
                   >
                     {years.map((y) => (
-                      <option key={y} value={y}>{y}</option>
+                      <option key={y} value={y}>{y === 'SS3' ? 'SS3 (Current)' : y}</option>
                     ))}
                   </select>
+                  <p className="text-xs text-gray-400 mt-1">Select the year you plan to sit JAMB</p>
                 </div>
               )}
 
@@ -161,7 +163,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && mode === 'login' && handleLogin()}
-                  placeholder={mode === 'register' ? 'Create a password' : 'Enter your password'}
+                  placeholder={mode === 'register' ? 'Create a password (min 4 characters)' : 'Enter your password'}
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400"
                 />
               </div>
@@ -173,6 +175,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
                     placeholder="Repeat your password"
                     className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400"
                   />

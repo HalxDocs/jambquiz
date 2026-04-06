@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { load } from '../store/useStore'
+import { load, listenActiveWeek, listenScores } from '../store/useStore'
 
 function isQuizTime() {
   const now = new Date()
@@ -28,33 +28,44 @@ export default function Dashboard({ student, setView }) {
   const [quizTime, setQuizTime] = useState(isQuizTime())
   const [timeLeft, setTimeLeft] = useState(getTimeUntilQuiz())
   const [scores, setScores] = useState([])
+  const [currentWeek, setCurrentWeek] = useState('Week 1')
 
   useEffect(() => {
     const t = setInterval(() => {
       setQuizTime(isQuizTime())
       setTimeLeft(getTimeUntilQuiz())
     }, 10000)
-    return () => clearInterval(t)
-  }, [])
 
-  useEffect(() => {
-    const allScores = load('jamb_scores', [])
-    const mine = allScores.filter((s) => s.studentId === student.id)
-    setScores(mine)
+    const unsubWeek = listenActiveWeek((week) => setCurrentWeek(week))
+
+    const unsubScores = listenScores((allScores) => {
+      const mine = allScores
+        .filter((s) => s.studentId === student.id)
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
+      setScores(mine)
+    })
+
+    return () => {
+      clearInterval(t)
+      unsubWeek()
+      unsubScores()
+    }
   }, [student])
-
-  const getCurrentWeek = () => {
-    const weeks = ['Week 1', 'Week 2', 'Week 3', 'Week 4']
-    const w = Math.floor(((Date.now() / 86400000) % 28) / 7)
-    return weeks[Math.min(w, 3)]
-  }
-
-  const currentWeek = getCurrentWeek()
 
   const hasAttemptedThisWeek = scores.some(
     (s) => s.week === currentWeek &&
     new Date(s.date).toDateString() === new Date().toDateString()
   )
+
+  const getTotalScore = () => {
+    const bySubject = {}
+    scores.forEach((s) => { if (!bySubject[s.subject]) bySubject[s.subject] = s })
+    const subjects = Object.values(bySubject)
+    if (subjects.length < 4) return null
+    return subjects.slice(0, 4).reduce((a, s) => a + s.score, 0)
+  }
+
+  const totalScore = getTotalScore()
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -64,6 +75,9 @@ export default function Dashboard({ student, setView }) {
           <div>
             <p className="text-xs text-gray-400 uppercase tracking-widest">Welcome back</p>
             <h2 className="text-xl font-bold text-gray-900">{student.name}</h2>
+            {student.year && (
+              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-lg mt-1 inline-block">{student.year}</span>
+            )}
           </div>
           <button
             onClick={() => setView('home')}
@@ -72,6 +86,21 @@ export default function Dashboard({ student, setView }) {
             Logout
           </button>
         </div>
+
+        {totalScore !== null && (
+          <div className="bg-gray-900 text-white rounded-2xl p-4 mb-4 flex justify-between items-center">
+            <div>
+              <p className="text-xs text-gray-400">JAMB Total Score</p>
+              <p className="text-3xl font-bold">{totalScore}<span className="text-sm text-gray-400 ml-1">/400</span></p>
+            </div>
+            <button
+              onClick={() => setView('results')}
+              className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-xl transition-colors"
+            >
+              View Results →
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3 mb-4">
           {student.subjects.map((sub) => (
@@ -83,7 +112,7 @@ export default function Dashboard({ student, setView }) {
         </div>
 
         <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
-          <div className="flex justify-between items-center mb-2">
+          <div className="flex justify-between items-center mb-3">
             <p className="text-sm font-semibold text-gray-900">This Week</p>
             <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg">{currentWeek}</span>
           </div>
@@ -91,7 +120,7 @@ export default function Dashboard({ student, setView }) {
           {quizTime ? (
             <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
               <p className="text-green-700 font-bold text-sm mb-1">🟢 Quiz is LIVE now!</p>
-              <p className="text-green-600 text-xs mb-3">Ends at 6:30pm — hurry!</p>
+              <p className="text-green-600 text-xs mb-3">Login closes 6:00pm · 1hr 30mins once started</p>
               {hasAttemptedThisWeek ? (
                 <p className="text-gray-500 text-xs">You already attempted this week's quiz</p>
               ) : (
@@ -109,7 +138,7 @@ export default function Dashboard({ student, setView }) {
               <p className="text-2xl font-bold text-gray-900">
                 {timeLeft.days}d {timeLeft.hours}h {timeLeft.mins}m
               </p>
-              <p className="text-gray-400 text-xs mt-1">Every Friday 5:00pm – 6:30pm</p>
+              <p className="text-gray-400 text-xs mt-1">Every Friday 5:00pm – 6:00pm login window</p>
             </div>
           )}
         </div>
@@ -117,7 +146,7 @@ export default function Dashboard({ student, setView }) {
         {scores.length > 0 && (
           <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
             <div className="flex justify-between items-center mb-3">
-              <p className="text-sm font-semibold text-gray-900">Past Results</p>
+              <p className="text-sm font-semibold text-gray-900">Recent Results</p>
               <button
                 onClick={() => setView('results')}
                 className="text-xs text-gray-400 hover:text-gray-600"
@@ -126,17 +155,20 @@ export default function Dashboard({ student, setView }) {
               </button>
             </div>
             <div className="space-y-2">
-              {scores.slice(-3).reverse().map((s, i) => (
+              {scores.slice(0, 3).map((s, i) => (
                 <div key={i} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
                   <div>
                     <p className="text-xs font-medium text-gray-700">{s.subject}</p>
                     <p className="text-xs text-gray-400">{s.week} · {new Date(s.date).toLocaleDateString('en-NG')}</p>
                   </div>
-                  <span className={`text-sm font-bold ${
-                    s.score >= 70 ? 'text-green-600' : s.score >= 50 ? 'text-yellow-600' : 'text-red-500'
-                  }`}>
-                    {s.score}%
-                  </span>
+                  <div className="text-right">
+                    <p className={`text-sm font-bold ${
+                      s.score >= 70 ? 'text-green-600' : s.score >= 50 ? 'text-yellow-600' : 'text-red-500'
+                    }`}>
+                      {s.score}
+                    </p>
+                    <p className="text-xs text-gray-400">/{s.outOf || 160}</p>
+                  </div>
                 </div>
               ))}
             </div>
