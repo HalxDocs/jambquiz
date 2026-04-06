@@ -3,36 +3,74 @@ import { registerStudent, findStudent } from '../store/useStore'
 
 export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [tab, setTab] = useState('student')
+  const [mode, setMode] = useState('login')
   const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [year, setYear] = useState('SS3')
   const [adminPw, setAdminPw] = useState('')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleStudent = async () => {
+  const years = ['JSS1', 'JSS2', 'JSS3', 'SS1', 'SS2', 'SS3', 'Graduate']
+
+  const handleLogin = async () => {
     const trimmed = name.trim()
-    if (trimmed.length < 3) {
-      setErr('Enter your full name (at least 3 characters)')
-      return
+    if (trimmed.length < 3) { setErr('Enter your full name'); return }
+    if (!password) { setErr('Enter your password'); return }
+    setLoading(true)
+    setErr('')
+    try {
+      const existing = await findStudent(trimmed)
+      if (!existing) {
+        setErr('Name not found. Please register first.')
+        setLoading(false)
+        return
+      }
+      if (existing.password !== password) {
+        setErr('Wrong password. Try again.')
+        setLoading(false)
+        return
+      }
+      setStudent(existing)
+      setView(existing.subjects?.length ? 'dashboard' : 'subjects')
+    } catch (e) {
+      setErr('Connection error. Check your internet.')
     }
+    setLoading(false)
+  }
+
+  const handleRegister = async () => {
+    const trimmed = name.trim()
+    if (trimmed.length < 3) { setErr('Enter your full name (at least 3 characters)'); return }
+    if (password.length < 4) { setErr('Password must be at least 4 characters'); return }
+    if (password !== confirmPassword) { setErr('Passwords do not match'); return }
     setLoading(true)
     setErr('')
     try {
       const existing = await findStudent(trimmed)
       if (existing) {
-        setStudent(existing)
-        setView(existing.subjects?.length ? 'dashboard' : 'subjects')
-      } else {
-        const newStudent = {
-          name: trimmed,
-          subjects: [],
-          joinedAt: new Date().toISOString(),
-        }
-        const saved = await registerStudent(newStudent)
-        setStudent(saved)
-        setView('subjects')
+        setErr('This name is already registered. Please login instead.')
+        setLoading(false)
+        return
       }
+      const newStudent = {
+        name: trimmed,
+        password,
+        year,
+        subjects: [],
+        joinedAt: new Date().toISOString(),
+      }
+      const saved = await registerStudent(newStudent)
+      if (!saved) {
+        setErr('Name already exists. Please login.')
+        setLoading(false)
+        return
+      }
+      setStudent(saved)
+      setView('subjects')
     } catch (e) {
-      setErr('Connection error. Please check your internet and try again.')
+      setErr('Connection error. Check your internet.')
     }
     setLoading(false)
   }
@@ -74,17 +112,78 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
 
         {tab === 'student' && (
           <div>
-            <label className="text-sm text-gray-500 block mb-2">Your Full Name</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleStudent()}
-              placeholder="e.g. Chukwuemeka Okafor"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400"
-            />
-            {err && <p className="text-red-500 text-xs mt-2">{err}</p>}
+            <div className="flex gap-2 mb-5">
+              {['login', 'register'].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => { setMode(m); setErr('') }}
+                  className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
+                    mode === m
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+                >
+                  {m === 'login' ? 'Login' : 'Register'}
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Full Name</label>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Chukwuemeka Okafor"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400"
+                />
+              </div>
+
+              {mode === 'register' && (
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Year / Class</label>
+                  <select
+                    value={year}
+                    onChange={(e) => setYear(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400 bg-white"
+                  >
+                    {years.map((y) => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && mode === 'login' && handleLogin()}
+                  placeholder={mode === 'register' ? 'Create a password' : 'Enter your password'}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400"
+                />
+              </div>
+
+              {mode === 'register' && (
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Confirm Password</label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Repeat your password"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400"
+                  />
+                </div>
+              )}
+            </div>
+
+            {err && <p className="text-red-500 text-xs mt-3">{err}</p>}
+
             <button
-              onClick={handleStudent}
+              onClick={mode === 'login' ? handleLogin : handleRegister}
               disabled={loading}
               className={`w-full mt-4 rounded-xl py-3 text-sm font-semibold transition-colors ${
                 loading
@@ -92,11 +191,25 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                   : 'bg-gray-900 text-white hover:bg-gray-700'
               }`}
             >
-              {loading ? 'Please wait...' : 'Continue →'}
+              {loading ? 'Please wait...' : mode === 'login' ? 'Login →' : 'Register →'}
             </button>
-            <p className="text-xs text-gray-400 text-center mt-3">
-              Returning? Enter your name exactly as before
-            </p>
+
+            {mode === 'login' && (
+              <p className="text-xs text-gray-400 text-center mt-3">
+                No account?{' '}
+                <button onClick={() => { setMode('register'); setErr('') }} className="text-gray-600 underline">
+                  Register here
+                </button>
+              </p>
+            )}
+            {mode === 'register' && (
+              <p className="text-xs text-gray-400 text-center mt-3">
+                Already registered?{' '}
+                <button onClick={() => { setMode('login'); setErr('') }} className="text-gray-600 underline">
+                  Login here
+                </button>
+              </p>
+            )}
           </div>
         )}
 
