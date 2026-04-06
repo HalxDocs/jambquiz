@@ -17,7 +17,7 @@ export default function Admin({ setView }) {
     answer: 0,
     explanation: '',
   })
-  const [editingId, setEditingId] = useState(null)
+  const [editingFirestoreId, setEditingFirestoreId] = useState(null)
   const [expandedQuestion, setExpandedQuestion] = useState(null)
   const [questionLimit, setQuestionLimit] = useState(25)
   const [topics, setTopicsState] = useState({})
@@ -53,7 +53,7 @@ export default function Admin({ setView }) {
 
   const resetForm = () => {
     setForm({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '' })
-    setEditingId(null)
+    setEditingFirestoreId(null)
     setErr('')
   }
 
@@ -69,8 +69,8 @@ export default function Admin({ setView }) {
       explanation: form.explanation.trim(),
     }
     try {
-      if (editingId) {
-        await editQuestion(editingId, qData)
+      if (editingFirestoreId) {
+        await editQuestion(editingFirestoreId, qData)
         setSuccess('Question updated!')
       } else {
         await addQuestion(selectedSubject, selectedWeek, qData)
@@ -79,6 +79,7 @@ export default function Admin({ setView }) {
       resetForm()
       setTimeout(() => setSuccess(''), 3000)
     } catch (e) {
+      console.error('Add/Edit error:', e)
       setErr('Failed. Check your connection.')
     }
   }
@@ -93,18 +94,19 @@ export default function Admin({ setView }) {
       answer: q.answer,
       explanation: q.explanation || '',
     })
-    setEditingId(q.id)
+    setEditingFirestoreId(q.firestoreId)
     setExpandedQuestion(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const handleDelete = async (qId) => {
+  const handleDelete = async (firestoreId) => {
     if (!window.confirm('Delete this question?')) return
     try {
-      await deleteQuestion(qId)
+      await deleteQuestion(firestoreId)
       setSuccess('Question deleted!')
       setTimeout(() => setSuccess(''), 3000)
     } catch (e) {
+      console.error('Delete error:', e)
       alert('Failed to delete. Check your connection.')
     }
   }
@@ -329,7 +331,7 @@ export default function Admin({ setView }) {
 
             <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-5">
               <p className="text-sm font-semibold text-gray-900 mb-4">
-                {editingId ? '✏️ Edit Question' : 'Add Question'} — {selectedSubject} · {selectedWeek}
+                {editingFirestoreId ? '✏️ Edit Question' : 'Add Question'} — {selectedSubject} · {selectedWeek}
               </p>
               <div className="space-y-3">
                 <div>
@@ -382,7 +384,7 @@ export default function Admin({ setView }) {
               {success && <p className="text-green-600 text-xs mt-3">{success}</p>}
 
               <div className="flex gap-3 mt-4">
-                {editingId && (
+                {editingFirestoreId && (
                   <button
                     onClick={resetForm}
                     className="flex-1 border border-gray-200 rounded-xl py-3 text-sm font-medium text-gray-600 hover:bg-gray-50"
@@ -394,7 +396,7 @@ export default function Admin({ setView }) {
                   onClick={handleAddOrEdit}
                   className="flex-1 bg-gray-900 text-white rounded-xl py-3 text-sm font-semibold hover:bg-gray-700 transition-colors"
                 >
-                  {editingId ? 'Save Changes' : 'Add Question'}
+                  {editingFirestoreId ? 'Save Changes' : 'Add Question'}
                 </button>
               </div>
             </div>
@@ -413,9 +415,9 @@ export default function Admin({ setView }) {
               ) : (
                 <div className="space-y-2">
                   {currentQuestions.map((q, i) => (
-                    <div key={q.id} className="border border-gray-100 rounded-xl overflow-hidden">
+                    <div key={q.firestoreId} className="border border-gray-100 rounded-xl overflow-hidden">
                       <button
-                        onClick={() => setExpandedQuestion(expandedQuestion === q.id ? null : q.id)}
+                        onClick={() => setExpandedQuestion(expandedQuestion === q.firestoreId ? null : q.firestoreId)}
                         className="w-full flex justify-between items-center p-3 text-left hover:bg-gray-50 transition-colors"
                       >
                         <p className="text-sm text-gray-900 font-medium flex-1 pr-2">
@@ -428,11 +430,11 @@ export default function Admin({ setView }) {
                           {q.explanation && (
                             <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-lg">exp</span>
                           )}
-                          <span className="text-gray-400 text-xs">{expandedQuestion === q.id ? '▲' : '▼'}</span>
+                          <span className="text-gray-400 text-xs">{expandedQuestion === q.firestoreId ? '▲' : '▼'}</span>
                         </div>
                       </button>
 
-                      {expandedQuestion === q.id && (
+                      {expandedQuestion === q.firestoreId && (
                         <div className="px-3 pb-3 border-t border-gray-100">
                           <p className="text-sm text-gray-900 font-medium mt-2 mb-3">{q.question}</p>
                           <div className="grid grid-cols-2 gap-1 mb-3">
@@ -461,7 +463,7 @@ export default function Admin({ setView }) {
                               ✏️ Edit
                             </button>
                             <button
-                              onClick={() => handleDelete(q.id)}
+                              onClick={() => handleDelete(q.firestoreId)}
                               className="flex-1 text-red-500 text-xs border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 transition-colors"
                             >
                               🗑️ Delete

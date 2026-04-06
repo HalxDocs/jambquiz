@@ -62,33 +62,35 @@ function listenStudents(callback) {
 }
 
 async function addQuestion(subject, week, question) {
+  const { id, firestoreId, ...cleanQuestion } = question
   await addDoc(collection(db, 'questions'), {
     subject,
     week,
-    ...question,
+    ...cleanQuestion,
     createdAt: new Date().toISOString(),
   })
 }
 
-async function editQuestion(id, data) {
-  await updateDoc(doc(db, 'questions', id), data)
+async function editQuestion(firestoreId, data) {
+  const { id, firestoreId: _fid, ...cleanData } = data
+  await updateDoc(doc(db, 'questions', firestoreId), cleanData)
 }
 
-async function deleteQuestion(id) {
-  await deleteDoc(doc(db, 'questions', id))
+async function deleteQuestion(firestoreId) {
+  await deleteDoc(doc(db, 'questions', firestoreId))
 }
 
 async function getQuestions(subject, week) {
   const snapshot = await getDocs(collection(db, 'questions'))
   return snapshot.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
+    .map((d) => ({ firestoreId: d.id, ...d.data() }))
     .filter((q) => q.subject === subject && q.week === week)
 }
 
 function listenQuestions(subject, week, callback) {
   return onSnapshot(collection(db, 'questions'), (snapshot) => {
     const qs = snapshot.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
+      .map((d) => ({ firestoreId: d.id, ...d.data() }))
       .filter((q) => q.subject === subject && q.week === week)
     callback(qs)
   })
@@ -163,6 +165,29 @@ async function getQuestionLimit(subject, week) {
   return found ? found.data().limit : 25
 }
 
+async function setActiveWeek(week) {
+  const snapshot = await getDocs(collection(db, 'settings'))
+  const existing = snapshot.docs.find((d) => d.data().key === 'activeWeek')
+  if (existing) {
+    await updateDoc(doc(db, 'settings', existing.id), { value: week })
+  } else {
+    await addDoc(collection(db, 'settings'), { key: 'activeWeek', value: week })
+  }
+}
+
+async function getActiveWeek() {
+  const snapshot = await getDocs(collection(db, 'settings'))
+  const found = snapshot.docs.find((d) => d.data().key === 'activeWeek')
+  return found ? found.data().value : 'Week 1'
+}
+
+function listenActiveWeek(callback) {
+  return onSnapshot(collection(db, 'settings'), (snapshot) => {
+    const found = snapshot.docs.find((d) => d.data().key === 'activeWeek')
+    callback(found ? found.data().value : 'Week 1')
+  })
+}
+
 export {
   SUBJECTS,
   WEEKS,
@@ -185,4 +210,7 @@ export {
   listenTopics,
   saveQuestionLimit,
   getQuestionLimit,
+  setActiveWeek,
+  getActiveWeek,
+  listenActiveWeek,
 }
