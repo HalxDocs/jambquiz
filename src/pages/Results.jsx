@@ -4,16 +4,18 @@ import { listenScores } from '../store/useStore'
 export default function Results({ student, lastScore, setView }) {
   const [scores, setScores] = useState([])
   const [filter, setFilter] = useState('all')
+  const [expandedScore, setExpandedScore] = useState(lastScore ? 'latest' : null)
+  const [showCorrections, setShowCorrections] = useState(false)
 
-useEffect(() => {
-  const unsubscribe = listenScores((allScores) => {
-    const mine = allScores
-      .filter((s) => s.studentId === student.id)
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
-    setScores(mine)
-  })
-  return () => unsubscribe()
-}, [student])
+  useEffect(() => {
+    const unsubscribe = listenScores((allScores) => {
+      const mine = allScores
+        .filter((s) => s.studentId === student.id)
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
+      setScores(mine)
+    })
+    return () => unsubscribe()
+  }, [student])
 
   const filtered = filter === 'all' ? scores : scores.filter((s) => s.subject === filter)
 
@@ -27,9 +29,7 @@ useEffect(() => {
   const getTotalScore = () => {
     if (!scores.length) return null
     const bySubject = {}
-    scores.forEach((s) => {
-      if (!bySubject[s.subject]) bySubject[s.subject] = s
-    })
+    scores.forEach((s) => { if (!bySubject[s.subject]) bySubject[s.subject] = s })
     const subjects = Object.values(bySubject)
     if (subjects.length < 4) return null
     const total = subjects.slice(0, 4).reduce((a, s) => a + s.score, 0)
@@ -38,6 +38,54 @@ useEffect(() => {
   }
 
   const totalScore = getTotalScore()
+
+  const renderCorrections = (s) => {
+    if (!s.questions) return null
+    return (
+      <div className="mt-3 space-y-3">
+        {s.questions.map((q, i) => {
+          const studentAns = s.answers[i]
+          const isCorrect = studentAns === q.answer
+          const isSkipped = studentAns === null
+          return (
+            <div key={i} className={`rounded-xl p-3 border ${
+              isCorrect ? 'bg-green-50 border-green-200' :
+              isSkipped ? 'bg-gray-50 border-gray-200' :
+              'bg-red-50 border-red-200'
+            }`}>
+              <p className="text-sm font-medium text-gray-900 mb-2">
+                {i + 1}. {q.question}
+              </p>
+              <div className="space-y-1 mb-2">
+                {q.options.map((opt, oi) => (
+                  <p key={oi} className={`text-xs px-2 py-1 rounded-lg ${
+                    oi === q.answer
+                      ? 'bg-green-200 text-green-800 font-semibold'
+                      : oi === studentAns && !isCorrect
+                      ? 'bg-red-200 text-red-800'
+                      : 'text-gray-500'
+                  }`}>
+                    {String.fromCharCode(65 + oi)}. {opt}
+                    {oi === q.answer && ' ✓'}
+                    {oi === studentAns && !isCorrect && ' ✗'}
+                  </p>
+                ))}
+              </div>
+              {isSkipped && (
+                <p className="text-xs text-gray-400">You skipped this question</p>
+              )}
+              {q.explanation && (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-2 mt-2">
+                  <p className="text-xs text-blue-700 font-medium mb-0.5">Explanation</p>
+                  <p className="text-xs text-blue-600">{q.explanation}</p>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -53,80 +101,24 @@ useEffect(() => {
           <h2 className="text-xl font-bold text-gray-900">My Results</h2>
         </div>
 
-        {lastScore && (
-          <div className={`border rounded-2xl p-5 mb-5 ${getGrade(lastScore.score, lastScore.outOf).bg}`}>
-            <p className="text-xs text-gray-500 uppercase tracking-widest mb-3">Latest Result</p>
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <p className="text-lg font-bold text-gray-900">{lastScore.subject}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{lastScore.week} · {new Date(lastScore.date).toLocaleDateString('en-NG')}</p>
-              </div>
-              <div className="text-right">
-                <p className={`text-4xl font-bold ${getGrade(lastScore.score, lastScore.outOf).color}`}>
-                  {lastScore.score}
-                </p>
-                <p className="text-xs text-gray-500">out of {lastScore.outOf || 160}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              <div className="bg-white/70 rounded-xl p-2 text-center">
-                <p className="text-lg font-bold text-green-600">{lastScore.correct}</p>
-                <p className="text-xs text-gray-500">Correct</p>
-                <p className="text-xs text-green-600 font-medium">+{lastScore.correct * 4}</p>
-              </div>
-              <div className="bg-white/70 rounded-xl p-2 text-center">
-                <p className="text-lg font-bold text-red-500">{lastScore.wrong}</p>
-                <p className="text-xs text-gray-500">Wrong</p>
-                <p className="text-xs text-red-500 font-medium">-{lastScore.wrong}</p>
-              </div>
-              <div className="bg-white/70 rounded-xl p-2 text-center">
-                <p className="text-lg font-bold text-gray-500">{lastScore.unanswered}</p>
-                <p className="text-xs text-gray-500">Skipped</p>
-                <p className="text-xs text-gray-400 font-medium">+0</p>
-              </div>
-            </div>
-
-            <div className="w-full bg-white/50 rounded-full h-2 mb-2">
-              <div
-                className={`h-2 rounded-full transition-all ${getGrade(lastScore.score, lastScore.outOf).bar}`}
-                style={{ width: `${Math.min((lastScore.score / (lastScore.outOf || 160)) * 100, 100)}%` }}
-              />
-            </div>
-            <div className="flex justify-between items-center">
-              <p className={`text-sm font-semibold ${getGrade(lastScore.score, lastScore.outOf).color}`}>
-                {getGrade(lastScore.score, lastScore.outOf).label}
-              </p>
-              <p className="text-xs text-gray-400">
-                {Math.round((lastScore.score / (lastScore.outOf || 160)) * 100)}%
-              </p>
-            </div>
-          </div>
-        )}
-
         {totalScore && (
-          <div className="bg-gray-900 text-white rounded-2xl p-5 mb-4">
+          <div className="bg-gray-900 text-white rounded-2xl p-5 mb-4 text-center">
             <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">JAMB Total Score</p>
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-4xl font-bold">{totalScore.total}</p>
-                <p className="text-xs text-gray-400 mt-1">out of {totalScore.totalOut}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm text-gray-300">4 Subjects Combined</p>
-                <p className={`text-lg font-bold mt-1 ${
-                  totalScore.total >= 200 ? 'text-green-400' : totalScore.total >= 150 ? 'text-yellow-400' : 'text-red-400'
-                }`}>
-                  {totalScore.total >= 200 ? 'Strong' : totalScore.total >= 150 ? 'Average' : 'Needs Work'}
-                </p>
-              </div>
-            </div>
+            <p className="text-5xl font-bold">{totalScore.total}</p>
+            <p className="text-gray-400 text-sm mt-1">out of 400</p>
             <div className="w-full bg-white/10 rounded-full h-2 mt-3">
               <div
                 className="h-2 rounded-full bg-white transition-all"
-                style={{ width: `${Math.min((totalScore.total / totalScore.totalOut) * 100, 100)}%` }}
+                style={{ width: `${Math.min((totalScore.total / 400) * 100, 100)}%` }}
               />
             </div>
+            <p className={`text-sm font-bold mt-2 ${
+              totalScore.total >= 250 ? 'text-green-400' :
+              totalScore.total >= 180 ? 'text-yellow-400' : 'text-red-400'
+            }`}>
+              {totalScore.total >= 250 ? 'Strong Performance' :
+               totalScore.total >= 180 ? 'Average' : 'Needs Improvement'}
+            </p>
           </div>
         )}
 
@@ -178,7 +170,7 @@ useEffect(() => {
 
         {filtered.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center">
-            <p className="text-gray-400 text-sm">No results yet for this subject</p>
+            <p className="text-gray-400 text-sm">No results yet</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -186,37 +178,49 @@ useEffect(() => {
               const grade = getGrade(s.score, s.outOf)
               const outOf = s.outOf || 160
               const pct = Math.round((s.score / outOf) * 100)
+              const isExpanded = expandedScore === s.id || (i === 0 && expandedScore === 'latest')
               return (
-                <div key={i} className="bg-white border border-gray-200 rounded-xl p-4">
-                  <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">{s.subject}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {s.week} · {new Date(s.date).toLocaleDateString('en-NG')}
+                <div key={i} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                  <button
+                    onClick={() => setExpandedScore(isExpanded ? null : (s.id || i))}
+                    className="w-full p-4 text-left hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{s.subject}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {s.week} · {new Date(s.date).toLocaleDateString('en-NG')}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-xl font-bold ${grade.color}`}>{s.score}</p>
+                        <p className="text-xs text-gray-400">/ {outOf}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 mb-2">
+                      <span className="text-xs text-green-600">{s.correct} correct (+{s.correct * 4})</span>
+                      <span className="text-xs text-red-500">{s.wrong || 0} wrong (-{s.wrong || 0})</span>
+                      <span className="text-xs text-gray-400">{s.unanswered || 0} skipped</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-1.5">
+                      <div
+                        className={`h-1.5 rounded-full ${grade.bar}`}
+                        style={{ width: `${Math.min(pct, 100)}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between mt-1">
+                      <p className={`text-xs font-medium ${grade.color}`}>{grade.label}</p>
+                      <p className="text-xs text-gray-400">
+                        {s.questions ? (isExpanded ? '▲ Hide corrections' : '▼ View corrections') : ''}
                       </p>
                     </div>
-                    <div className="text-right">
-                      <p className={`text-xl font-bold ${grade.color}`}>{s.score}</p>
-                      <p className="text-xs text-gray-400">/ {outOf}</p>
+                  </button>
+
+                  {isExpanded && s.questions && (
+                    <div className="px-4 pb-4 border-t border-gray-100">
+                      {renderCorrections(s)}
                     </div>
-                  </div>
-
-                  <div className="flex gap-3 mb-2">
-                    <span className="text-xs text-green-600">{s.correct} correct (+{s.correct * 4})</span>
-                    <span className="text-xs text-red-500">{s.wrong || 0} wrong (-{s.wrong || 0})</span>
-                    <span className="text-xs text-gray-400">{s.unanswered || 0} skipped</span>
-                  </div>
-
-                  <div className="w-full bg-gray-100 rounded-full h-1.5">
-                    <div
-                      className={`h-1.5 rounded-full ${grade.bar}`}
-                      style={{ width: `${Math.min(pct, 100)}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between mt-1">
-                    <p className={`text-xs font-medium ${grade.color}`}>{grade.label}</p>
-                    <p className="text-xs text-gray-400">{pct}%</p>
-                  </div>
+                  )}
                 </div>
               )
             })}
