@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { SUBJECTS, WEEKS, load, addQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, deleteStudent, updateStudent, setTopics, getTopics } from '../store/useStore'
+import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics, saveQuestionLimit, getQuestionLimit } from '../store/useStore'
 
 export default function Admin({ setView }) {
   const [tab, setTab] = useState('students')
@@ -15,31 +15,32 @@ export default function Admin({ setView }) {
     optionC: '',
     optionD: '',
     answer: 0,
+    explanation: '',
   })
+  const [editingId, setEditingId] = useState(null)
+  const [expandedQuestion, setExpandedQuestion] = useState(null)
+  const [questionLimit, setQuestionLimit] = useState(25)
   const [topics, setTopicsState] = useState({})
   const [topicInputs, setTopicInputs] = useState({})
   const [topicWeek, setTopicWeek] = useState(WEEKS[0])
   const [err, setErr] = useState('')
   const [success, setSuccess] = useState('')
   const [topicSuccess, setTopicSuccess] = useState('')
-  const [expandedQuestion, setExpandedQuestion] = useState(null)
-  const [questionLimit, setQuestionLimit] = useState(25)
-  const [editingStudent, setEditingStudent] = useState(null)
-  const [editName, setEditName] = useState('')
+  const [yearFilter, setYearFilter] = useState('all')
+
+  const years = ['all', 'JSS1', 'JSS2', 'JSS3', 'SS1', 'SS2', 'SS3', 'Graduate']
 
   useEffect(() => {
     const unsubStudents = listenStudents((all) => setStudents(all))
     const unsubScores = listenScores((allScores) => setScores(allScores))
-    return () => {
-      unsubStudents()
-      unsubScores()
-    }
+    return () => { unsubStudents(); unsubScores() }
   }, [])
 
   useEffect(() => {
     const unsubQ = listenQuestions(selectedSubject, selectedWeek, (qs) => {
       setCurrentQuestions(qs)
     })
+    getQuestionLimit(selectedSubject, selectedWeek).then(setQuestionLimit)
     return () => unsubQ()
   }, [selectedSubject, selectedWeek])
 
@@ -50,33 +51,59 @@ export default function Admin({ setView }) {
     })
   }, [topicWeek])
 
-  const handleAddQuestion = async () => {
+  const resetForm = () => {
+    setForm({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '' })
+    setEditingId(null)
+    setErr('')
+  }
+
+  const handleAddOrEdit = async () => {
     if (!form.question.trim()) { setErr('Enter a question'); return }
     if (!form.optionA.trim() || !form.optionB.trim() || !form.optionC.trim() || !form.optionD.trim()) {
-      setErr('Fill in all 4 options')
-      return
+      setErr('Fill in all 4 options'); return
     }
-    const newQ = {
-      id: Date.now(),
+    const qData = {
       question: form.question.trim(),
       options: [form.optionA.trim(), form.optionB.trim(), form.optionC.trim(), form.optionD.trim()],
       answer: parseInt(form.answer),
+      explanation: form.explanation.trim(),
     }
     try {
-      await addQuestion(selectedSubject, selectedWeek, newQ)
-      setForm({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0 })
-      setErr('')
-      setSuccess('Question added!')
+      if (editingId) {
+        await editQuestion(editingId, qData)
+        setSuccess('Question updated!')
+      } else {
+        await addQuestion(selectedSubject, selectedWeek, qData)
+        setSuccess('Question added!')
+      }
+      resetForm()
       setTimeout(() => setSuccess(''), 3000)
     } catch (e) {
-      setErr('Failed to add question. Check your connection.')
+      setErr('Failed. Check your connection.')
     }
   }
 
-  const handleDeleteQuestion = async (qId) => {
+  const handleEdit = (q) => {
+    setForm({
+      question: q.question,
+      optionA: q.options[0],
+      optionB: q.options[1],
+      optionC: q.options[2],
+      optionD: q.options[3],
+      answer: q.answer,
+      explanation: q.explanation || '',
+    })
+    setEditingId(q.id)
+    setExpandedQuestion(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleDelete = async (qId) => {
     if (!window.confirm('Delete this question?')) return
     try {
       await deleteQuestion(qId)
+      setSuccess('Question deleted!')
+      setTimeout(() => setSuccess(''), 3000)
     } catch (e) {
       alert('Failed to delete. Check your connection.')
     }
@@ -89,49 +116,41 @@ export default function Admin({ setView }) {
       setTopicSuccess('Topics saved!')
       setTimeout(() => setTopicSuccess(''), 3000)
     } catch (e) {
-      alert('Failed to save topics. Check your connection.')
+      alert('Failed to save topics.')
     }
   }
 
-  const getStudentScores = (studentId) => scores.filter((s) => s.studentId === studentId)
+  const handleSaveLimit = async () => {
+    try {
+      await saveQuestionLimit(selectedSubject, selectedWeek, questionLimit)
+      setSuccess('Question limit saved!')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (e) {
+      alert('Failed to save limit.')
+    }
+  }
+
+  const getScoresFor = (studentId) => scores.filter((s) => s.studentId === studentId)
 
   const getAverage = (studentId) => {
-    const s = getStudentScores(studentId)
+    const s = getScoresFor(studentId)
     if (!s.length) return 0
     return Math.round(s.reduce((a, b) => a + b.score, 0) / s.length)
   }
 
-  const handleDeleteStudent = async (id) => {
-    if (!window.confirm('Delete this student? This cannot be undone.')) return
-    try {
-      await deleteStudent(id)
-    } catch (e) {
-      alert('Failed to delete student.')
-    }
-  }
-
-  const handleRenameStudent = async (id) => {
-    if (!editName.trim()) return
-    try {
-      await updateStudent(id, { name: editName.trim() })
-      setEditingStudent(null)
-      setEditName('')
-    } catch (e) {
-      alert('Failed to rename student.')
-    }
-  }
-
   const getTotalScore = (studentId) => {
-    const s = getStudentScores(studentId)
+    const s = getScoresFor(studentId)
     if (!s.length) return null
     const bySubject = {}
-    s.forEach((sc) => {
-      if (!bySubject[sc.subject]) bySubject[sc.subject] = sc
-    })
+    s.forEach((sc) => { if (!bySubject[sc.subject]) bySubject[sc.subject] = sc })
     const subjects = Object.values(bySubject)
     if (subjects.length < 4) return null
     return subjects.slice(0, 4).reduce((a, sc) => a + sc.score, 0)
   }
+
+  const filteredStudents = yearFilter === 'all'
+    ? students
+    : students.filter((s) => s.year === yearFilter)
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -168,98 +187,85 @@ export default function Admin({ setView }) {
 
         {tab === 'students' && (
           <div>
-            {students.length === 0 ? (
+            <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+              {years.map((y) => (
+                <button
+                  key={y}
+                  onClick={() => setYearFilter(y)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                    yearFilter === y
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-white border border-gray-200 text-gray-600'
+                  }`}
+                >
+                  {y === 'all' ? `All (${students.length})` : `${y} (${students.filter(s => s.year === y).length})`}
+                </button>
+              ))}
+            </div>
+
+            {filteredStudents.length === 0 ? (
               <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center">
-                <p className="text-gray-400 text-sm">No students registered yet</p>
+                <p className="text-gray-400 text-sm">No students found</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {students.map((student) => {
+                {filteredStudents.map((student) => {
                   const avg = getAverage(student.id)
-                  const attempts = getStudentScores(student.id).length
                   const total = getTotalScore(student.id)
+                  const attempts = getScoresFor(student.id).length
                   return (
                     <div key={student.id} className="bg-white border border-gray-200 rounded-xl p-4">
                       <div className="flex justify-between items-start mb-2">
-                        <div className="flex-1 min-w-0 mr-3">
-                          {editingStudent === student.id ? (
-                            <div className="flex gap-2 items-center">
-                              <input
-                                value={editName}
-                                onChange={(e) => setEditName(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleRenameStudent(student.id)}
-                                className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-full focus:outline-none focus:border-gray-500"
-                                autoFocus
-                              />
-                              <button
-                                onClick={() => handleRenameStudent(student.id)}
-                                className="text-xs text-white bg-gray-900 px-2 py-1 rounded-lg shrink-0"
-                              >Save</button>
-                              <button
-                                onClick={() => { setEditingStudent(null); setEditName('') }}
-                                className="text-xs text-gray-400 hover:text-gray-600 shrink-0"
-                              >✕</button>
-                            </div>
-                          ) : (
+                        <div>
+                          <div className="flex items-center gap-2">
                             <p className="text-sm font-bold text-gray-900">{student.name}</p>
-                          )}
+                            {student.year && (
+                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-lg">{student.year}</span>
+                            )}
+                          </div>
                           <p className="text-xs text-gray-400 mt-0.5">
                             Joined {new Date(student.joinedAt).toLocaleDateString('en-NG')}
                           </p>
                         </div>
-                        <div className="text-right shrink-0">
+                        <div className="text-right">
                           {total !== null && (
-                            <p className="text-xs text-gray-400">Total: <span className="font-bold text-gray-900">{total}/400</span></p>
+                            <p className="text-sm font-bold text-gray-900">{total}<span className="text-xs text-gray-400">/400</span></p>
                           )}
-                          <p className={`text-lg font-bold ${
-                            avg >= 70 ? 'text-green-600' : avg >= 50 ? 'text-yellow-600' : 'text-red-500'
-                          }`}>
+                          <p className={`text-xs font-semibold ${avg >= 70 ? 'text-green-600' : avg >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>
                             avg {avg}
                           </p>
                           <p className="text-xs text-gray-400">{attempts} attempt{attempts !== 1 ? 's' : ''}</p>
                         </div>
                       </div>
-                      <div className="flex gap-2 mb-2">
-                        <button
-                          onClick={() => { setEditingStudent(student.id); setEditName(student.name) }}
-                          className="text-xs text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg px-2 py-1 hover:bg-gray-50 transition-colors"
-                        >Rename</button>
-                        <button
-                          onClick={() => handleDeleteStudent(student.id)}
-                          className="text-xs text-red-400 hover:text-red-600 border border-red-200 rounded-lg px-2 py-1 hover:bg-red-50 transition-colors"
-                        >Delete</button>
-                      </div>
 
                       {student.subjects?.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-3">
                           {student.subjects.map((s) => (
-                            <span key={s} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-lg">
-                              {s}
-                            </span>
+                            <span key={s} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-lg">{s}</span>
                           ))}
                         </div>
                       )}
 
-                      {getStudentScores(student.id).length > 0 && (
+                      {getScoresFor(student.id).length > 0 && (
                         <div className="border-t border-gray-100 pt-3">
                           <p className="text-xs text-gray-400 mb-2">All scores</p>
                           <div className="space-y-1">
-                            {getStudentScores(student.id).sort((a, b) => new Date(b.date) - new Date(a.date)).map((sc, i) => (
-                              <div key={i} className="flex justify-between items-center py-0.5">
-                                <div>
-                                  <p className="text-xs text-gray-600">{sc.subject} · {sc.week}</p>
-                                  <p className="text-xs text-gray-400">{new Date(sc.date).toLocaleDateString('en-NG')}</p>
+                            {getScoresFor(student.id)
+                              .sort((a, b) => new Date(b.date) - new Date(a.date))
+                              .map((sc, i) => (
+                                <div key={i} className="flex justify-between items-center py-0.5">
+                                  <div>
+                                    <p className="text-xs text-gray-600">{sc.subject} · {sc.week}</p>
+                                    <p className="text-xs text-gray-400">{new Date(sc.date).toLocaleDateString('en-NG')}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className={`text-xs font-semibold ${sc.score >= 70 ? 'text-green-600' : sc.score >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>
+                                      {sc.score}/{sc.outOf || 160}
+                                    </span>
+                                    <p className="text-xs text-gray-400">{sc.correct}✓ {sc.wrong || 0}✗ {sc.unanswered || 0}–</p>
+                                  </div>
                                 </div>
-                                <div className="text-right">
-                                  <span className={`text-xs font-semibold ${
-                                    sc.score >= 70 ? 'text-green-600' : sc.score >= 50 ? 'text-yellow-600' : 'text-red-500'
-                                  }`}>
-                                    {sc.score}/{sc.outOf || 160}
-                                  </span>
-                                  <p className="text-xs text-gray-400">{sc.correct}✓ {sc.wrong || 0}✗ {sc.unanswered || 0}–</p>
-                                </div>
-                              </div>
-                            ))}
+                              ))}
                           </div>
                         </div>
                       )}
@@ -278,24 +284,20 @@ export default function Admin({ setView }) {
                 <label className="text-xs text-gray-500 block mb-1">Subject</label>
                 <select
                   value={selectedSubject}
-                  onChange={(e) => setSelectedSubject(e.target.value)}
+                  onChange={(e) => { setSelectedSubject(e.target.value); resetForm() }}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400 bg-white"
                 >
-                  {SUBJECTS.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
+                  {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Week</label>
                 <select
                   value={selectedWeek}
-                  onChange={(e) => setSelectedWeek(e.target.value)}
+                  onChange={(e) => { setSelectedWeek(e.target.value); resetForm() }}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400 bg-white"
                 >
-                  {WEEKS.map((w) => (
-                    <option key={w} value={w}>{w}</option>
-                  ))}
+                  {WEEKS.map((w) => <option key={w} value={w}>{w}</option>)}
                 </select>
               </div>
             </div>
@@ -303,27 +305,31 @@ export default function Admin({ setView }) {
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">
               <div className="flex justify-between items-center">
                 <div>
-                  <p className="text-xs text-blue-700 font-medium">Questions in pool: {currentQuestions.length}</p>
+                  <p className="text-xs text-blue-700 font-medium">Pool: {currentQuestions.length} questions</p>
                   <p className="text-xs text-blue-500 mt-0.5">Each student gets {Math.min(questionLimit, currentQuestions.length)} random questions</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <label className="text-xs text-blue-700">Pick</label>
                   <input
                     type="number"
                     min={1}
                     max={currentQuestions.length || 100}
                     value={questionLimit}
                     onChange={(e) => setQuestionLimit(parseInt(e.target.value) || 25)}
-                    className="w-16 border border-blue-200 rounded-lg px-2 py-1 text-xs text-center bg-white focus:outline-none"
+                    className="w-14 border border-blue-200 rounded-lg px-2 py-1 text-xs text-center bg-white focus:outline-none"
                   />
-                  <label className="text-xs text-blue-700">per student</label>
+                  <button
+                    onClick={handleSaveLimit}
+                    className="text-xs bg-blue-600 text-white px-2 py-1 rounded-lg hover:bg-blue-700"
+                  >
+                    Save
+                  </button>
                 </div>
               </div>
             </div>
 
             <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-5">
               <p className="text-sm font-semibold text-gray-900 mb-4">
-                Add Question — {selectedSubject} · {selectedWeek}
+                {editingId ? '✏️ Edit Question' : 'Add Question'} — {selectedSubject} · {selectedWeek}
               </p>
               <div className="space-y-3">
                 <div>
@@ -360,15 +366,37 @@ export default function Admin({ setView }) {
                     <option value={3}>Option D</option>
                   </select>
                 </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Explanation / Solution <span className="text-gray-400">(optional)</span></label>
+                  <textarea
+                    value={form.explanation}
+                    onChange={(e) => setForm({ ...form, explanation: e.target.value })}
+                    placeholder="Explain why this answer is correct..."
+                    rows={3}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400 resize-none"
+                  />
+                </div>
               </div>
+
               {err && <p className="text-red-500 text-xs mt-3">{err}</p>}
               {success && <p className="text-green-600 text-xs mt-3">{success}</p>}
-              <button
-                onClick={handleAddQuestion}
-                className="w-full mt-4 bg-gray-900 text-white rounded-xl py-3 text-sm font-semibold hover:bg-gray-700 transition-colors"
-              >
-                Add Question
-              </button>
+
+              <div className="flex gap-3 mt-4">
+                {editingId && (
+                  <button
+                    onClick={resetForm}
+                    className="flex-1 border border-gray-200 rounded-xl py-3 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  onClick={handleAddOrEdit}
+                  className="flex-1 bg-gray-900 text-white rounded-xl py-3 text-sm font-semibold hover:bg-gray-700 transition-colors"
+                >
+                  {editingId ? 'Save Changes' : 'Add Question'}
+                </button>
+              </div>
             </div>
 
             <div className="bg-white border border-gray-200 rounded-2xl p-5">
@@ -395,11 +423,12 @@ export default function Admin({ setView }) {
                         </p>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-lg">
-                            Ans: {String.fromCharCode(65 + q.answer)}
+                            {String.fromCharCode(65 + q.answer)}
                           </span>
-                          <span className="text-gray-400 text-xs">
-                            {expandedQuestion === q.id ? '▲' : '▼'}
-                          </span>
+                          {q.explanation && (
+                            <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-lg">exp</span>
+                          )}
+                          <span className="text-gray-400 text-xs">{expandedQuestion === q.id ? '▲' : '▼'}</span>
                         </div>
                       </button>
 
@@ -408,25 +437,36 @@ export default function Admin({ setView }) {
                           <p className="text-sm text-gray-900 font-medium mt-2 mb-3">{q.question}</p>
                           <div className="grid grid-cols-2 gap-1 mb-3">
                             {q.options.map((opt, oi) => (
-                              <p
-                                key={oi}
-                                className={`text-xs px-2 py-1.5 rounded-lg ${
-                                  oi === q.answer
-                                    ? 'bg-green-100 text-green-700 font-semibold'
-                                    : 'bg-gray-50 text-gray-500'
-                                }`}
-                              >
+                              <p key={oi} className={`text-xs px-2 py-1.5 rounded-lg ${
+                                oi === q.answer
+                                  ? 'bg-green-100 text-green-700 font-semibold'
+                                  : 'bg-gray-50 text-gray-500'
+                              }`}>
                                 {String.fromCharCode(65 + oi)}. {opt}
                                 {oi === q.answer && ' ✓'}
                               </p>
                             ))}
                           </div>
-                          <button
-                            onClick={() => handleDeleteQuestion(q.id)}
-                            className="text-red-400 hover:text-red-600 text-xs border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 transition-colors"
-                          >
-                            Delete Question
-                          </button>
+                          {q.explanation && (
+                            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-3">
+                              <p className="text-xs text-blue-700 font-medium mb-1">Explanation</p>
+                              <p className="text-xs text-blue-600">{q.explanation}</p>
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleEdit(q)}
+                              className="flex-1 text-blue-600 text-xs border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50 transition-colors"
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button
+                              onClick={() => handleDelete(q.id)}
+                              className="flex-1 text-red-500 text-xs border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 transition-colors"
+                            >
+                              🗑️ Delete
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -446,9 +486,7 @@ export default function Admin({ setView }) {
                 onChange={(e) => setTopicWeek(e.target.value)}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400 bg-white"
               >
-                {WEEKS.map((w) => (
-                  <option key={w} value={w}>{w}</option>
-                ))}
+                {WEEKS.map((w) => <option key={w} value={w}>{w}</option>)}
               </select>
             </div>
 
@@ -463,18 +501,14 @@ export default function Admin({ setView }) {
                     <label className="text-xs text-gray-500 block mb-1">{subject}</label>
                     <input
                       value={topicInputs[subject] || ''}
-                      onChange={(e) =>
-                        setTopicInputs({ ...topicInputs, [subject]: e.target.value })
-                      }
+                      onChange={(e) => setTopicInputs({ ...topicInputs, [subject]: e.target.value })}
                       placeholder="e.g. Vectors, Adaptation..."
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400"
                     />
                   </div>
                 ))}
               </div>
-              {topicSuccess && (
-                <p className="text-green-600 text-xs mt-3">{topicSuccess}</p>
-              )}
+              {topicSuccess && <p className="text-green-600 text-xs mt-3">{topicSuccess}</p>}
               <button
                 onClick={handleSaveTopics}
                 className="w-full mt-4 bg-gray-900 text-white rounded-xl py-3 text-sm font-semibold hover:bg-gray-700 transition-colors"
