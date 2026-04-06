@@ -28,8 +28,11 @@ export default function Admin({ setView }) {
   const [success, setSuccess] = useState('')
   const [topicSuccess, setTopicSuccess] = useState('')
   const [yearFilter, setYearFilter] = useState('all')
+  const [statsYear, setStatsYear] = useState('all')
 
-  const years = ['all', 'JSS1', 'JSS2', 'JSS3', 'SS1', 'SS2', 'SS3', 'Graduate']
+  const currentYear = new Date().getFullYear()
+  const jamb_years = ['SS3', ...Array.from({ length: 10 }, (_, i) => String(currentYear + i))]
+  const filterYears = ['all', ...jamb_years]
 
   useEffect(() => {
     const unsubStudents = listenStudents((all) => setStudents(all))
@@ -167,13 +170,28 @@ export default function Admin({ setView }) {
     ? students
     : students.filter((s) => s.year === yearFilter)
 
+  const getYearStats = (yr) => {
+    const grp = yr === 'all' ? students : students.filter((s) => s.year === yr)
+    if (!grp.length) return null
+    const grpScores = scores.filter((sc) => grp.find((s) => s.id === sc.studentId))
+    const avg = grpScores.length
+      ? Math.round(grpScores.reduce((a, b) => a + b.score, 0) / grpScores.length)
+      : 0
+    const top = grp
+      .map((s) => ({ name: s.name, total: getTotalScore(s.id) }))
+      .filter((s) => s.total !== null)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 3)
+    return { count: grp.length, attempts: grpScores.length, avg, top }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-2xl mx-auto">
 
         <div className="flex justify-between items-center py-6">
           <div>
-            <p className="text-xs text-gray-400 uppercase tracking-widest">Admin Panel</p>
+            <p className="text-xs text-gray-400 uppercase tracking-widest">Adeola Memorial College</p>
             <h2 className="text-xl font-bold text-gray-900">JAMB Quiz Manager</h2>
           </div>
           <div className="flex items-center gap-3">
@@ -190,7 +208,7 @@ export default function Admin({ setView }) {
         </div>
 
         <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
-          {['students', 'questions', 'topics'].map((t) => (
+          {['students', 'stats', 'questions', 'topics'].map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -200,7 +218,7 @@ export default function Admin({ setView }) {
                   : 'text-gray-400 hover:text-gray-600'
               }`}
             >
-              {t === 'students' ? `Students (${students.length})` : t === 'questions' ? 'Questions' : 'Topics'}
+              {t === 'students' ? `Students (${students.length})` : t}
             </button>
           ))}
         </div>
@@ -208,7 +226,7 @@ export default function Admin({ setView }) {
         {tab === 'students' && (
           <div>
             <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-              {years.map((y) => (
+              {filterYears.map((y) => (
                 <button
                   key={y}
                   onClick={() => setYearFilter(y)}
@@ -218,7 +236,9 @@ export default function Admin({ setView }) {
                       : 'bg-white border border-gray-200 text-gray-600'
                   }`}
                 >
-                  {y === 'all' ? `All (${students.length})` : `${y} (${students.filter(s => s.year === y).length})`}
+                  {y === 'all'
+                    ? `All (${students.length})`
+                    : `${y} (${students.filter(s => s.year === y).length})`}
                 </button>
               ))}
             </div>
@@ -294,6 +314,112 @@ export default function Admin({ setView }) {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {tab === 'stats' && (
+          <div>
+            <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
+              {filterYears.map((y) => (
+                <button
+                  key={y}
+                  onClick={() => setStatsYear(y)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                    statsYear === y
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-white border border-gray-200 text-gray-600'
+                  }`}
+                >
+                  {y === 'all' ? 'All Years' : y}
+                </button>
+              ))}
+            </div>
+
+            {(() => {
+              const stats = getYearStats(statsYear)
+              if (!stats) return (
+                <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center">
+                  <p className="text-gray-400 text-sm">No data for this year yet</p>
+                </div>
+              )
+              return (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
+                      <p className="text-2xl font-bold text-gray-900">{stats.count}</p>
+                      <p className="text-xs text-gray-400 mt-1">Students</p>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
+                      <p className="text-2xl font-bold text-blue-600">{stats.attempts}</p>
+                      <p className="text-xs text-gray-400 mt-1">Total Attempts</p>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
+                      <p className={`text-2xl font-bold ${stats.avg >= 70 ? 'text-green-600' : stats.avg >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>
+                        {stats.avg}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">Avg Score</p>
+                    </div>
+                  </div>
+
+                  {stats.top.length > 0 && (
+                    <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                      <p className="text-sm font-semibold text-gray-900 mb-3">
+                        🏆 Top Performers {statsYear !== 'all' ? `— JAMB ${statsYear}` : ''}
+                      </p>
+                      <div className="space-y-2">
+                        {stats.top.map((s, i) => (
+                          <div key={i} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
+                            <div className="flex items-center gap-3">
+                              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                i === 0 ? 'bg-yellow-100 text-yellow-700' :
+                                i === 1 ? 'bg-gray-100 text-gray-600' :
+                                'bg-orange-100 text-orange-600'
+                              }`}>
+                                {i + 1}
+                              </span>
+                              <p className="text-sm font-medium text-gray-900">{s.name}</p>
+                            </div>
+                            <p className="text-sm font-bold text-gray-900">{s.total}<span className="text-xs text-gray-400">/400</span></p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                    <p className="text-sm font-semibold text-gray-900 mb-3">
+                      Performance by Subject {statsYear !== 'all' ? `— JAMB ${statsYear}` : ''}
+                    </p>
+                    <div className="space-y-3">
+                      {SUBJECTS.map((subject) => {
+                        const grp = statsYear === 'all' ? students : students.filter((s) => s.year === statsYear)
+                        const subScores = scores.filter((sc) =>
+                          sc.subject === subject && grp.find((s) => s.id === sc.studentId)
+                        )
+                        if (!subScores.length) return null
+                        const subAvg = Math.round(subScores.reduce((a, b) => a + b.score, 0) / subScores.length)
+                        const subMax = subScores[0]?.outOf || 160
+                        const pct = Math.round((subAvg / subMax) * 100)
+                        return (
+                          <div key={subject}>
+                            <div className="flex justify-between items-center mb-1">
+                              <p className="text-xs text-gray-700 font-medium">{subject}</p>
+                              <p className="text-xs text-gray-500">{subAvg}/{subMax} avg · {subScores.length} attempts</p>
+                            </div>
+                            <div className="w-full bg-gray-100 rounded-full h-2">
+                              <div
+                                className={`h-2 rounded-full ${pct >= 70 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-400'}`}
+                                style={{ width: `${Math.min(pct, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         )}
 
@@ -539,7 +665,7 @@ export default function Admin({ setView }) {
             <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
               <p className="text-sm font-semibold text-gray-900 mb-1">Topics for {topicWeek}</p>
               <p className="text-xs text-gray-400 mb-4">
-                Students will see these after completing their quiz as next week topics to revise.
+                Students will see these after completing their quiz as next week's topics to revise.
               </p>
               <div className="space-y-3">
                 {SUBJECTS.map((subject) => (
