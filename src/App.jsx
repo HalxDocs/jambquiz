@@ -8,6 +8,13 @@ import Results from './pages/Results'
 import Admin from './pages/Admin'
 import SubjectDetail from './pages/SubjectDetail'
 
+function isIos() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent)
+}
+function isInStandaloneMode() {
+  return ('standalone' in window.navigator) && window.navigator.standalone
+}
+
 export default function App() {
   const [view, setView] = useState('home')
   const [student, setStudent] = useState(null)
@@ -16,6 +23,7 @@ export default function App() {
   const [selectedSubjectDetail, setSelectedSubjectDetail] = useState(null)
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [showInstallToast, setShowInstallToast] = useState(false)
+  const [showIosHint, setShowIosHint] = useState(() => isIos() && !isInStandaloneMode())
 
   const {
     needRefresh: [needRefresh, setNeedRefresh],
@@ -107,7 +115,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Install toast */}
+      {/* Install toast — Android/desktop Chrome */}
       {showInstallToast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm">
           <div className="bg-[#111] text-white rounded-2xl shadow-lg px-4 py-4 flex items-center gap-3">
@@ -132,6 +140,45 @@ export default function App() {
             >
               ×
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* iOS install hint */}
+      {showIosHint && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm">
+          <div className="bg-[#111] text-white rounded-2xl shadow-lg px-4 py-4">
+            <div className="flex items-start gap-3">
+              <div className="bg-white/10 rounded-xl p-2 shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold font-display mb-0.5">Install JAMB Quiz</p>
+                <p className="text-xs text-[#AAA] font-label leading-relaxed">
+                  Tap the{' '}
+                  <span className="inline-flex items-center gap-0.5 text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                    </svg>
+                  </span>
+                  {' '}Share button below, then <strong className="text-white">"Add to Home Screen"</strong>
+                </p>
+              </div>
+              <button
+                onClick={() => setShowIosHint(false)}
+                className="text-[#888] hover:text-white text-lg leading-none shrink-0"
+              >
+                ×
+              </button>
+            </div>
+            {/* Arrow pointing down to Safari's share bar */}
+            <div className="flex justify-center mt-3">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[#555] animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
           </div>
         </div>
       )}
