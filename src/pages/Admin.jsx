@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics, saveQuestionLimit, getQuestionLimit, setActiveWeek, getActiveWeek } from '../store/useStore'
+import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics, saveQuestionLimit, getQuestionLimit, setActiveWeek, getActiveWeek, updateStudent, deleteStudent } from '../store/useStore'
 
 export default function Admin({ setView }) {
   const [tab, setTab] = useState('students')
@@ -8,15 +8,7 @@ export default function Admin({ setView }) {
   const [currentQuestions, setCurrentQuestions] = useState([])
   const [selectedSubject, setSelectedSubject] = useState(SUBJECTS[0])
   const [selectedWeek, setSelectedWeek] = useState(WEEKS[0])
-  const [form, setForm] = useState({
-    question: '',
-    optionA: '',
-    optionB: '',
-    optionC: '',
-    optionD: '',
-    answer: 0,
-    explanation: '',
-  })
+  const [form, setForm] = useState({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '' })
   const [editingFirestoreId, setEditingFirestoreId] = useState(null)
   const [expandedQuestion, setExpandedQuestion] = useState(null)
   const [questionLimit, setQuestionLimit] = useState(25)
@@ -29,6 +21,10 @@ export default function Admin({ setView }) {
   const [topicSuccess, setTopicSuccess] = useState('')
   const [yearFilter, setYearFilter] = useState('all')
   const [statsYear, setStatsYear] = useState('all')
+  const [editingStudentId, setEditingStudentId] = useState(null)
+  const [editNameValue, setEditNameValue] = useState('')
+  const [editNameErr, setEditNameErr] = useState('')
+  const [editNameLoading, setEditNameLoading] = useState(false)
 
   const currentYear = new Date().getFullYear()
   const jamb_years = ['SS3', ...Array.from({ length: 10 }, (_, i) => String(currentYear + i))]
@@ -42,18 +38,13 @@ export default function Admin({ setView }) {
   }, [])
 
   useEffect(() => {
-    const unsubQ = listenQuestions(selectedSubject, selectedWeek, (qs) => {
-      setCurrentQuestions(qs)
-    })
+    const unsubQ = listenQuestions(selectedSubject, selectedWeek, (qs) => setCurrentQuestions(qs))
     getQuestionLimit(selectedSubject, selectedWeek).then(setQuestionLimit)
     return () => unsubQ()
   }, [selectedSubject, selectedWeek])
 
   useEffect(() => {
-    getTopics(topicWeek).then((t) => {
-      setTopicsState(t || {})
-      setTopicInputs(t || {})
-    })
+    getTopics(topicWeek).then((t) => { setTopicsState(t || {}); setTopicInputs(t || {}) })
   }, [topicWeek])
 
   const resetForm = () => {
@@ -64,9 +55,7 @@ export default function Admin({ setView }) {
 
   const handleAddOrEdit = async () => {
     if (!form.question.trim()) { setErr('Enter a question'); return }
-    if (!form.optionA.trim() || !form.optionB.trim() || !form.optionC.trim() || !form.optionD.trim()) {
-      setErr('Fill in all 4 options'); return
-    }
+    if (!form.optionA.trim() || !form.optionB.trim() || !form.optionC.trim() || !form.optionD.trim()) { setErr('Fill in all 4 options'); return }
     const qData = {
       question: form.question.trim(),
       options: [form.optionA.trim(), form.optionB.trim(), form.optionC.trim(), form.optionD.trim()],
@@ -84,21 +73,13 @@ export default function Admin({ setView }) {
       resetForm()
       setTimeout(() => setSuccess(''), 3000)
     } catch (e) {
-      console.error('Add/Edit error:', e)
+      console.error(e)
       setErr('Failed. Check your connection.')
     }
   }
 
   const handleEdit = (q) => {
-    setForm({
-      question: q.question,
-      optionA: q.options[0],
-      optionB: q.options[1],
-      optionC: q.options[2],
-      optionD: q.options[3],
-      answer: q.answer,
-      explanation: q.explanation || '',
-    })
+    setForm({ question: q.question, optionA: q.options[0], optionB: q.options[1], optionC: q.options[2], optionD: q.options[3], answer: q.answer, explanation: q.explanation || '' })
     setEditingFirestoreId(q.firestoreId)
     setExpandedQuestion(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -108,11 +89,11 @@ export default function Admin({ setView }) {
     if (!window.confirm('Delete this question?')) return
     try {
       await deleteQuestion(firestoreId)
-      setSuccess('Question deleted!')
+      setSuccess('Deleted!')
       setTimeout(() => setSuccess(''), 3000)
     } catch (e) {
-      console.error('Delete error:', e)
-      alert('Failed to delete. Check your connection.')
+      console.error(e)
+      alert('Failed to delete.')
     }
   }
 
@@ -122,40 +103,60 @@ export default function Admin({ setView }) {
       setTopicsState(topicInputs)
       setTopicSuccess('Topics saved!')
       setTimeout(() => setTopicSuccess(''), 3000)
-    } catch (e) {
-      alert('Failed to save topics.')
-    }
+    } catch { alert('Failed to save topics.') }
   }
 
   const handleSaveLimit = async () => {
     try {
       await saveQuestionLimit(selectedSubject, selectedWeek, questionLimit)
-      setSuccess('Question limit saved!')
+      setSuccess('Limit saved!')
       setTimeout(() => setSuccess(''), 3000)
-    } catch (e) {
-      alert('Failed to save limit.')
-    }
+    } catch { alert('Failed to save limit.') }
   }
 
   const handleSetActiveWeek = async (week) => {
     try {
       await setActiveWeek(week)
       setActiveWeekState(week)
-      setSuccess(`Active week set to ${week}!`)
+      setSuccess(`Active week → ${week}`)
       setTimeout(() => setSuccess(''), 3000)
-    } catch (e) {
-      alert('Failed to set active week.')
+    } catch { alert('Failed.') }
+  }
+
+  const handleDeleteStudent = async (studentId, studentName) => {
+    if (!window.confirm(`Delete "${studentName}"? This cannot be undone.`)) return
+    try {
+      await deleteStudent(studentId)
+    } catch {
+      alert('Failed to delete student.')
     }
   }
 
-  const getScoresFor = (studentId) => scores.filter((s) => s.studentId === studentId)
-
-  const getAverage = (studentId) => {
-    const s = getScoresFor(studentId)
-    if (!s.length) return 0
-    return Math.round(s.reduce((a, b) => a + b.score, 0) / s.length)
+  const startEditName = (student) => {
+    setEditingStudentId(student.id)
+    setEditNameValue(student.name)
+    setEditNameErr('')
   }
 
+  const handleSaveName = async (studentId) => {
+    const trimmed = editNameValue.trim()
+    if (trimmed.length < 3) { setEditNameErr('Name must be at least 3 characters'); return }
+    setEditNameLoading(true)
+    try {
+      await updateStudent(studentId, { name: trimmed })
+      setEditingStudentId(null)
+      setEditNameErr('')
+    } catch {
+      setEditNameErr('Failed to save. Try again.')
+    }
+    setEditNameLoading(false)
+  }
+
+  const getScoresFor = (studentId) => scores.filter((s) => s.studentId === studentId)
+  const getAverage = (studentId) => {
+    const s = getScoresFor(studentId)
+    return s.length ? Math.round(s.reduce((a, b) => a + b.score, 0) / s.length) : 0
+  }
   const getTotalScore = (studentId) => {
     const s = getScoresFor(studentId)
     if (!s.length) return null
@@ -166,56 +167,54 @@ export default function Admin({ setView }) {
     return subjects.slice(0, 4).reduce((a, sc) => a + sc.score, 0)
   }
 
-  const filteredStudents = yearFilter === 'all'
-    ? students
-    : students.filter((s) => s.year === yearFilter)
+  const filteredStudents = yearFilter === 'all' ? students : students.filter((s) => s.year === yearFilter)
 
   const getYearStats = (yr) => {
     const grp = yr === 'all' ? students : students.filter((s) => s.year === yr)
     if (!grp.length) return null
     const grpScores = scores.filter((sc) => grp.find((s) => s.id === sc.studentId))
-    const avg = grpScores.length
-      ? Math.round(grpScores.reduce((a, b) => a + b.score, 0) / grpScores.length)
-      : 0
-    const top = grp
-      .map((s) => ({ name: s.name, total: getTotalScore(s.id) }))
-      .filter((s) => s.total !== null)
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 3)
+    const avg = grpScores.length ? Math.round(grpScores.reduce((a, b) => a + b.score, 0) / grpScores.length) : 0
+    const top = grp.map((s) => ({ name: s.name, total: getTotalScore(s.id) })).filter((s) => s.total !== null).sort((a, b) => b.total - a.total).slice(0, 3)
     return { count: grp.length, attempts: grpScores.length, avg, top }
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-2xl mx-auto">
+  const TABS = ['students', 'stats', 'questions', 'topics']
 
-        <div className="flex justify-between items-center py-6">
+  return (
+    <div className="min-h-screen bg-[#F8F8F7]">
+      <div className="max-w-2xl mx-auto px-4 pb-10">
+
+        {/* Header */}
+        <div className="flex justify-between items-center pt-8 pb-6">
           <div>
-            <p className="text-xs text-gray-400 uppercase tracking-widest">Adeola Memorial College</p>
-            <h2 className="text-xl font-bold text-gray-900">JAMB Quiz Manager</h2>
+            <p className="text-[10px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-0.5">
+              Adeola Memorial College
+            </p>
+            <h2 className="text-xl font-bold text-[#111] font-display">Quiz Manager</h2>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-lg font-medium">
-              Active: {activeWeek}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold text-white bg-[#111] px-3 py-1.5 rounded-full font-label">
+              {activeWeek}
             </span>
             <button
               onClick={() => setView('home')}
-              className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-3 py-2"
+              className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors"
             >
-              Logout
+              Log out
             </button>
           </div>
         </div>
 
-        <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
-          {['students', 'stats', 'questions', 'topics'].map((t) => (
+        {/* Tab bar */}
+        <div className="flex gap-1 p-1 bg-[#EBEBEB] rounded-xl mb-6">
+          {TABS.map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`flex-1 pb-3 text-sm font-medium transition-colors capitalize whitespace-nowrap px-2 ${
+              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all capitalize font-label whitespace-nowrap ${
                 tab === t
-                  ? 'border-b-2 border-gray-900 text-gray-900'
-                  : 'text-gray-400 hover:text-gray-600'
+                  ? 'bg-white text-[#111] shadow-sm'
+                  : 'text-[#999] hover:text-[#555]'
               }`}
             >
               {t === 'students' ? `Students (${students.length})` : t}
@@ -223,89 +222,134 @@ export default function Admin({ setView }) {
           ))}
         </div>
 
+        {/* ── STUDENTS ── */}
         {tab === 'students' && (
           <div>
-            <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+            <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
               {filterYears.map((y) => (
                 <button
                   key={y}
                   onClick={() => setYearFilter(y)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                    yearFilter === y
-                      ? 'bg-gray-900 text-white'
-                      : 'bg-white border border-gray-200 text-gray-600'
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors font-label ${
+                    yearFilter === y ? 'bg-[#111] text-white' : 'bg-white border border-[#E5E5E5] text-[#555]'
                   }`}
                 >
-                  {y === 'all'
-                    ? `All (${students.length})`
-                    : `${y} (${students.filter(s => s.year === y).length})`}
+                  {y === 'all' ? `All (${students.length})` : `${y} (${students.filter(s => s.year === y).length})`}
                 </button>
               ))}
             </div>
 
             {filteredStudents.length === 0 ? (
-              <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center">
-                <p className="text-gray-400 text-sm">No students found</p>
+              <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
+                <p className="text-[#CCC] text-sm font-label">No students found</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {filteredStudents.map((student) => {
                   const avg = getAverage(student.id)
                   const total = getTotalScore(student.id)
                   const attempts = getScoresFor(student.id).length
                   return (
-                    <div key={student.id} className="bg-white border border-gray-200 rounded-xl p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-bold text-gray-900">{student.name}</p>
-                            {student.year && (
-                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-lg">{student.year}</span>
-                            )}
+                    <div key={student.id} className="bg-white border border-[#EBEBEB] rounded-xl p-4">
+                      {/* Name row — normal or edit mode */}
+                      {editingStudentId === student.id ? (
+                        <div className="mb-3">
+                          <p className="text-[10px] font-bold text-[#888] uppercase tracking-wide font-label mb-1.5">Edit Name</p>
+                          <div className="flex gap-2">
+                            <input
+                              value={editNameValue}
+                              onChange={(e) => { setEditNameValue(e.target.value); setEditNameErr('') }}
+                              onKeyDown={(e) => e.key === 'Enter' && handleSaveName(student.id)}
+                              className="flex-1 border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] focus:outline-none focus:border-[#111]"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => handleSaveName(student.id)}
+                              disabled={editNameLoading}
+                              className="bg-[#111] text-white text-xs font-bold px-3 rounded-xl hover:bg-[#222] transition-colors font-label"
+                            >
+                              {editNameLoading ? '…' : 'Save'}
+                            </button>
+                            <button
+                              onClick={() => { setEditingStudentId(null); setEditNameErr('') }}
+                              className="border border-[#E5E5E5] text-[#888] text-xs font-bold px-3 rounded-xl hover:bg-[#F8F8F7] transition-colors font-label"
+                            >
+                              ✕
+                            </button>
                           </div>
-                          <p className="text-xs text-gray-400 mt-0.5">
-                            Joined {new Date(student.joinedAt).toLocaleDateString('en-NG')}
-                          </p>
+                          {editNameErr && <p className="text-red-500 text-xs mt-1.5 font-label">{editNameErr}</p>}
                         </div>
-                        <div className="text-right">
-                          {total !== null && (
-                            <p className="text-sm font-bold text-gray-900">{total}<span className="text-xs text-gray-400">/400</span></p>
-                          )}
-                          <p className={`text-xs font-semibold ${avg >= 70 ? 'text-green-600' : avg >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>
-                            avg {avg}
-                          </p>
-                          <p className="text-xs text-gray-400">{attempts} attempt{attempts !== 1 ? 's' : ''}</p>
+                      ) : (
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-bold text-[#111] font-body">{student.name}</p>
+                              {student.year && (
+                                <span className="text-[10px] font-bold text-white bg-[#111] px-2 py-0.5 rounded-full font-label">
+                                  {student.year}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-[#AAA] font-label mt-0.5">
+                              Joined {new Date(student.joinedAt).toLocaleDateString('en-NG')}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 ml-2">
+                            {total !== null && (
+                              <p className="text-sm font-bold text-[#111] font-display mr-2">
+                                {total}<span className="text-[10px] text-[#AAA] font-label">/400</span>
+                              </p>
+                            )}
+                            <button
+                              onClick={() => startEditName(student)}
+                              title="Rename student"
+                              className="w-7 h-7 flex items-center justify-center rounded-lg border border-[#E5E5E5] text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors text-sm"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              onClick={() => handleDeleteStudent(student.id, student.name)}
+                              title="Delete student"
+                              className="w-7 h-7 flex items-center justify-center rounded-lg border border-red-100 text-red-400 hover:bg-red-50 hover:border-red-200 transition-colors text-sm"
+                            >
+                              🗑️
+                            </button>
+                          </div>
                         </div>
+                      )}
+                      <div className="flex justify-between items-center mb-2">
+                        <p className={`text-xs font-bold font-label ${avg >= 70 ? 'text-green-600' : avg >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>
+                          avg {avg}
+                        </p>
+                        <p className="text-[10px] text-[#CCC] font-label">{attempts} attempt{attempts !== 1 ? 's' : ''}</p>
                       </div>
 
                       {student.subjects?.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-3">
                           {student.subjects.map((s) => (
-                            <span key={s} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-lg">{s}</span>
+                            <span key={s} className="text-[10px] font-semibold bg-[#F3F3F2] text-[#555] px-2 py-0.5 rounded-lg font-label">{s}</span>
                           ))}
                         </div>
                       )}
 
                       {getScoresFor(student.id).length > 0 && (
-                        <div className="border-t border-gray-100 pt-3">
-                          <p className="text-xs text-gray-400 mb-2">All scores</p>
+                        <div className="border-t border-[#F3F3F2] pt-3">
+                          <p className="text-[10px] text-[#AAA] font-label mb-2">Score history</p>
                           <div className="space-y-1">
-                            {getScoresFor(student.id)
-                              .sort((a, b) => new Date(b.date) - new Date(a.date))
-                              .map((sc, i) => (
-                                <div key={i} className="flex justify-between items-center py-0.5">
-                                  <div>
-                                    <p className="text-xs text-gray-600">{sc.subject} · {sc.week}</p>
-                                    <p className="text-xs text-gray-400">{new Date(sc.date).toLocaleDateString('en-NG')}</p>
-                                  </div>
-                                  <div className="text-right">
-                                    <span className={`text-xs font-semibold ${sc.score >= 70 ? 'text-green-600' : sc.score >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>
-                                      {sc.score}/{sc.outOf || 160}
-                                    </span>
-                                    <p className="text-xs text-gray-400">{sc.correct}✓ {sc.wrong || 0}✗ {sc.unanswered || 0}–</p>
-                                  </div>
+                            {getScoresFor(student.id).sort((a, b) => new Date(b.date) - new Date(a.date)).map((sc, i) => (
+                              <div key={i} className="flex justify-between items-center py-0.5">
+                                <div>
+                                  <p className="text-xs text-[#555] font-body">{sc.subject} · {sc.week}</p>
+                                  <p className="text-[10px] text-[#CCC] font-label">{new Date(sc.date).toLocaleDateString('en-NG')}</p>
                                 </div>
-                              ))}
+                                <div className="text-right">
+                                  <span className={`text-xs font-bold font-display ${sc.score / (sc.outOf || 160) >= 0.7 ? 'text-green-600' : sc.score / (sc.outOf || 160) >= 0.5 ? 'text-yellow-600' : 'text-red-500'}`}>
+                                    {sc.score}/{sc.outOf || 160}
+                                  </span>
+                                  <p className="text-[10px] text-[#CCC] font-label">{sc.correct}✓ {sc.wrong || 0}✗ {sc.unanswered || 0}–</p>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       )}
@@ -317,17 +361,16 @@ export default function Admin({ setView }) {
           </div>
         )}
 
+        {/* ── STATS ── */}
         {tab === 'stats' && (
           <div>
-            <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
+            <div className="flex gap-1.5 mb-5 overflow-x-auto pb-1">
               {filterYears.map((y) => (
                 <button
                   key={y}
                   onClick={() => setStatsYear(y)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                    statsYear === y
-                      ? 'bg-gray-900 text-white'
-                      : 'bg-white border border-gray-200 text-gray-600'
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors font-label ${
+                    statsYear === y ? 'bg-[#111] text-white' : 'bg-white border border-[#E5E5E5] text-[#555]'
                   }`}
                 >
                   {y === 'all' ? 'All Years' : y}
@@ -338,77 +381,71 @@ export default function Admin({ setView }) {
             {(() => {
               const stats = getYearStats(statsYear)
               if (!stats) return (
-                <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center">
-                  <p className="text-gray-400 text-sm">No data for this year yet</p>
+                <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
+                  <p className="text-[#CCC] text-sm font-label">No data yet</p>
                 </div>
               )
               return (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-gray-900">{stats.count}</p>
-                      <p className="text-xs text-gray-400 mt-1">Students</p>
-                    </div>
-                    <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-blue-600">{stats.attempts}</p>
-                      <p className="text-xs text-gray-400 mt-1">Total Attempts</p>
-                    </div>
-                    <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
-                      <p className={`text-2xl font-bold ${stats.avg >= 70 ? 'text-green-600' : stats.avg >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>
-                        {stats.avg}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-1">Avg Score</p>
-                    </div>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    {[
+                      { value: stats.count, label: 'Students', color: 'text-[#111]' },
+                      { value: stats.attempts, label: 'Attempts', color: 'text-blue-600' },
+                      { value: stats.avg, label: 'Avg Score', color: stats.avg >= 70 ? 'text-green-600' : stats.avg >= 50 ? 'text-yellow-600' : 'text-red-500' },
+                    ].map(({ value, label, color }) => (
+                      <div key={label} className="bg-white border border-[#EBEBEB] rounded-xl p-4 text-center">
+                        <p className={`text-2xl font-bold font-display ${color}`}>{value}</p>
+                        <p className="text-[10px] text-[#AAA] font-label mt-1">{label}</p>
+                      </div>
+                    ))}
                   </div>
 
                   {stats.top.length > 0 && (
-                    <div className="bg-white border border-gray-200 rounded-2xl p-5">
-                      <p className="text-sm font-semibold text-gray-900 mb-3">
-                        🏆 Top Performers {statsYear !== 'all' ? `— JAMB ${statsYear}` : ''}
+                    <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
+                      <p className="text-sm font-bold text-[#111] font-display mb-3">
+                        Top Performers {statsYear !== 'all' ? `— ${statsYear}` : ''}
                       </p>
                       <div className="space-y-2">
                         {stats.top.map((s, i) => (
-                          <div key={i} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
+                          <div key={i} className="flex justify-between items-center py-2.5 border-b border-[#F3F3F2] last:border-0">
                             <div className="flex items-center gap-3">
-                              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold font-display ${
                                 i === 0 ? 'bg-yellow-100 text-yellow-700' :
-                                i === 1 ? 'bg-gray-100 text-gray-600' :
-                                'bg-orange-100 text-orange-600'
+                                i === 1 ? 'bg-[#F3F3F2] text-[#555]' :
+                                'bg-orange-50 text-orange-600'
                               }`}>
                                 {i + 1}
                               </span>
-                              <p className="text-sm font-medium text-gray-900">{s.name}</p>
+                              <p className="text-sm font-semibold text-[#111] font-body">{s.name}</p>
                             </div>
-                            <p className="text-sm font-bold text-gray-900">{s.total}<span className="text-xs text-gray-400">/400</span></p>
+                            <p className="text-sm font-bold text-[#111] font-display">
+                              {s.total}<span className="text-[10px] text-[#AAA] font-label">/400</span>
+                            </p>
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  <div className="bg-white border border-gray-200 rounded-2xl p-5">
-                    <p className="text-sm font-semibold text-gray-900 mb-3">
-                      Performance by Subject {statsYear !== 'all' ? `— JAMB ${statsYear}` : ''}
-                    </p>
-                    <div className="space-y-3">
+                  <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
+                    <p className="text-sm font-bold text-[#111] font-display mb-4">Performance by Subject</p>
+                    <div className="space-y-4">
                       {SUBJECTS.map((subject) => {
                         const grp = statsYear === 'all' ? students : students.filter((s) => s.year === statsYear)
-                        const subScores = scores.filter((sc) =>
-                          sc.subject === subject && grp.find((s) => s.id === sc.studentId)
-                        )
+                        const subScores = scores.filter((sc) => sc.subject === subject && grp.find((s) => s.id === sc.studentId))
                         if (!subScores.length) return null
                         const subAvg = Math.round(subScores.reduce((a, b) => a + b.score, 0) / subScores.length)
                         const subMax = subScores[0]?.outOf || 160
                         const pct = Math.round((subAvg / subMax) * 100)
                         return (
                           <div key={subject}>
-                            <div className="flex justify-between items-center mb-1">
-                              <p className="text-xs text-gray-700 font-medium">{subject}</p>
-                              <p className="text-xs text-gray-500">{subAvg}/{subMax} avg · {subScores.length} attempts</p>
+                            <div className="flex justify-between items-center mb-1.5">
+                              <p className="text-xs font-semibold text-[#333] font-body">{subject}</p>
+                              <p className="text-[11px] text-[#888] font-label">{subAvg}/{subMax} · {subScores.length} attempts</p>
                             </div>
-                            <div className="w-full bg-gray-100 rounded-full h-2">
+                            <div className="w-full bg-[#F3F3F2] rounded-full h-1.5">
                               <div
-                                className={`h-2 rounded-full ${pct >= 70 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-400'}`}
+                                className={`h-1.5 rounded-full ${pct >= 70 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-400'}`}
                                 style={{ width: `${Math.min(pct, 100)}%` }}
                               />
                             </div>
@@ -423,36 +460,38 @@ export default function Admin({ setView }) {
           </div>
         )}
 
+        {/* ── QUESTIONS ── */}
         {tab === 'questions' && (
           <div>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
-                <label className="text-xs text-gray-500 block mb-1">Subject</label>
+                <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">Subject</label>
                 <select
                   value={selectedSubject}
                   onChange={(e) => { setSelectedSubject(e.target.value); resetForm() }}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400 bg-white"
+                  className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white"
                 >
                   {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-xs text-gray-500 block mb-1">Week</label>
+                <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">Week</label>
                 <select
                   value={selectedWeek}
                   onChange={(e) => { setSelectedWeek(e.target.value); resetForm() }}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400 bg-white"
+                  className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white"
                 >
                   {WEEKS.map((w) => <option key={w} value={w}>{w}</option>)}
                 </select>
               </div>
             </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">
+            {/* Question limit */}
+            <div className="bg-white border border-[#EBEBEB] rounded-xl p-4 mb-4">
               <div className="flex justify-between items-center">
                 <div>
-                  <p className="text-xs text-blue-700 font-medium">Pool: {currentQuestions.length} questions</p>
-                  <p className="text-xs text-blue-500 mt-0.5">Each student gets {Math.min(questionLimit, currentQuestions.length)} random questions</p>
+                  <p className="text-xs font-bold text-[#111] font-body">{currentQuestions.length} questions in pool</p>
+                  <p className="text-[11px] text-[#AAA] font-label mt-0.5">Each student gets {Math.min(questionLimit, currentQuestions.length)} random questions</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <input
@@ -461,11 +500,11 @@ export default function Admin({ setView }) {
                     max={currentQuestions.length || 100}
                     value={questionLimit}
                     onChange={(e) => setQuestionLimit(parseInt(e.target.value) || 25)}
-                    className="w-14 border border-blue-200 rounded-lg px-2 py-1 text-xs text-center bg-white focus:outline-none"
+                    className="w-14 border border-[#E5E5E5] rounded-lg px-2 py-1.5 text-xs text-center bg-white focus:outline-none focus:border-[#111]"
                   />
                   <button
                     onClick={handleSaveLimit}
-                    className="text-xs bg-blue-600 text-white px-2 py-1 rounded-lg hover:bg-blue-700"
+                    className="text-xs bg-[#111] text-white px-3 py-1.5 rounded-lg font-label hover:bg-[#222] transition-colors"
                   >
                     Save
                   </button>
@@ -473,143 +512,135 @@ export default function Admin({ setView }) {
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-5">
-              <p className="text-sm font-semibold text-gray-900 mb-4">
-                {editingFirestoreId ? '✏️ Edit Question' : 'Add Question'} — {selectedSubject} · {selectedWeek}
+            {/* Add/Edit form */}
+            <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mb-4">
+              <p className="text-sm font-bold text-[#111] font-display mb-4">
+                {editingFirestoreId ? '✏️ Edit Question' : 'Add Question'}
+                <span className="text-[#AAA] text-xs font-label font-normal ml-2">
+                  {selectedSubject} · {selectedWeek}
+                </span>
               </p>
               <div className="space-y-3">
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">Question</label>
+                  <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">Question</label>
                   <textarea
                     value={form.question}
                     onChange={(e) => setForm({ ...form, question: e.target.value })}
-                    placeholder="Type the question here..."
+                    placeholder="Type the question here…"
                     rows={3}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400 resize-none"
+                    className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] resize-none"
                   />
                 </div>
                 {['A', 'B', 'C', 'D'].map((letter) => (
                   <div key={letter}>
-                    <label className="text-xs text-gray-500 block mb-1">Option {letter}</label>
+                    <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">Option {letter}</label>
                     <input
                       value={form[`option${letter}`]}
                       onChange={(e) => setForm({ ...form, [`option${letter}`]: e.target.value })}
                       placeholder={`Option ${letter}`}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400"
+                      className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111]"
                     />
                   </div>
                 ))}
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">Correct Answer</label>
+                  <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">Correct Answer</label>
                   <select
                     value={form.answer}
                     onChange={(e) => setForm({ ...form, answer: e.target.value })}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400 bg-white"
+                    className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white"
                   >
-                    <option value={0}>Option A</option>
-                    <option value={1}>Option B</option>
-                    <option value={2}>Option C</option>
-                    <option value={3}>Option D</option>
+                    {['A', 'B', 'C', 'D'].map((l, i) => <option key={l} value={i}>Option {l}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">Explanation / Solution <span className="text-gray-400">(optional)</span></label>
+                  <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">
+                    Explanation <span className="text-[#CCC] normal-case tracking-normal">optional</span>
+                  </label>
                   <textarea
                     value={form.explanation}
                     onChange={(e) => setForm({ ...form, explanation: e.target.value })}
-                    placeholder="Explain why this answer is correct..."
-                    rows={3}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400 resize-none"
+                    placeholder="Why is this the correct answer?"
+                    rows={2}
+                    className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] resize-none"
                   />
                 </div>
               </div>
 
-              {err && <p className="text-red-500 text-xs mt-3">{err}</p>}
-              {success && <p className="text-green-600 text-xs mt-3">{success}</p>}
+              {err && <div className="mt-3 px-3.5 py-2 bg-red-50 border border-red-100 rounded-xl"><p className="text-red-600 text-xs font-label">{err}</p></div>}
+              {success && <div className="mt-3 px-3.5 py-2 bg-green-50 border border-green-100 rounded-xl"><p className="text-green-600 text-xs font-label">{success}</p></div>}
 
-              <div className="flex gap-3 mt-4">
+              <div className="flex gap-2.5 mt-4">
                 {editingFirestoreId && (
-                  <button
-                    onClick={resetForm}
-                    className="flex-1 border border-gray-200 rounded-xl py-3 text-sm font-medium text-gray-600 hover:bg-gray-50"
-                  >
+                  <button onClick={resetForm} className="flex-1 border border-[#E5E5E5] rounded-xl py-3 text-sm font-semibold text-[#555] hover:bg-[#F8F8F7] font-label">
                     Cancel
                   </button>
                 )}
                 <button
                   onClick={handleAddOrEdit}
-                  className="flex-1 bg-gray-900 text-white rounded-xl py-3 text-sm font-semibold hover:bg-gray-700 transition-colors"
+                  className="flex-1 bg-[#111] text-white rounded-xl py-3 text-sm font-bold hover:bg-[#222] transition-colors font-display"
                 >
                   {editingFirestoreId ? 'Save Changes' : 'Add Question'}
                 </button>
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            {/* Question pool */}
+            <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
               <div className="flex justify-between items-center mb-4">
-                <p className="text-sm font-semibold text-gray-900">Question Pool</p>
-                <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-lg">
+                <p className="text-sm font-bold text-[#111] font-display">Question Pool</p>
+                <span className="text-[11px] font-semibold bg-[#F3F3F2] text-[#555] px-2.5 py-1 rounded-lg font-label">
                   {currentQuestions.length} total
                 </span>
               </div>
               {currentQuestions.length === 0 ? (
-                <p className="text-gray-400 text-sm text-center py-4">
+                <p className="text-[#CCC] text-sm text-center py-6 font-label">
                   No questions for {selectedSubject} · {selectedWeek}
                 </p>
               ) : (
                 <div className="space-y-2">
                   {currentQuestions.map((q, i) => (
-                    <div key={q.firestoreId} className="border border-gray-100 rounded-xl overflow-hidden">
+                    <div key={q.firestoreId} className="border border-[#F0F0F0] rounded-xl overflow-hidden">
                       <button
                         onClick={() => setExpandedQuestion(expandedQuestion === q.firestoreId ? null : q.firestoreId)}
-                        className="w-full flex justify-between items-center p-3 text-left hover:bg-gray-50 transition-colors"
+                        className="w-full flex justify-between items-center p-3 text-left hover:bg-[#FAFAF9] transition-colors"
                       >
-                        <p className="text-sm text-gray-900 font-medium flex-1 pr-2">
-                          {i + 1}. {q.question.length > 60 ? q.question.slice(0, 60) + '...' : q.question}
+                        <p className="text-xs text-[#111] font-semibold font-body flex-1 pr-2 leading-snug">
+                          {i + 1}. {q.question.length > 60 ? q.question.slice(0, 60) + '…' : q.question}
                         </p>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-lg">
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[11px] font-bold text-white bg-[#111] w-5 h-5 rounded-full flex items-center justify-center font-label">
                             {String.fromCharCode(65 + q.answer)}
                           </span>
                           {q.explanation && (
-                            <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-lg">exp</span>
+                            <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-label">exp</span>
                           )}
-                          <span className="text-gray-400 text-xs">{expandedQuestion === q.firestoreId ? '▲' : '▼'}</span>
+                          <span className="text-[#CCC] text-xs">{expandedQuestion === q.firestoreId ? '▲' : '▼'}</span>
                         </div>
                       </button>
 
                       {expandedQuestion === q.firestoreId && (
-                        <div className="px-3 pb-3 border-t border-gray-100">
-                          <p className="text-sm text-gray-900 font-medium mt-2 mb-3">{q.question}</p>
+                        <div className="px-3 pb-3 border-t border-[#F0F0F0]">
+                          <p className="text-xs text-[#111] font-semibold font-body mt-2 mb-3 leading-snug">{q.question}</p>
                           <div className="grid grid-cols-2 gap-1 mb-3">
                             {q.options.map((opt, oi) => (
-                              <p key={oi} className={`text-xs px-2 py-1.5 rounded-lg ${
-                                oi === q.answer
-                                  ? 'bg-green-100 text-green-700 font-semibold'
-                                  : 'bg-gray-50 text-gray-500'
+                              <p key={oi} className={`text-xs px-2.5 py-1.5 rounded-lg font-label ${
+                                oi === q.answer ? 'bg-green-100 text-green-700 font-semibold' : 'bg-[#F8F8F7] text-[#888]'
                               }`}>
-                                {String.fromCharCode(65 + oi)}. {opt}
-                                {oi === q.answer && ' ✓'}
+                                {String.fromCharCode(65 + oi)}. {opt}{oi === q.answer && ' ✓'}
                               </p>
                             ))}
                           </div>
                           {q.explanation && (
-                            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-3">
-                              <p className="text-xs text-blue-700 font-medium mb-1">Explanation</p>
-                              <p className="text-xs text-blue-600">{q.explanation}</p>
+                            <div className="bg-blue-50 border border-blue-100 rounded-xl p-2.5 mb-3">
+                              <p className="text-[10px] font-bold text-blue-700 font-label mb-0.5">Explanation</p>
+                              <p className="text-xs text-blue-600 font-label">{q.explanation}</p>
                             </div>
                           )}
                           <div className="flex gap-2">
-                            <button
-                              onClick={() => handleEdit(q)}
-                              className="flex-1 text-blue-600 text-xs border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50 transition-colors"
-                            >
+                            <button onClick={() => handleEdit(q)} className="flex-1 text-blue-600 text-xs border border-blue-100 rounded-lg px-3 py-2 hover:bg-blue-50 font-label transition-colors">
                               ✏️ Edit
                             </button>
-                            <button
-                              onClick={() => handleDelete(q.firestoreId)}
-                              className="flex-1 text-red-500 text-xs border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 transition-colors"
-                            >
+                            <button onClick={() => handleDelete(q.firestoreId)} className="flex-1 text-red-500 text-xs border border-red-100 rounded-lg px-3 py-2 hover:bg-red-50 font-label transition-colors">
                               🗑️ Delete
                             </button>
                           </div>
@@ -623,80 +654,89 @@ export default function Admin({ setView }) {
           </div>
         )}
 
+        {/* ── TOPICS ── */}
         {tab === 'topics' && (
           <div>
-            <div className="bg-gray-900 text-white rounded-2xl p-5 mb-5">
-              <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">Active Quiz Week</p>
-              <p className="text-sm text-gray-300 mb-4">
-                Controls which week students see when they take the quiz.
+            {/* Active week control */}
+            <div className="bg-[#111] text-white rounded-2xl p-5 mb-5">
+              <p className="text-[10px] font-semibold text-[#666] uppercase tracking-[0.2em] font-label mb-0.5">
+                Active Quiz Week
               </p>
-              <div className="grid grid-cols-4 gap-2">
+              <p className="text-xs text-[#666] mb-4 font-label">
+                Controls which week students quiz on.
+              </p>
+              <div className="grid grid-cols-4 gap-2 mb-3">
                 {WEEKS.map((w) => (
                   <button
                     key={w}
                     onClick={() => handleSetActiveWeek(w)}
-                    className={`py-2 rounded-xl text-sm font-semibold transition-colors ${
-                      activeWeek === w
-                        ? 'bg-white text-gray-900'
-                        : 'bg-white/10 text-white hover:bg-white/20'
+                    className={`py-2.5 rounded-xl text-sm font-bold transition-all font-display ${
+                      activeWeek === w ? 'bg-white text-[#111]' : 'bg-white/10 text-white hover:bg-white/20'
                     }`}
                   >
-                    {w}
+                    {w.replace('Week ', 'W')}
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-gray-400 mt-3">
-                Currently active: <span className="text-white font-semibold">{activeWeek}</span>
+              <p className="text-[11px] text-[#555] font-label">
+                Active: <span className="text-white font-semibold">{activeWeek}</span>
               </p>
-              {success && <p className="text-green-400 text-xs mt-2">{success}</p>}
+              {success && <p className="text-green-400 text-xs mt-2 font-label">{success}</p>}
             </div>
 
-            <div className="mb-5">
-              <label className="text-xs text-gray-500 block mb-1">Select Week for Topics</label>
+            {/* Topic week selector */}
+            <div className="mb-4">
+              <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">Set Topics for Week</label>
               <select
                 value={topicWeek}
                 onChange={(e) => setTopicWeek(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400 bg-white"
+                className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white"
               >
                 {WEEKS.map((w) => <option key={w} value={w}>{w}</option>)}
               </select>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
-              <p className="text-sm font-semibold text-gray-900 mb-1">Topics for {topicWeek}</p>
-              <p className="text-xs text-gray-400 mb-4">
-                Students will see these after completing their quiz as next week's topics to revise.
+            {/* Topic inputs */}
+            <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mb-4">
+              <p className="text-sm font-bold text-[#111] font-display mb-1">Topics for {topicWeek}</p>
+              <p className="text-xs text-[#AAA] font-label mb-4">
+                Shown to students after completing their quiz as next week's revision guide.
               </p>
               <div className="space-y-3">
                 {SUBJECTS.map((subject) => (
                   <div key={subject}>
-                    <label className="text-xs text-gray-500 block mb-1">{subject}</label>
+                    <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">{subject}</label>
                     <input
                       value={topicInputs[subject] || ''}
                       onChange={(e) => setTopicInputs({ ...topicInputs, [subject]: e.target.value })}
-                      placeholder="e.g. Vectors, Adaptation..."
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400"
+                      placeholder="e.g. Vectors, Adaptation…"
+                      className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111]"
                     />
                   </div>
                 ))}
               </div>
-              {topicSuccess && <p className="text-green-600 text-xs mt-3">{topicSuccess}</p>}
+              {topicSuccess && (
+                <div className="mt-3 px-3.5 py-2 bg-green-50 border border-green-100 rounded-xl">
+                  <p className="text-green-600 text-xs font-label">{topicSuccess}</p>
+                </div>
+              )}
               <button
                 onClick={handleSaveTopics}
-                className="w-full mt-4 bg-gray-900 text-white rounded-xl py-3 text-sm font-semibold hover:bg-gray-700 transition-colors"
+                className="w-full mt-4 bg-[#111] text-white rounded-xl py-3 text-sm font-bold hover:bg-[#222] transition-colors font-display"
               >
                 Save Topics for {topicWeek}
               </button>
             </div>
 
-            {Object.keys(topics).length > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
-                <p className="text-sm font-semibold text-blue-900 mb-3">Saved Topics — {topicWeek}</p>
+            {/* Saved topics preview */}
+            {Object.keys(topics).some((k) => topics[k]) && (
+              <div className="bg-[#F3F3F2] border border-[#EBEBEB] rounded-2xl p-4">
+                <p className="text-xs font-bold text-[#555] font-display mb-3">Saved — {topicWeek}</p>
                 <div className="space-y-2">
                   {Object.entries(topics).map(([subject, topic]) => topic ? (
                     <div key={subject} className="flex justify-between items-center">
-                      <p className="text-xs text-blue-700 font-medium">{subject}</p>
-                      <p className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-lg">{topic}</p>
+                      <p className="text-xs text-[#555] font-body">{subject}</p>
+                      <p className="text-xs font-semibold text-[#111] bg-white border border-[#E5E5E5] px-2.5 py-1 rounded-lg font-label">{topic}</p>
                     </div>
                   ) : null)}
                 </div>

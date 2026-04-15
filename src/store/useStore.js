@@ -76,6 +76,10 @@ async function editQuestion(firestoreId, data) {
   await updateDoc(doc(db, 'questions', firestoreId), cleanData)
 }
 
+async function deleteStudent(id) {
+  await deleteDoc(doc(db, 'students', id))
+}
+
 async function deleteQuestion(firestoreId) {
   await deleteDoc(doc(db, 'questions', firestoreId))
 }
@@ -195,6 +199,7 @@ export {
   save,
   registerStudent,
   updateStudent,
+  deleteStudent,
   findStudent,
   listenStudents,
   addQuestion,

@@ -5,7 +5,6 @@ export default function Results({ student, lastScore, setView }) {
   const [scores, setScores] = useState([])
   const [filter, setFilter] = useState('all')
   const [expandedScore, setExpandedScore] = useState(lastScore ? 'latest' : null)
-  const [showCorrections, setShowCorrections] = useState(false)
 
   useEffect(() => {
     const unsubscribe = listenScores((allScores) => {
@@ -21,9 +20,9 @@ export default function Results({ student, lastScore, setView }) {
 
   const getGrade = (score, outOf) => {
     const pct = outOf ? (score / outOf) * 100 : 0
-    if (pct >= 70) return { label: 'Excellent', color: 'text-green-600', bg: 'bg-green-50 border-green-200', bar: 'bg-green-500' }
-    if (pct >= 50) return { label: 'Pass', color: 'text-yellow-600', bg: 'bg-yellow-50 border-yellow-200', bar: 'bg-yellow-500' }
-    return { label: 'Fail', color: 'text-red-500', bg: 'bg-red-50 border-red-200', bar: 'bg-red-500' }
+    if (pct >= 70) return { label: 'Excellent', color: 'text-green-600', bg: 'bg-green-50 border-green-100', bar: 'bg-green-500' }
+    if (pct >= 50) return { label: 'Pass', color: 'text-yellow-600', bg: 'bg-yellow-50 border-yellow-100', bar: 'bg-yellow-500' }
+    return { label: 'Fail', color: 'text-red-500', bg: 'bg-red-50 border-red-100', bar: 'bg-red-500' }
   }
 
   const getTotalScore = () => {
@@ -32,9 +31,11 @@ export default function Results({ student, lastScore, setView }) {
     scores.forEach((s) => { if (!bySubject[s.subject]) bySubject[s.subject] = s })
     const subjects = Object.values(bySubject)
     if (subjects.length < 4) return null
-    const total = subjects.slice(0, 4).reduce((a, s) => a + s.score, 0)
-    const totalOut = subjects.slice(0, 4).reduce((a, s) => a + (s.outOf || 160), 0)
-    return { total, totalOut }
+    const top4 = subjects.slice(0, 4)
+    return {
+      total: top4.reduce((a, s) => a + s.score, 0),
+      totalOut: top4.reduce((a, s) => a + (s.outOf || 160), 0),
+    }
   }
 
   const totalScore = getTotalScore()
@@ -49,21 +50,21 @@ export default function Results({ student, lastScore, setView }) {
           const isSkipped = studentAns === null
           return (
             <div key={i} className={`rounded-xl p-3 border ${
-              isCorrect ? 'bg-green-50 border-green-200' :
-              isSkipped ? 'bg-gray-50 border-gray-200' :
-              'bg-red-50 border-red-200'
+              isCorrect ? 'bg-green-50 border-green-100' :
+              isSkipped ? 'bg-[#F8F8F7] border-[#EBEBEB]' :
+              'bg-red-50 border-red-100'
             }`}>
-              <p className="text-sm font-medium text-gray-900 mb-2">
+              <p className="text-xs font-semibold text-[#111] mb-2 font-body leading-snug">
                 {i + 1}. {q.question}
               </p>
               <div className="space-y-1 mb-2">
                 {q.options.map((opt, oi) => (
-                  <p key={oi} className={`text-xs px-2 py-1 rounded-lg ${
+                  <p key={oi} className={`text-xs px-2.5 py-1.5 rounded-lg font-label ${
                     oi === q.answer
                       ? 'bg-green-200 text-green-800 font-semibold'
                       : oi === studentAns && !isCorrect
                       ? 'bg-red-200 text-red-800'
-                      : 'text-gray-500'
+                      : 'text-[#888]'
                   }`}>
                     {String.fromCharCode(65 + oi)}. {opt}
                     {oi === q.answer && ' ✓'}
@@ -71,13 +72,11 @@ export default function Results({ student, lastScore, setView }) {
                   </p>
                 ))}
               </div>
-              {isSkipped && (
-                <p className="text-xs text-gray-400">You skipped this question</p>
-              )}
+              {isSkipped && <p className="text-[11px] text-[#AAA] font-label">You skipped this</p>}
               {q.explanation && (
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-2 mt-2">
-                  <p className="text-xs text-blue-700 font-medium mb-0.5">Explanation</p>
-                  <p className="text-xs text-blue-600">{q.explanation}</p>
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-2.5 mt-2">
+                  <p className="text-[10px] font-bold text-blue-700 font-label mb-0.5">Explanation</p>
+                  <p className="text-xs text-blue-600 font-label leading-relaxed">{q.explanation}</p>
                 </div>
               )}
             </div>
@@ -88,69 +87,82 @@ export default function Results({ student, lastScore, setView }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-lg mx-auto">
+    <div className="min-h-screen bg-[#F8F8F7]">
+      <div className="max-w-md mx-auto px-4 pb-10">
 
-        <div className="flex items-center gap-3 py-6">
+        {/* Header */}
+        <div className="flex items-center gap-3 pt-8 pb-5">
           <button
             onClick={() => setView('dashboard')}
-            className="text-gray-400 hover:text-gray-600 text-sm"
+            className="text-[#888] hover:text-[#111] text-sm font-label transition-colors"
           >
             ← Back
           </button>
-          <h2 className="text-xl font-bold text-gray-900">My Results</h2>
+          <h2 className="text-xl font-bold text-[#111] font-display">My Results</h2>
         </div>
 
+        {/* JAMB Total Score */}
         {totalScore && (
-          <div className="bg-gray-900 text-white rounded-2xl p-5 mb-4 text-center">
-            <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">JAMB Total Score</p>
-            <p className="text-5xl font-bold">{totalScore.total}</p>
-            <p className="text-gray-400 text-sm mt-1">out of 400</p>
-            <div className="w-full bg-white/10 rounded-full h-2 mt-3">
+          <div className="bg-[#111] text-white rounded-2xl p-5 mb-4">
+            <p className="text-[10px] font-semibold text-[#666] uppercase tracking-[0.2em] font-label mb-1">
+              JAMB Total Score
+            </p>
+            <div className="flex items-end gap-2 mb-1">
+              <span className="text-5xl font-bold font-display">{totalScore.total}</span>
+              <span className="text-[#555] text-lg mb-1 font-label">/ {totalScore.totalOut}</span>
+            </div>
+            <div className="w-full bg-white/10 rounded-full h-1.5 mt-3 mb-1.5">
               <div
-                className="h-2 rounded-full bg-white transition-all"
-                style={{ width: `${Math.min((totalScore.total / 400) * 100, 100)}%` }}
+                className="h-1.5 rounded-full bg-white transition-all"
+                style={{ width: `${Math.min((totalScore.total / totalScore.totalOut) * 100, 100)}%` }}
               />
             </div>
-            <p className={`text-sm font-bold mt-2 ${
-              totalScore.total >= 250 ? 'text-green-400' :
-              totalScore.total >= 180 ? 'text-yellow-400' : 'text-red-400'
-            }`}>
-              {totalScore.total >= 250 ? 'Strong Performance' :
-               totalScore.total >= 180 ? 'Average' : 'Needs Improvement'}
-            </p>
+            <div className="flex justify-between">
+              <p className="text-[11px] text-[#555] font-label">
+                {Math.round((totalScore.total / totalScore.totalOut) * 100)}%
+              </p>
+              <p className={`text-[11px] font-bold font-label ${
+                totalScore.total >= 250 ? 'text-green-400' :
+                totalScore.total >= 180 ? 'text-yellow-400' : 'text-red-400'
+              }`}>
+                {totalScore.total >= 250 ? 'Strong Performance' :
+                 totalScore.total >= 180 ? 'Average' : 'Needs Improvement'}
+              </p>
+            </div>
           </div>
         )}
 
+        {/* Summary stats */}
         {scores.length > 0 && (
-          <div className="bg-white border border-gray-200 rounded-2xl p-4 mb-4">
-            <p className="text-sm font-semibold text-gray-900 mb-3">Summary</p>
+          <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
+            <p className="text-xs font-bold text-[#888] uppercase tracking-wide font-label mb-3">Overview</p>
             <div className="grid grid-cols-3 gap-3">
               <div className="text-center">
-                <p className="text-2xl font-bold text-gray-900">{scores.length}</p>
-                <p className="text-xs text-gray-400">Attempts</p>
+                <p className="text-2xl font-bold text-[#111] font-display">{scores.length}</p>
+                <p className="text-[10px] text-[#AAA] font-label mt-0.5">Attempts</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-green-600">
+                <p className="text-2xl font-bold text-[#111] font-display">
                   {Math.round(scores.reduce((a, s) => a + s.score, 0) / scores.length)}
                 </p>
-                <p className="text-xs text-gray-400">Avg Marks</p>
+                <p className="text-[10px] text-[#AAA] font-label mt-0.5">Avg Score</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="text-2xl font-bold text-[#111] font-display">
                   {Math.max(...scores.map((s) => s.score))}
                 </p>
-                <p className="text-xs text-gray-400">Best Score</p>
+                <p className="text-[10px] text-[#AAA] font-label mt-0.5">Best</p>
               </div>
             </div>
           </div>
         )}
 
-        <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+        {/* Subject filter */}
+        <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
           <button
             onClick={() => setFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-              filter === 'all' ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600'
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors font-label ${
+              filter === 'all' ? 'bg-[#111] text-white' : 'bg-white border border-[#E5E5E5] text-[#555] hover:border-[#AAA]'
             }`}
           >
             All
@@ -159,8 +171,8 @@ export default function Results({ student, lastScore, setView }) {
             <button
               key={s}
               onClick={() => setFilter(s)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                filter === s ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600'
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors font-label ${
+                filter === s ? 'bg-[#111] text-white' : 'bg-white border border-[#E5E5E5] text-[#555] hover:border-[#AAA]'
               }`}
             >
               {s}
@@ -168,56 +180,64 @@ export default function Results({ student, lastScore, setView }) {
           ))}
         </div>
 
+        {/* Results list */}
         {filtered.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center">
-            <p className="text-gray-400 text-sm">No results yet</p>
+          <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
+            <p className="text-[#CCC] text-sm font-label">No results yet</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {filtered.map((s, i) => {
               const grade = getGrade(s.score, s.outOf)
               const outOf = s.outOf || 160
               const pct = Math.round((s.score / outOf) * 100)
               const isExpanded = expandedScore === s.id || (i === 0 && expandedScore === 'latest')
               return (
-                <div key={i} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                  <button
-                    onClick={() => setExpandedScore(isExpanded ? null : (s.id || i))}
-                    className="w-full p-4 text-left hover:bg-gray-50 transition-colors"
-                  >
+                <div key={i} className="bg-white border border-[#EBEBEB] rounded-xl overflow-hidden">
+                  {/* Score summary row */}
+                  <div className="p-4">
                     <div className="flex justify-between items-start mb-2">
                       <div>
-                        <p className="text-sm font-semibold text-gray-900">{s.subject}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">
+                        <p className="text-sm font-bold text-[#111] font-body">{s.subject}</p>
+                        <p className="text-[10px] text-[#AAA] font-label mt-0.5">
                           {s.week} · {new Date(s.date).toLocaleDateString('en-NG')}
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className={`text-xl font-bold ${grade.color}`}>{s.score}</p>
-                        <p className="text-xs text-gray-400">/ {outOf}</p>
+                        <p className={`text-xl font-bold font-display ${grade.color}`}>{s.score}</p>
+                        <p className="text-[10px] text-[#AAA] font-label">/ {outOf}</p>
                       </div>
                     </div>
-                    <div className="flex gap-3 mb-2">
-                      <span className="text-xs text-green-600">{s.correct} correct (+{s.correct * 4})</span>
-                      <span className="text-xs text-red-500">{s.wrong || 0} wrong (-{s.wrong || 0})</span>
-                      <span className="text-xs text-gray-400">{s.unanswered || 0} skipped</span>
+
+                    <div className="flex gap-3 mb-2.5">
+                      <span className="text-[11px] text-green-600 font-label font-semibold">{s.correct} correct (+{s.correct * 4})</span>
+                      <span className="text-[11px] text-red-500 font-label font-semibold">{s.wrong || 0} wrong (−{s.wrong || 0})</span>
+                      <span className="text-[11px] text-[#AAA] font-label">{s.unanswered || 0} skipped</span>
                     </div>
-                    <div className="w-full bg-gray-100 rounded-full h-1.5">
-                      <div
-                        className={`h-1.5 rounded-full ${grade.bar}`}
-                        style={{ width: `${Math.min(pct, 100)}%` }}
-                      />
+
+                    <div className="w-full bg-[#F3F3F2] rounded-full h-1 mb-3">
+                      <div className={`h-1 rounded-full ${grade.bar}`} style={{ width: `${Math.min(pct, 100)}%` }} />
                     </div>
-                    <div className="flex justify-between mt-1">
-                      <p className={`text-xs font-medium ${grade.color}`}>{grade.label}</p>
-                      <p className="text-xs text-gray-400">
-                        {s.questions ? (isExpanded ? '▲ Hide corrections' : '▼ View corrections') : ''}
-                      </p>
+
+                    <div className="flex items-center justify-between">
+                      <p className={`text-[11px] font-bold font-label ${grade.color}`}>{grade.label} · {pct}%</p>
+                      {s.questions && (
+                        <button
+                          onClick={() => setExpandedScore(isExpanded ? null : (s.id || i))}
+                          className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors font-label ${
+                            isExpanded
+                              ? 'bg-[#111] text-white border-[#111]'
+                              : 'bg-white text-[#555] border-[#E5E5E5] hover:border-[#111] hover:text-[#111]'
+                          }`}
+                        >
+                          {isExpanded ? '▲ Hide Corrections' : '▼ View Corrections'}
+                        </button>
+                      )}
                     </div>
-                  </button>
+                  </div>
 
                   {isExpanded && s.questions && (
-                    <div className="px-4 pb-4 border-t border-gray-100">
+                    <div className="px-4 pb-4 border-t border-[#F3F3F2]">
                       {renderCorrections(s)}
                     </div>
                   )}
@@ -229,7 +249,7 @@ export default function Results({ student, lastScore, setView }) {
 
         <button
           onClick={() => setView('dashboard')}
-          className="w-full mt-6 border border-gray-200 rounded-xl py-3 text-sm text-gray-600 hover:bg-gray-100 transition-colors"
+          className="w-full mt-5 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label"
         >
           Back to Dashboard
         </button>

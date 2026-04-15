@@ -19,23 +19,14 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
     const trimmed = name.trim()
     if (trimmed.length < 3) { setErr('Enter your full name'); return }
     if (!password) { setErr('Enter your password'); return }
-    setLoading(true)
-    setErr('')
+    setLoading(true); setErr('')
     try {
       const existing = await findStudent(trimmed)
-      if (!existing) {
-        setErr('Name not found. Please register first.')
-        setLoading(false)
-        return
-      }
-      if (existing.password !== password) {
-        setErr('Wrong password. Try again.')
-        setLoading(false)
-        return
-      }
+      if (!existing) { setErr('Name not found. Please register first.'); setLoading(false); return }
+      if (existing.password !== password) { setErr('Wrong password. Try again.'); setLoading(false); return }
       setStudent(existing)
       setView(existing.subjects?.length ? 'dashboard' : 'subjects')
-    } catch (e) {
+    } catch {
       setErr('Connection error. Check your internet.')
     }
     setLoading(false)
@@ -46,197 +37,208 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
     if (trimmed.length < 3) { setErr('Enter your full name (at least 3 characters)'); return }
     if (password.length < 4) { setErr('Password must be at least 4 characters'); return }
     if (password !== confirmPassword) { setErr('Passwords do not match'); return }
-    setLoading(true)
-    setErr('')
+    setLoading(true); setErr('')
     try {
       const existing = await findStudent(trimmed)
-      if (existing) {
-        setErr('This name is already registered. Please login instead.')
-        setLoading(false)
-        return
-      }
-      const newStudent = {
-        name: trimmed,
-        password,
-        year,
-        subjects: [],
-        joinedAt: new Date().toISOString(),
-      }
+      if (existing) { setErr('This name is already registered. Please sign in.'); setLoading(false); return }
+      const newStudent = { name: trimmed, password, year, subjects: [], joinedAt: new Date().toISOString() }
       const saved = await registerStudent(newStudent)
-      if (!saved) {
-        setErr('Name already exists. Please login.')
-        setLoading(false)
-        return
-      }
+      if (!saved) { setErr('Name already exists. Please sign in.'); setLoading(false); return }
       setStudent(saved)
       setView('subjects')
-    } catch (e) {
+    } catch {
       setErr('Connection error. Check your internet.')
     }
     setLoading(false)
   }
 
   const handleAdmin = () => {
-    if (adminPw === 'jamb2024') {
-      setAdminAuthed(true)
-      setView('admin')
-    } else {
-      setErr('Wrong password')
-    }
+    if (adminPw === 'jamb2024') { setAdminAuthed(true); setView('admin') }
+    else setErr('Wrong password')
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 w-full max-w-md p-8">
+    <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
 
+        {/* Header */}
         <div className="text-center mb-8">
-          <div className="text-xs tracking-widest text-gray-400 uppercase mb-2">Adeola Memorial College</div>
-          <h1 className="text-3xl font-bold text-gray-900">JAMB Weekly Quiz</h1>
-          <p className="text-gray-500 mt-2 text-sm">Every Friday · 5:00pm – 6:00pm login window</p>
+          <p className="text-[10px] tracking-[0.25em] text-[#888] uppercase mb-3 font-label">
+            Adeola Memorial College
+          </p>
+          <h1 className="text-[2.25rem] font-bold text-[#111] leading-[1.1] tracking-tight font-display">
+            JAMB Weekly Quiz
+          </h1>
+          <p className="text-sm text-[#888] mt-2.5 font-label">
+            Every Friday · 5:00 pm – 6:00 pm
+          </p>
         </div>
 
-        <div className="flex border-b border-gray-200 mb-6">
-          {['student', 'admin'].map((t) => (
-            <button
-              key={t}
-              onClick={() => { setTab(t); setErr('') }}
-              className={`flex-1 pb-3 text-sm font-medium transition-colors ${
-                tab === t
-                  ? 'border-b-2 border-gray-900 text-gray-900'
-                  : 'text-gray-400 hover:text-gray-600'
-              }`}
-            >
-              {t === 'student' ? 'Student' : 'Admin'}
-            </button>
-          ))}
-        </div>
+        {/* Card */}
+        <div className="bg-white rounded-2xl border border-[#EBEBEB] shadow-sm overflow-hidden">
 
-        {tab === 'student' && (
-          <div>
-            <div className="flex gap-2 mb-5">
-              {['login', 'register'].map((m) => (
+          {/* Tab bar */}
+          <div className="flex border-b border-[#EBEBEB]">
+            {['student', 'admin'].map((t) => (
+              <button
+                key={t}
+                onClick={() => { setTab(t); setErr('') }}
+                className={`flex-1 py-3.5 text-xs font-semibold tracking-wide uppercase transition-all font-label ${
+                  tab === t
+                    ? 'text-[#111] border-b-2 border-[#111]'
+                    : 'text-[#AAA] hover:text-[#666]'
+                }`}
+              >
+                {t === 'student' ? 'Student' : 'Admin'}
+              </button>
+            ))}
+          </div>
+
+          <div className="p-6">
+            {tab === 'student' && (
+              <div>
+                {/* Mode toggle */}
+                <div className="flex gap-1 p-1 bg-[#F3F3F2] rounded-xl mb-5">
+                  {['login', 'register'].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => { setMode(m); setErr('') }}
+                      className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all font-label ${
+                        mode === m
+                          ? 'bg-white text-[#111] shadow-sm'
+                          : 'text-[#999] hover:text-[#555]'
+                      }`}
+                    >
+                      {m === 'login' ? 'Sign In' : 'Register'}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="space-y-3.5">
+                  <div>
+                    <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                      Full Name
+                    </label>
+                    <input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. Chukwuemeka Okafor"
+                      className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                    />
+                  </div>
+
+                  {mode === 'register' && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        JAMB Year
+                      </label>
+                      <select
+                        value={year}
+                        onChange={(e) => setYear(e.target.value)}
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white transition-colors"
+                      >
+                        {years.map((y) => (
+                          <option key={y} value={y}>{y === 'SS3' ? 'SS3 (Current)' : y}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && mode === 'login' && handleLogin()}
+                      placeholder={mode === 'register' ? 'Minimum 4 characters' : '••••••••'}
+                      className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                    />
+                  </div>
+
+                  {mode === 'register' && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Confirm Password
+                      </label>
+                      <input
+                        type="password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
+                        placeholder="Repeat your password"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {err && (
+                  <div className="mt-3 px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
+                    <p className="text-red-600 text-xs font-label">{err}</p>
+                  </div>
+                )}
+
                 <button
-                  key={m}
-                  onClick={() => { setMode(m); setErr('') }}
-                  className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
-                    mode === m
-                      ? 'bg-gray-900 text-white'
-                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  onClick={mode === 'login' ? handleLogin : handleRegister}
+                  disabled={loading}
+                  className={`w-full mt-4 rounded-xl py-3.5 text-sm font-bold tracking-wide transition-all active:scale-[0.99] font-display ${
+                    loading
+                      ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
+                      : 'bg-[#111] text-white hover:bg-[#222]'
                   }`}
                 >
-                  {m === 'login' ? 'Login' : 'Register'}
+                  {loading ? 'Please wait…' : mode === 'login' ? 'Sign In →' : 'Create Account →'}
                 </button>
-              ))}
-            </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">Full Name</label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Chukwuemeka Okafor"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400"
-                />
-              </div>
-
-              {mode === 'register' && (
-                <div>
-                  <label className="text-xs text-gray-500 block mb-1">JAMB Year</label>
-                  <select
-                    value={year}
-                    onChange={(e) => setYear(e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400 bg-white"
+                <p className="text-xs text-[#AAA] text-center mt-3 font-label">
+                  {mode === 'login' ? 'No account? ' : 'Already registered? '}
+                  <button
+                    onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setErr('') }}
+                    className="text-[#111] font-semibold underline underline-offset-2"
                   >
-                    {years.map((y) => (
-                      <option key={y} value={y}>{y === 'SS3' ? 'SS3 (Current)' : y}</option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-gray-400 mt-1">Select the year you plan to sit JAMB</p>
-                </div>
-              )}
-
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && mode === 'login' && handleLogin()}
-                  placeholder={mode === 'register' ? 'Create a password (min 4 characters)' : 'Enter your password'}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400"
-                />
+                    {mode === 'login' ? 'Register here' : 'Sign in'}
+                  </button>
+                </p>
               </div>
+            )}
 
-              {mode === 'register' && (
-                <div>
-                  <label className="text-xs text-gray-500 block mb-1">Confirm Password</label>
+            {tab === 'admin' && (
+              <div>
+                <div className="mb-4">
+                  <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                    Admin Password
+                  </label>
                   <input
                     type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
-                    placeholder="Repeat your password"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400"
+                    value={adminPw}
+                    onChange={(e) => setAdminPw(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdmin()}
+                    placeholder="••••••••"
+                    className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
                   />
                 </div>
-              )}
-            </div>
-
-            {err && <p className="text-red-500 text-xs mt-3">{err}</p>}
-
-            <button
-              onClick={mode === 'login' ? handleLogin : handleRegister}
-              disabled={loading}
-              className={`w-full mt-4 rounded-xl py-3 text-sm font-semibold transition-colors ${
-                loading
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-gray-900 text-white hover:bg-gray-700'
-              }`}
-            >
-              {loading ? 'Please wait...' : mode === 'login' ? 'Login →' : 'Register →'}
-            </button>
-
-            {mode === 'login' && (
-              <p className="text-xs text-gray-400 text-center mt-3">
-                No account?{' '}
-                <button onClick={() => { setMode('register'); setErr('') }} className="text-gray-600 underline">
-                  Register here
+                {err && (
+                  <div className="mb-3 px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
+                    <p className="text-red-600 text-xs font-label">{err}</p>
+                  </div>
+                )}
+                <button
+                  onClick={handleAdmin}
+                  className="w-full bg-[#111] text-white rounded-xl py-3.5 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display"
+                >
+                  Access Admin →
                 </button>
-              </p>
-            )}
-            {mode === 'register' && (
-              <p className="text-xs text-gray-400 text-center mt-3">
-                Already registered?{' '}
-                <button onClick={() => { setMode('login'); setErr('') }} className="text-gray-600 underline">
-                  Login here
-                </button>
-              </p>
+              </div>
             )}
           </div>
-        )}
+        </div>
 
-        {tab === 'admin' && (
-          <div>
-            <label className="text-sm text-gray-500 block mb-2">Admin Password</label>
-            <input
-              type="password"
-              value={adminPw}
-              onChange={(e) => setAdminPw(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdmin()}
-              placeholder="Enter password"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400"
-            />
-            {err && <p className="text-red-500 text-xs mt-2">{err}</p>}
-            <button
-              onClick={handleAdmin}
-              className="w-full mt-4 bg-gray-900 text-white rounded-xl py-3 text-sm font-semibold hover:bg-gray-700 transition-colors"
-            >
-              Login as Admin →
-            </button>
-          </div>
-        )}
-
+        <p className="text-center text-[11px] text-[#CCC] mt-6 font-label">
+          Adeola Memorial College · JAMB Prep
+        </p>
       </div>
     </div>
   )
