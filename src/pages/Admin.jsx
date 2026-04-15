@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon } from '@hugeicons/core-free-icons'
 import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics, saveQuestionLimit, getQuestionLimit, setActiveWeek, getActiveWeek, updateStudent, deleteStudent } from '../store/useStore'
 
 export default function Admin({ setView }) {
@@ -174,8 +176,38 @@ export default function Admin({ setView }) {
     if (!grp.length) return null
     const grpScores = scores.filter((sc) => grp.find((s) => s.id === sc.studentId))
     const avg = grpScores.length ? Math.round(grpScores.reduce((a, b) => a + b.score, 0) / grpScores.length) : 0
-    const top = grp.map((s) => ({ name: s.name, total: getTotalScore(s.id) })).filter((s) => s.total !== null).sort((a, b) => b.total - a.total).slice(0, 3)
-    return { count: grp.length, attempts: grpScores.length, avg, top }
+
+    // Overall top performers — students who have scores in all 4 of their subjects
+    const top = grp
+      .map((s) => ({ name: s.name, total: getTotalScore(s.id) }))
+      .filter((s) => s.total !== null)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 3)
+
+    // Per-subject top performers
+    const topBySubject = SUBJECTS.map((subject) => {
+      const subScores = grpScores.filter((sc) => sc.subject === subject)
+      if (!subScores.length) return null
+
+      // For each student, take their best score on this subject
+      const byStudent = {}
+      subScores.forEach((sc) => {
+        const student = grp.find((s) => s.id === sc.studentId)
+        if (!student) return
+        if (!byStudent[sc.studentId] || sc.score > byStudent[sc.studentId].score) {
+          byStudent[sc.studentId] = { name: student.name, score: sc.score, outOf: sc.outOf || 160 }
+        }
+      })
+
+      const ranked = Object.values(byStudent)
+        .map((s) => ({ ...s, pct: Math.round((s.score / s.outOf) * 100) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+
+      return { subject, ranked }
+    }).filter(Boolean).filter((s) => s.ranked.length > 0)
+
+    return { count: grp.length, attempts: grpScores.length, avg, top, topBySubject }
   }
 
   const TABS = ['students', 'stats', 'questions', 'topics']
@@ -255,26 +287,32 @@ export default function Admin({ setView }) {
                       {editingStudentId === student.id ? (
                         <div className="mb-3">
                           <p className="text-[10px] font-bold text-[#888] uppercase tracking-wide font-label mb-1.5">Edit Name</p>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 items-center">
                             <input
                               value={editNameValue}
                               onChange={(e) => { setEditNameValue(e.target.value); setEditNameErr('') }}
                               onKeyDown={(e) => e.key === 'Enter' && handleSaveName(student.id)}
-                              className="flex-1 border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] focus:outline-none focus:border-[#111]"
+                              className="flex-1 min-w-0 border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] focus:outline-none focus:border-[#111]"
                               autoFocus
                             />
                             <button
                               onClick={() => handleSaveName(student.id)}
                               disabled={editNameLoading}
-                              className="bg-[#111] text-white text-xs font-bold px-3 rounded-xl hover:bg-[#222] transition-colors font-label"
+                              title="Save"
+                              className="shrink-0 w-9 h-9 flex items-center justify-center bg-[#111] text-white rounded-xl hover:bg-[#222] transition-colors disabled:opacity-50"
                             >
-                              {editNameLoading ? '…' : 'Save'}
+                              {editNameLoading
+                                ? <span className="text-xs font-bold font-label">…</span>
+                                : <HugeiconsIcon icon={Tick01Icon} size={16} color="currentColor" />
+                              }
                             </button>
                             <button
+                              type="button"
                               onClick={() => { setEditingStudentId(null); setEditNameErr('') }}
-                              className="border border-[#E5E5E5] text-[#888] text-xs font-bold px-3 rounded-xl hover:bg-[#F8F8F7] transition-colors font-label"
+                              title="Cancel"
+                              className="shrink-0 w-9 h-9 flex items-center justify-center border border-[#E5E5E5] text-[#888] rounded-xl hover:bg-[#F8F8F7] hover:text-[#111] transition-colors"
                             >
-                              ✕
+                              <HugeiconsIcon icon={Cancel01Icon} size={16} color="currentColor" />
                             </button>
                           </div>
                           {editNameErr && <p className="text-red-500 text-xs mt-1.5 font-label">{editNameErr}</p>}
@@ -303,16 +341,16 @@ export default function Admin({ setView }) {
                             <button
                               onClick={() => startEditName(student)}
                               title="Rename student"
-                              className="w-7 h-7 flex items-center justify-center rounded-lg border border-[#E5E5E5] text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors text-sm"
+                              className="w-8 h-8 flex items-center justify-center rounded-xl border border-[#E5E5E5] text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors"
                             >
-                              ✏️
+                              <HugeiconsIcon icon={PencilEdit01Icon} size={15} color="currentColor" />
                             </button>
                             <button
                               onClick={() => handleDeleteStudent(student.id, student.name)}
                               title="Delete student"
-                              className="w-7 h-7 flex items-center justify-center rounded-lg border border-red-100 text-red-400 hover:bg-red-50 hover:border-red-200 transition-colors text-sm"
+                              className="w-8 h-8 flex items-center justify-center rounded-xl border border-red-100 text-red-400 hover:bg-red-50 hover:border-red-200 transition-colors"
                             >
-                              🗑️
+                              <HugeiconsIcon icon={Delete01Icon} size={15} color="currentColor" />
                             </button>
                           </div>
                         </div>
@@ -421,6 +459,44 @@ export default function Admin({ setView }) {
                             <p className="text-sm font-bold text-[#111] font-display">
                               {s.total}<span className="text-[10px] text-[#AAA] font-label">/400</span>
                             </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {stats.topBySubject && stats.topBySubject.length > 0 && (
+                    <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
+                      <p className="text-sm font-bold text-[#111] font-display mb-4">
+                        Top Performers by Subject {statsYear !== 'all' ? `— ${statsYear}` : ''}
+                      </p>
+                      <div className="space-y-5">
+                        {stats.topBySubject.map(({ subject, ranked }) => (
+                          <div key={subject}>
+                            <p className="text-[11px] font-bold text-[#888] uppercase tracking-[0.15em] font-label mb-2">{subject}</p>
+                            <div className="space-y-1.5">
+                              {ranked.map((s, i) => (
+                                <div key={i} className="flex justify-between items-center py-2 px-3 bg-[#F8F8F7] rounded-xl">
+                                  <div className="flex items-center gap-2.5">
+                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold font-display shrink-0 ${
+                                      i === 0 ? 'bg-yellow-100 text-yellow-700' :
+                                      i === 1 ? 'bg-[#E5E5E5] text-[#555]' :
+                                      'bg-orange-50 text-orange-600'
+                                    }`}>
+                                      {i + 1}
+                                    </span>
+                                    <p className="text-xs font-semibold text-[#111] font-body">{s.name}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="text-xs font-bold font-display text-[#111]">{s.score}</span>
+                                    <span className="text-[10px] text-[#AAA] font-label">/{s.outOf}</span>
+                                    <span className={`ml-2 text-[10px] font-bold font-label ${
+                                      s.pct >= 70 ? 'text-green-600' : s.pct >= 50 ? 'text-yellow-600' : 'text-red-500'
+                                    }`}>{s.pct}%</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         ))}
                       </div>
