@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { listenActiveWeek, listenScores } from '../store/useStore'
+import { listenActiveWeek, listenScores, getTopics } from '../store/useStore'
 
 function isQuizTime() {
   const now = new Date()
@@ -14,7 +14,6 @@ function getTimeUntilQuiz() {
   const now = new Date()
   const day = now.getDay()
   const h = now.getHours()
-  // If today is Friday and quiz hasn't started yet, count down to 5pm today
   const daysUntilFriday = (day === 5 && h < 17) ? 0 : ((5 - day + 7) % 7 || 7)
   const friday = new Date(now)
   friday.setDate(now.getDate() + daysUntilFriday)
@@ -26,11 +25,12 @@ function getTimeUntilQuiz() {
   return { days, hours, mins }
 }
 
-export default function Dashboard({ student, setView }) {
+export default function Dashboard({ student, setView, setSelectedSubjectDetail }) {
   const [quizTime, setQuizTime] = useState(isQuizTime())
   const [timeLeft, setTimeLeft] = useState(getTimeUntilQuiz())
   const [scores, setScores] = useState([])
   const [currentWeek, setCurrentWeek] = useState('Week 1')
+  const [weekTopics, setWeekTopics] = useState({})
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -46,6 +46,11 @@ export default function Dashboard({ student, setView }) {
     })
     return () => { clearInterval(t); unsubWeek(); unsubScores() }
   }, [student])
+
+  // Re-fetch topics whenever the active week changes
+  useEffect(() => {
+    getTopics(currentWeek).then((t) => setWeekTopics(t || {}))
+  }, [currentWeek])
 
   const todaySubjectsAttempted = scores
     .filter(
@@ -70,18 +75,28 @@ export default function Dashboard({ student, setView }) {
     }
   }
 
+  const getSubjectScore = (sub) => scores.find((s) => s.subject === sub) || null
+
+  const getSubjectPct = (sub) => {
+    const sc = getSubjectScore(sub)
+    if (!sc) return null
+    const outOf = sc.outOf || 160
+    return Math.round((sc.score / outOf) * 100)
+  }
+
   const totalScore = getTotalScore()
 
-  const getSubjectScore = (sub) => {
-    return scores.find((s) => s.subject === sub) || null
-  }
+  // Topics for this week filtered to student's subjects
+  const thisWeekTopics = student.subjects
+    .map((sub) => ({ subject: sub, topic: weekTopics[sub] || null }))
+    .filter((t) => t.topic)
 
   return (
     <div className="min-h-screen bg-[#F8F8F7]">
       <div className="max-w-md mx-auto px-4 pb-10">
 
         {/* Top bar */}
-        <div className="flex justify-between items-start pt-8 pb-6">
+        <div className="flex justify-between items-start pt-8 pb-5">
           <div>
             <p className="text-[11px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-0.5">
               Welcome back
@@ -103,7 +118,7 @@ export default function Dashboard({ student, setView }) {
           </button>
         </div>
 
-        {/* JAMB Total Score card */}
+        {/* JAMB Total Score */}
         {totalScore !== null && (
           <div className="bg-[#111] text-white rounded-2xl p-5 mb-4">
             <div className="flex justify-between items-start">
@@ -143,33 +158,77 @@ export default function Dashboard({ student, setView }) {
           </div>
         )}
 
-        {/* Subjects grid */}
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          {student.subjects.map((sub) => {
-            const sc = getSubjectScore(sub)
-            return (
-              <div key={sub} className="bg-white border border-[#EBEBEB] rounded-xl p-3.5">
-                <p className="text-[10px] font-semibold text-[#AAA] uppercase tracking-wide font-label mb-1">Subject</p>
-                <p className="text-xs font-bold text-[#111] leading-snug font-body mb-1">{sub}</p>
-                {sc ? (
-                  <p className={`text-xs font-bold font-label ${
-                    sc.score / (sc.outOf || 160) >= 0.7 ? 'text-green-600' :
-                    sc.score / (sc.outOf || 160) >= 0.5 ? 'text-yellow-600' : 'text-red-500'
-                  }`}>
-                    {sc.score}/{sc.outOf || 160}
-                  </p>
-                ) : (
-                  <p className="text-[10px] text-[#CCC] font-label">Not taken</p>
-                )}
+        {/* This week's topics — shown only when topics are set */}
+        {thisWeekTopics.length > 0 && (
+          <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
+            <div className="flex justify-between items-center mb-3">
+              <div>
+                <p className="text-sm font-bold text-[#111] font-display">Topics to Study</p>
+                <p className="text-[11px] text-[#AAA] font-label mt-0.5">{currentWeek} · Prepare before the quiz</p>
               </div>
-            )
-          })}
+              <span className="text-[10px] font-bold bg-[#111] text-white px-2.5 py-1 rounded-full font-label">
+                {currentWeek}
+              </span>
+            </div>
+            <div className="space-y-2">
+              {thisWeekTopics.map(({ subject, topic }) => (
+                <div key={subject} className="flex items-center gap-3 py-2 border-b border-[#F3F3F2] last:border-0">
+                  <div className="w-1.5 h-1.5 bg-[#111] rounded-full shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-bold text-[#888] uppercase tracking-wide font-label leading-none mb-0.5">{subject}</p>
+                    <p className="text-sm font-semibold text-[#111] font-body">{topic}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* My Subjects — clickable cards */}
+        <div className="mb-4">
+          <div className="flex justify-between items-center mb-2">
+            <p className="text-sm font-bold text-[#111] font-display">My Subjects</p>
+            <p className="text-[11px] text-[#AAA] font-label">Tap to see topic performance</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {student.subjects.map((sub) => {
+              const pct = getSubjectPct(sub)
+              return (
+                <button
+                  key={sub}
+                  onClick={() => { setSelectedSubjectDetail(sub); setView('subject-detail') }}
+                  className="bg-white border border-[#EBEBEB] rounded-xl p-3.5 text-left hover:border-[#111] hover:shadow-sm active:scale-[0.98] transition-all group"
+                >
+                  <p className="text-[10px] font-semibold text-[#AAA] uppercase tracking-wide font-label mb-1">Subject</p>
+                  <p className="text-xs font-bold text-[#111] leading-snug font-body mb-2">{sub}</p>
+                  {pct !== null ? (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className={`text-xs font-bold font-label ${
+                          pct >= 70 ? 'text-green-600' : pct >= 50 ? 'text-yellow-600' : 'text-red-500'
+                        }`}>{pct}%</p>
+                        <p className="text-[10px] text-[#CCC] font-label group-hover:text-[#111] transition-colors">→</p>
+                      </div>
+                      <div className="w-full bg-[#F3F3F2] rounded-full h-1">
+                        <div
+                          className={`h-1 rounded-full ${pct >= 70 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-400'}`}
+                          style={{ width: `${Math.min(pct, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-[#CCC] font-label">No test yet → </p>
+                  )}
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         {/* Quiz status */}
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mb-4">
           <div className="flex justify-between items-center mb-4">
-            <p className="text-sm font-bold text-[#111] font-display">This Week</p>
+            <p className="text-sm font-bold text-[#111] font-display">This Week's Quiz</p>
             <span className="text-[11px] font-semibold text-[#888] bg-[#F3F3F2] px-2.5 py-1 rounded-lg font-label">
               {currentWeek}
             </span>
@@ -204,7 +263,9 @@ export default function Dashboard({ student, setView }) {
                     onClick={() => setView('quiz')}
                     className="w-full bg-[#111] text-white rounded-xl py-3.5 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display"
                   >
-                    {todaySubjectsAttempted.length > 0 ? `Continue Quiz (${4 - todaySubjectsAttempted.length} left) →` : 'Start Quiz →'}
+                    {todaySubjectsAttempted.length > 0
+                      ? `Continue Quiz (${4 - todaySubjectsAttempted.length} left) →`
+                      : 'Start Quiz →'}
                   </button>
                 </>
               )}
