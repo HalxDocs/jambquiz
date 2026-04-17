@@ -68,7 +68,7 @@ export default function SubjectDetail({ student, subject, setView }) {
   }
 
   const getPct = (score) => {
-    const outOf = score.outOf || 160
+    const outOf = score.outOf || 100
     return outOf > 0 ? Math.round((score.score / outOf) * 100) : 0
   }
 
@@ -138,7 +138,7 @@ export default function SubjectDetail({ student, subject, setView }) {
               const grade = getGradeColor(pct)
               const topicName = getTopicName(score)
               const isExpanded = expandedId === score.id
-              const outOf = score.outOf || 160
+              const outOf = score.outOf || 100
 
               return (
                 <div key={score.id} className="bg-white border border-[#EBEBEB] rounded-xl overflow-hidden">

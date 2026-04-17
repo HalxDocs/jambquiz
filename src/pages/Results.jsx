@@ -34,7 +34,7 @@ export default function Results({ student, lastScore, setView }) {
     const top4 = subjects.slice(0, 4)
     return {
       total: top4.reduce((a, s) => a + s.score, 0),
-      totalOut: top4.reduce((a, s) => a + (s.outOf || 160), 0),
+      totalOut: top4.reduce((a, s) => a + (s.outOf || 100), 0),
     }
   }
 
@@ -189,7 +189,7 @@ export default function Results({ student, lastScore, setView }) {
           <div className="space-y-2.5">
             {filtered.map((s, i) => {
               const grade = getGrade(s.score, s.outOf)
-              const outOf = s.outOf || 160
+              const outOf = s.outOf || 100
               const pct = Math.round((s.score / outOf) * 100)
               const isExpanded = expandedScore === s.id || (i === 0 && expandedScore === 'latest')
               return (
@@ -210,8 +210,8 @@ export default function Results({ student, lastScore, setView }) {
                     </div>
 
                     <div className="flex gap-3 mb-2.5">
-                      <span className="text-[11px] text-green-600 font-label font-semibold">{s.correct} correct (+{s.correct * 4})</span>
-                      <span className="text-[11px] text-red-500 font-label font-semibold">{s.wrong || 0} wrong (−{s.wrong || 0})</span>
+                      <span className="text-[11px] text-green-600 font-label font-semibold">{s.correct} correct</span>
+                      <span className="text-[11px] text-red-500 font-label font-semibold">{s.wrong || 0} wrong</span>
                       <span className="text-[11px] text-[#AAA] font-label">{s.unanswered || 0} skipped</span>
                     </div>
 

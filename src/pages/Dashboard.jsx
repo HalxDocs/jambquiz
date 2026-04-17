@@ -71,7 +71,7 @@ export default function Dashboard({ student, setView, setSelectedSubjectDetail }
     const top4 = subjects.slice(0, 4)
     return {
       total: top4.reduce((a, s) => a + s.score, 0),
-      totalOut: top4.reduce((a, s) => a + (s.outOf || 160), 0),
+      totalOut: top4.reduce((a, s) => a + (s.outOf || 100), 0),
     }
   }
 
@@ -80,7 +80,7 @@ export default function Dashboard({ student, setView, setSelectedSubjectDetail }
   const getSubjectPct = (sub) => {
     const sc = getSubjectScore(sub)
     if (!sc) return null
-    const outOf = sc.outOf || 160
+    const outOf = sc.outOf || 100
     return Math.round((sc.score / outOf) * 100)
   }
 
@@ -319,12 +319,12 @@ export default function Dashboard({ student, setView, setSelectedSubjectDetail }
                   </div>
                   <div className="text-right">
                     <p className={`text-sm font-bold font-display ${
-                      s.score / (s.outOf || 160) >= 0.7 ? 'text-green-600' :
-                      s.score / (s.outOf || 160) >= 0.5 ? 'text-yellow-600' : 'text-red-500'
+                      s.score / (s.outOf || 100) >= 0.7 ? 'text-green-600' :
+                      s.score / (s.outOf || 100) >= 0.5 ? 'text-yellow-600' : 'text-red-500'
                     }`}>
                       {s.score}
                     </p>
-                    <p className="text-[10px] text-[#CCC] font-label">/{s.outOf || 160}</p>
+                    <p className="text-[10px] text-[#CCC] font-label">/{s.outOf || 100}</p>
                   </div>
                 </div>
               ))}

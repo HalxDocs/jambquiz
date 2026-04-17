@@ -131,8 +131,8 @@ export default function Quiz({ student, setView, setLastScore }) {
     })
 
     const rawMarks = correct * 4 - wrong * 1
-    const marks = Math.max(0, rawMarks)
-    const outOf = questions.length * 4
+    const maxRaw = questions.length * 4
+    const marks = Math.round((Math.max(0, rawMarks) / maxRaw) * 100)
 
     const result = {
       studentId: student.id,
@@ -140,7 +140,7 @@ export default function Quiz({ student, setView, setLastScore }) {
       subject: selectedSubject,
       week: currentWeek,
       score: marks,
-      outOf,
+      outOf: 100,
       correct,
       wrong,
       unanswered,
