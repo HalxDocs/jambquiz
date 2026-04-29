@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { load, save, addScore, getQuestions, getTopics, getQuestionLimit, listenActiveWeek } from '../store/useStore'
+import { load, save, addScore, getQuestions, getTopics, getQuestionLimit, listenActiveWeek, normalizeTopic, getAccessStatus } from '../store/useStore'
 
 function getQuizStatus() {
   const now = new Date()
@@ -7,10 +7,10 @@ function getQuizStatus() {
   const h = now.getHours()
   const m = now.getMinutes()
   const mins = h * 60 + m
-  const isFriday = day === 5
-  const isLoginWindow = mins >= 17 * 60 && mins < 18 * 60
-  const isQuizOpen = mins >= 17 * 60 && mins < 19 * 60 + 30
-  return { isFriday, isLoginWindow, isQuizOpen }
+  const isQuizDay = day === 5 || day === 6
+  const isLoginWindow = isQuizDay && mins >= 17 * 60 && mins < 18 * 60
+  const isQuizOpen = isQuizDay && mins >= 17 * 60 && mins < 19 * 60
+  return { isQuizDay, isLoginWindow, isQuizOpen }
 }
 
 function getNextWeek(currentWeek) {
@@ -30,7 +30,7 @@ export default function Quiz({ student, setView, setLastScore }) {
   const [questions, setQuestions] = useState([])
   const [current, setCurrent] = useState(0)
   const [answers, setAnswers] = useState([])
-  const [timeLeft, setTimeLeft] = useState(90 * 60)
+  const [timeLeft, setTimeLeft] = useState(60 * 60)
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -41,7 +41,7 @@ export default function Quiz({ student, setView, setLastScore }) {
   const [currentWeek, setCurrentWeek] = useState('Week 1')
 
   const nextWeek = getNextWeek(currentWeek)
-  const { isFriday, isLoginWindow, isQuizOpen } = getQuizStatus()
+  const { isQuizDay, isLoginWindow, isQuizOpen } = getQuizStatus()
 
   // Remaining subjects not yet attempted today
   const remainingSubjects = student.subjects.filter((s) => !attemptedSubjects.includes(s))
@@ -105,7 +105,7 @@ export default function Quiz({ student, setView, setLastScore }) {
       setSelectedSubject(subject)
       setQuestions(weekQ)
       setAnswers(new Array(weekQ.length).fill(null))
-      setTimeLeft(90 * 60)
+      setTimeLeft(60 * 60)
       setStep('quiz')
     } catch {
       setErr('Failed to load questions. Check your connection.')
@@ -151,6 +151,8 @@ export default function Quiz({ student, setView, setLastScore }) {
         options: q.options,
         answer: q.answer,
         explanation: q.explanation || '',
+        image: q.image || '',
+        optionImages: q.optionImages || ['', '', '', ''],
       })),
       date: new Date().toISOString(),
     }
@@ -277,26 +279,30 @@ export default function Quiz({ student, setView, setLastScore }) {
                       <p className="text-xs font-semibold text-[#111] mb-2 font-body leading-snug">
                         {i + 1}. {q.question}
                       </p>
+                      {q.image && <img src={q.image} alt="Question" className="mb-2 max-h-48 w-full object-contain rounded-lg border border-[#EBEBEB] bg-white" />}
                       <div className="space-y-1 mb-2">
                         {q.options.map((opt, oi) => (
-                          <p key={oi} className={`text-xs px-2.5 py-1.5 rounded-lg font-label ${
+                          <div key={oi} className={`text-xs px-2.5 py-1.5 rounded-lg font-label ${
                             oi === q.answer
                               ? 'bg-green-200 text-green-800 font-semibold'
                               : oi === studentAns && !isCorrect
                               ? 'bg-red-200 text-red-800'
                               : 'text-[#888]'
                           }`}>
-                            {String.fromCharCode(65 + oi)}. {opt}
-                            {oi === q.answer && ' ✓'}
-                            {oi === studentAns && !isCorrect && ' ✗'}
-                          </p>
+                            <p>
+                              {String.fromCharCode(65 + oi)}. {opt}
+                              {oi === q.answer && ' ✓'}
+                              {oi === studentAns && !isCorrect && ' ✗'}
+                            </p>
+                            {q.optionImages?.[oi] && <img src={q.optionImages[oi]} alt={`Option ${oi + 1}`} className="mt-1 max-h-24 rounded" />}
+                          </div>
                         ))}
                       </div>
                       {isSkipped && <p className="text-[11px] text-[#AAA] font-label">You skipped this</p>}
                       {q.explanation && (
                         <div className="bg-blue-50 border border-blue-100 rounded-xl p-2.5 mt-2">
                           <p className="text-[10px] font-bold text-blue-700 font-label mb-0.5">Explanation</p>
-                          <p className="text-xs text-blue-600 font-label leading-relaxed">{q.explanation}</p>
+                          <p className="text-xs text-blue-600 font-label leading-relaxed whitespace-pre-line">{q.explanation}</p>
                         </div>
                       )}
                     </div>
@@ -307,18 +313,29 @@ export default function Quiz({ student, setView, setLastScore }) {
           )}
 
           {/* Next week topics */}
-          {Object.keys(nextWeekTopics).some((k) => nextWeekTopics[k]) && (
+          {Object.keys(nextWeekTopics).some((k) => normalizeTopic(nextWeekTopics[k])?.name) && (
             <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-3">
               <p className="text-sm font-bold text-[#111] font-display mb-3">
                 {nextWeek} — Topics to Revise
               </p>
               <div className="space-y-2">
-                {Object.entries(nextWeekTopics).map(([subject, topic]) => topic ? (
-                  <div key={subject} className="flex justify-between items-center py-1">
-                    <p className="text-xs text-[#555] font-body">{subject}</p>
-                    <p className="text-xs text-[#111] font-semibold bg-[#F3F3F2] px-2.5 py-1 rounded-lg font-label">{topic}</p>
-                  </div>
-                ) : null)}
+                {Object.entries(nextWeekTopics).map(([subject, raw]) => {
+                  const t = normalizeTopic(raw)
+                  if (!t?.name) return null
+                  return (
+                    <div key={subject} className="flex justify-between items-center py-1 gap-2">
+                      <p className="text-xs text-[#555] font-body shrink-0">{subject}</p>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <p className="text-xs text-[#111] font-semibold bg-[#F3F3F2] px-2.5 py-1 rounded-lg font-label truncate">{t.name}</p>
+                        {t.video && (
+                          <a href={t.video} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label hover:bg-red-100 shrink-0" title="Watch on YouTube">
+                            ▶
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -328,8 +345,39 @@ export default function Quiz({ student, setView, setLastScore }) {
     )
   }
 
+  // ── SUBSCRIPTION EXPIRED ────────────────────────────────────────────────────
+  if (getAccessStatus(student).status === 'expired') {
+    return (
+      <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
+        <div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 max-w-sm w-full text-center">
+          <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-xl">🔒</span>
+          </div>
+          <h2 className="text-xl font-bold text-[#111] font-display mb-2">Access Expired</h2>
+          <p className="text-sm text-[#888] font-label mb-6">
+            Your subscription has ended. Renew for ₦800/month to continue.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setView('dashboard')}
+              className="flex-1 border border-[#E5E5E5] text-[#555] px-4 py-3 rounded-xl text-sm font-bold hover:bg-[#F8F8F7] transition-colors font-display"
+            >
+              Back
+            </button>
+            <button
+              onClick={() => setView('subscribe')}
+              className="flex-1 bg-[#111] text-white px-4 py-3 rounded-xl text-sm font-bold hover:bg-[#222] transition-colors font-display"
+            >
+              Subscribe →
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // ── LOCKED ──────────────────────────────────────────────────────────────────
-  if (!isFriday || !isQuizOpen) {
+  if (!isQuizDay || !isQuizOpen) {
     return (
       <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 max-w-sm w-full text-center">
@@ -338,10 +386,10 @@ export default function Quiz({ student, setView, setLastScore }) {
           </div>
           <h2 className="text-xl font-bold text-[#111] font-display mb-2">Quiz Locked</h2>
           <p className="text-sm text-[#888] font-label mb-1">
-            Login window: <strong className="text-[#111]">Friday 5:00pm – 6:00pm</strong>
+            Login window: <strong className="text-[#111]">Fri & Sat · 5:00pm – 6:00pm</strong>
           </p>
           <p className="text-sm text-[#888] font-label mb-6">
-            Once started: <strong className="text-[#111]">1 hr 30 min</strong> per subject
+            Once started: <strong className="text-[#111]">1 hour</strong> per subject
           </p>
           <button
             onClick={() => setView('dashboard')}
@@ -508,6 +556,9 @@ export default function Quiz({ student, setView, setLastScore }) {
         {/* Question */}
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mb-4">
           <p className="text-[#111] font-semibold text-base leading-relaxed font-body">{q.question}</p>
+          {q.image && (
+            <img src={q.image} alt="Question" className="mt-3 max-h-72 w-full object-contain rounded-xl border border-[#EBEBEB] bg-[#F8F8F7]" />
+          )}
         </div>
 
         {/* Options */}
@@ -522,14 +573,19 @@ export default function Quiz({ student, setView, setLastScore }) {
                   : 'bg-white text-[#333] border-[#E5E5E5] hover:border-[#999]'
               }`}
             >
-              <span className={`inline-flex w-6 h-6 rounded-full border items-center justify-center text-[11px] font-bold mr-3 shrink-0 ${
-                answers[current] === i
-                  ? 'border-white/40 text-white'
-                  : 'border-[#CCC] text-[#888]'
-              }`}>
-                {String.fromCharCode(65 + i)}
-              </span>
-              <span className="font-body">{option}</span>
+              <div className="flex items-start">
+                <span className={`inline-flex w-6 h-6 rounded-full border items-center justify-center text-[11px] font-bold mr-3 shrink-0 ${
+                  answers[current] === i
+                    ? 'border-white/40 text-white'
+                    : 'border-[#CCC] text-[#888]'
+                }`}>
+                  {String.fromCharCode(65 + i)}
+                </span>
+                <span className="font-body flex-1">{option}</span>
+              </div>
+              {q.optionImages?.[i] && (
+                <img src={q.optionImages[i]} alt={`Option ${i + 1}`} className="mt-2.5 max-h-40 w-full object-contain rounded-lg bg-white/5" />
+              )}
             </button>
           ))}
         </div>
@@ -586,9 +642,6 @@ export default function Quiz({ student, setView, setLastScore }) {
           ))}
         </div>
 
-        <p className="text-center text-[11px] text-[#CCC] mt-3 font-label">
-          +4 correct · −1 wrong · 0 skipped
-        </p>
       </div>
     </div>
   )

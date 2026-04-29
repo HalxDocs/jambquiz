@@ -8,6 +8,8 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [year, setYear] = useState('SS3')
+  const [parentPhone, setParentPhone] = useState('')
+  const [teacherPhone, setTeacherPhone] = useState('')
   const [adminPw, setAdminPw] = useState('')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
@@ -40,10 +42,18 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
     setLoading(true); setErr('')
     try {
       const existing = await findStudent(trimmed)
-      if (existing) { setErr('This name is already registered. Please sign in.'); setLoading(false); return }
-      const newStudent = { name: trimmed, password, year, subjects: [], joinedAt: new Date().toISOString() }
+      if (existing) { setErr('This name is already registered. Please lock in.'); setLoading(false); return }
+      const newStudent = {
+        name: trimmed,
+        password,
+        year,
+        parentPhone: parentPhone.trim(),
+        teacherPhone: teacherPhone.trim(),
+        subjects: [],
+        joinedAt: new Date().toISOString(),
+      }
       const saved = await registerStudent(newStudent)
-      if (!saved) { setErr('Name already exists. Please sign in.'); setLoading(false); return }
+      if (!saved) { setErr('Name already exists. Please lock in.'); setLoading(false); return }
       setStudent(saved)
       setView('subjects')
     } catch {
@@ -63,14 +73,14 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
 
         {/* Header */}
         <div className="text-center mb-8">
-          <p className="text-[10px] tracking-[0.25em] text-[#888] uppercase mb-3 font-label">
-            Adeola Memorial College
-          </p>
-          <h1 className="text-[2.25rem] font-bold text-[#111] leading-[1.1] tracking-tight font-display">
-            JAMB Weekly Quiz
+          <h1 className="text-[2.5rem] font-bold text-[#111] leading-[1.1] tracking-tight font-display">
+            274Lab
           </h1>
-          <p className="text-sm text-[#888] mt-2.5 font-label">
-            Every Friday · 5:00 pm – 6:00 pm
+          <p className="text-[13px] text-[#555] mt-2 font-body leading-snug max-w-[18rem] mx-auto">
+            274 days to identify weaknesses and fix them to ace JAMB
+          </p>
+          <p className="text-xs text-[#AAA] mt-2 font-label">
+            Fri & Sat · 5:00 pm – 6:00 pm
           </p>
         </div>
 
@@ -109,7 +119,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                           : 'text-[#999] hover:text-[#555]'
                       }`}
                     >
-                      {m === 'login' ? 'Sign In' : 'Register'}
+                      {m === 'login' ? 'Lock In' : 'Register'}
                     </button>
                   ))}
                 </div>
@@ -173,6 +183,35 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                       />
                     </div>
                   )}
+
+                  {mode === 'register' && (
+                    <>
+                      <div>
+                        <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                          Parent Phone <span className="text-[#CCC] normal-case tracking-normal">optional</span>
+                        </label>
+                        <input
+                          type="tel"
+                          value={parentPhone}
+                          onChange={(e) => setParentPhone(e.target.value)}
+                          placeholder="e.g. +234 803 000 0000"
+                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                          Teacher Phone <span className="text-[#CCC] normal-case tracking-normal">optional</span>
+                        </label>
+                        <input
+                          type="tel"
+                          value={teacherPhone}
+                          onChange={(e) => setTeacherPhone(e.target.value)}
+                          placeholder="e.g. +234 803 000 0000"
+                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {err && (
@@ -190,7 +229,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                       : 'bg-[#111] text-white hover:bg-[#222]'
                   }`}
                 >
-                  {loading ? 'Please wait…' : mode === 'login' ? 'Sign In →' : 'Create Account →'}
+                  {loading ? 'Please wait…' : mode === 'login' ? 'Lock In →' : 'Create Account →'}
                 </button>
 
                 <p className="text-xs text-[#AAA] text-center mt-3 font-label">
@@ -199,7 +238,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                     onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setErr('') }}
                     className="text-[#111] font-semibold underline underline-offset-2"
                   >
-                    {mode === 'login' ? 'Register here' : 'Sign in'}
+                    {mode === 'login' ? 'Register here' : 'Lock in'}
                   </button>
                 </p>
               </div>
@@ -236,8 +275,8 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
           </div>
         </div>
 
-        <p className="text-center text-[11px] text-[#CCC] mt-6 font-label">
-          Adeola Memorial College · JAMB Prep
+        <p className="text-center text-[11px] text-[#AAA] mt-6 font-label">
+          Supported by <span className="text-[#555] font-semibold">Adeola Memorial College</span>
         </p>
       </div>
     </div>

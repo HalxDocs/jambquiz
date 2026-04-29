@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { listenScores, listenTopics } from '../store/useStore'
+import { listenScores, listenTopics, normalizeTopic } from '../store/useStore'
 
 function renderCorrections(s) {
   if (!s.questions) return null
@@ -18,26 +18,30 @@ function renderCorrections(s) {
             <p className="text-xs font-semibold text-[#111] mb-2 font-body leading-snug">
               {i + 1}. {q.question}
             </p>
+            {q.image && <img src={q.image} alt="Question" className="mb-2 max-h-48 w-full object-contain rounded-lg border border-[#EBEBEB] bg-white" />}
             <div className="space-y-1 mb-2">
               {q.options.map((opt, oi) => (
-                <p key={oi} className={`text-xs px-2.5 py-1.5 rounded-lg font-label ${
+                <div key={oi} className={`text-xs px-2.5 py-1.5 rounded-lg font-label ${
                   oi === q.answer
                     ? 'bg-green-200 text-green-800 font-semibold'
                     : oi === studentAns && !isCorrect
                     ? 'bg-red-200 text-red-800'
                     : 'text-[#888]'
                 }`}>
-                  {String.fromCharCode(65 + oi)}. {opt}
-                  {oi === q.answer && ' ✓'}
-                  {oi === studentAns && !isCorrect && ' ✗'}
-                </p>
+                  <p>
+                    {String.fromCharCode(65 + oi)}. {opt}
+                    {oi === q.answer && ' ✓'}
+                    {oi === studentAns && !isCorrect && ' ✗'}
+                  </p>
+                  {q.optionImages?.[oi] && <img src={q.optionImages[oi]} alt={`Option ${oi + 1}`} className="mt-1 max-h-24 rounded" />}
+                </div>
               ))}
             </div>
             {isSkipped && <p className="text-[11px] text-[#AAA] font-label">You skipped this question</p>}
             {q.explanation && (
               <div className="bg-blue-50 border border-blue-100 rounded-xl p-2.5 mt-2">
                 <p className="text-[10px] font-bold text-blue-700 font-label mb-0.5">Explanation</p>
-                <p className="text-xs text-blue-600 font-label leading-relaxed">{q.explanation}</p>
+                <p className="text-xs text-blue-600 font-label leading-relaxed whitespace-pre-line">{q.explanation}</p>
               </div>
             )}
           </div>
@@ -47,7 +51,7 @@ function renderCorrections(s) {
   )
 }
 
-export default function SubjectDetail({ student, subject, setView }) {
+export default function SubjectDetail({ student, subject, setView, setRetakeData }) {
   const [scores, setScores] = useState([])
   const [allTopics, setAllTopics] = useState({})
   const [expandedId, setExpandedId] = useState(null)
@@ -64,7 +68,10 @@ export default function SubjectDetail({ student, subject, setView }) {
   }, [student, subject])
 
   const getTopicName = (score) => {
-    return allTopics[score.week]?.[subject] || null
+    return normalizeTopic(allTopics[score.week]?.[subject])?.name || null
+  }
+  const getTopicVideo = (score) => {
+    return normalizeTopic(allTopics[score.week]?.[subject])?.video || null
   }
 
   const getPct = (score) => {
@@ -147,7 +154,20 @@ export default function SubjectDetail({ student, subject, setView }) {
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div className="flex-1 min-w-0">
                         {topicName ? (
-                          <p className="text-sm font-bold text-[#111] font-body leading-snug">{topicName}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-bold text-[#111] font-body leading-snug">{topicName}</p>
+                            {getTopicVideo(score) && (
+                              <a
+                                href={getTopicVideo(score)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-lg font-label hover:bg-red-100 transition-colors"
+                                title="Watch on YouTube"
+                              >
+                                ▶ Watch
+                              </a>
+                            )}
+                          </div>
                         ) : (
                           <p className="text-sm font-bold text-[#999] font-body italic">Topic not set</p>
                         )}
@@ -178,19 +198,32 @@ export default function SubjectDetail({ student, subject, setView }) {
                       />
                     </div>
 
-                    {/* Corrections toggle */}
-                    {score.questions && (
-                      <button
-                        onClick={() => setExpandedId(isExpanded ? null : score.id)}
-                        className={`w-full text-xs font-bold py-2 rounded-lg border transition-colors font-label ${
-                          isExpanded
-                            ? 'bg-[#111] text-white border-[#111]'
-                            : 'bg-white text-[#555] border-[#E5E5E5] hover:border-[#111] hover:text-[#111]'
-                        }`}
-                      >
-                        {isExpanded ? '▲ Hide Corrections' : '▼ View Corrections & Answers'}
-                      </button>
-                    )}
+                    {/* Action buttons */}
+                    <div className="flex gap-2">
+                      {score.questions && (
+                        <button
+                          onClick={() => setExpandedId(isExpanded ? null : score.id)}
+                          className={`flex-1 text-xs font-bold py-2 rounded-lg border transition-colors font-label ${
+                            isExpanded
+                              ? 'bg-[#111] text-white border-[#111]'
+                              : 'bg-white text-[#555] border-[#E5E5E5] hover:border-[#111] hover:text-[#111]'
+                          }`}
+                        >
+                          {isExpanded ? '▲ Hide' : '▼ Corrections'}
+                        </button>
+                      )}
+                      {score.questions && setRetakeData && (
+                        <button
+                          onClick={() => {
+                            setRetakeData({ subject, week: score.week, questions: score.questions })
+                            setView('quiz')
+                          }}
+                          className="flex-1 text-xs font-bold py-2 rounded-lg border border-[#E5E5E5] text-[#555] bg-white hover:border-[#111] hover:text-[#111] transition-colors font-label"
+                        >
+                          ↺ Retake
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Corrections */}

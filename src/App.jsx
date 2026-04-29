@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import Home from './pages/Home'
+import Intro from './pages/Intro'
 import SubjectSelect from './pages/SubjectSelect'
 import Dashboard from './pages/Dashboard'
 import Quiz from './pages/Quiz'
 import Results from './pages/Results'
 import Admin from './pages/Admin'
 import SubjectDetail from './pages/SubjectDetail'
+import Subscribe from './pages/Subscribe'
+import { findStudent } from './store/useStore'
 
 function isIos() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent)
@@ -15,15 +18,45 @@ function isInStandaloneMode() {
   return ('standalone' in window.navigator) && window.navigator.standalone
 }
 
+const SESSION_KEY = 'jamb_session'
+const INTRO_KEY = 'jamb_intro_seen'
+
 export default function App() {
-  const [view, setView] = useState('home')
-  const [student, setStudent] = useState(null)
+  const introSeen = typeof window !== 'undefined' && localStorage.getItem(INTRO_KEY) === '1'
+  const savedSession = (() => {
+    try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null') } catch { return null }
+  })()
+
+  const [view, setView] = useState(savedSession ? 'dashboard' : (introSeen ? 'home' : 'intro'))
+  const [student, setStudentState] = useState(savedSession)
   const [lastScore, setLastScore] = useState(null)
   const [adminAuthed, setAdminAuthed] = useState(false)
   const [selectedSubjectDetail, setSelectedSubjectDetail] = useState(null)
+  const [retakeData, setRetakeData] = useState(null)
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [showInstallToast, setShowInstallToast] = useState(false)
   const [showIosHint, setShowIosHint] = useState(() => isIos() && !isInStandaloneMode())
+
+  const setStudent = (s) => {
+    setStudentState(s)
+    if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s))
+    else localStorage.removeItem(SESSION_KEY)
+  }
+
+  const dismissIntro = () => {
+    localStorage.setItem(INTRO_KEY, '1')
+    setView('home')
+  }
+
+  // Refresh persisted student from server on mount (so subjects/year stay current)
+  useEffect(() => {
+    if (savedSession?.name) {
+      findStudent(savedSession.name).then((fresh) => {
+        if (fresh) setStudent(fresh)
+      }).catch(() => {})
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const {
     needRefresh: [needRefresh, setNeedRefresh],
@@ -56,6 +89,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8F8F7]">
+      {view === 'intro' && (
+        <Intro onContinue={dismissIntro} />
+      )}
       {view === 'home' && (
         <Home setView={setView} setStudent={setStudent} setAdminAuthed={setAdminAuthed} />
       )}
@@ -66,6 +102,7 @@ export default function App() {
         <Dashboard
           student={student}
           setView={setView}
+          setStudent={setStudent}
           setSelectedSubjectDetail={setSelectedSubjectDetail}
         />
       )}
@@ -74,13 +111,17 @@ export default function App() {
           student={student}
           subject={selectedSubjectDetail}
           setView={setView}
+          setRetakeData={setRetakeData}
         />
       )}
       {view === 'quiz' && student && (
-        <Quiz student={student} setView={setView} setLastScore={setLastScore} />
+        <Quiz student={student} setView={setView} setLastScore={setLastScore} retakeData={retakeData} setRetakeData={setRetakeData} />
       )}
       {view === 'results' && student && (
         <Results student={student} lastScore={lastScore} setView={setView} />
+      )}
+      {view === 'subscribe' && student && (
+        <Subscribe student={student} setStudent={setStudent} setView={setView} />
       )}
       {view === 'admin' && adminAuthed && (
         <Admin setView={setView} />
@@ -125,7 +166,7 @@ export default function App() {
               </svg>
             </div>
             <div className="flex-1">
-              <p className="text-sm font-semibold font-display">Install JAMB Quiz</p>
+              <p className="text-sm font-semibold font-display">Install 274Lab</p>
               <p className="text-xs text-[#888] font-label">Add to your home screen</p>
             </div>
             <button
@@ -155,7 +196,7 @@ export default function App() {
                 </svg>
               </div>
               <div className="flex-1">
-                <p className="text-sm font-semibold font-display mb-0.5">Install JAMB Quiz</p>
+                <p className="text-sm font-semibold font-display mb-0.5">Install 274Lab</p>
                 <p className="text-xs text-[#AAA] font-label leading-relaxed">
                   Tap the{' '}
                   <span className="inline-flex items-center gap-0.5 text-white">

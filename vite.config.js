@@ -11,9 +11,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
-        name: 'JAMB Weekly Quiz',
-        short_name: 'JAMBQuiz',
-        description: 'JAMB Weekly Quiz App for Nigerian Students',
+        name: '274Lab',
+        short_name: '274Lab',
+        description: '274Lab — JAMB Weekly Quiz, supported by Adeola Memorial College',
         theme_color: '#111827',
         background_color: '#f9fafb',
         display: 'standalone',

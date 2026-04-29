@@ -1,0 +1,73 @@
+export default function Intro({ onContinue }) {
+  const steps = [
+    {
+      n: 1,
+      title: 'Diagnose',
+      window: 'Aug – Feb',
+      body: 'Weekly tests to identify strengths and weaknesses.',
+    },
+    {
+      n: 2,
+      title: 'Consistency',
+      window: 'Always',
+      body: 'Choose an accountability partner.',
+    },
+    {
+      n: 3,
+      title: 'Activate Patch',
+      window: 'Mar – Apr',
+      body: 'Daily targeted learning points.',
+    },
+  ]
+
+  return (
+    <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+
+        <div className="text-center mb-8 pt-6">
+          <h1 className="text-[2.5rem] font-bold text-[#111] leading-[1.05] tracking-tight font-display">
+            274Lab
+          </h1>
+          <p className="text-[13px] text-[#555] mt-3 font-body leading-snug max-w-[18rem] mx-auto">
+            Hi there! Welcome to the Lab.
+          </p>
+          <p className="text-xs text-[#888] mt-1.5 font-label leading-relaxed">
+            We've built a simple 3-step system to help you pass your exams.
+          </p>
+        </div>
+
+        <div className="space-y-2.5 mb-6">
+          {steps.map((s) => (
+            <div key={s.n} className="bg-white border border-[#EBEBEB] rounded-2xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-[#111] text-white flex items-center justify-center text-sm font-bold font-display shrink-0">
+                  {s.n}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-0.5">
+                    <p className="text-sm font-bold text-[#111] font-display">Step {s.n} — {s.title}</p>
+                    <span className="text-[10px] font-semibold text-[#888] bg-[#F3F3F2] px-2 py-0.5 rounded-full font-label whitespace-nowrap">
+                      {s.window}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#555] font-body leading-relaxed">{s.body}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={onContinue}
+          className="w-full bg-[#111] text-white rounded-xl py-3.5 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display"
+        >
+          Continue →
+        </button>
+
+        <p className="text-center text-[11px] text-[#AAA] mt-5 font-label">
+          Supported by <span className="text-[#555] font-semibold">Adeola Memorial College</span>
+        </p>
+      </div>
+    </div>
+  )
+}

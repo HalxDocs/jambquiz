@@ -1,7 +1,29 @@
 import { useState, useEffect } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon } from '@hugeicons/core-free-icons'
-import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics, saveQuestionLimit, getQuestionLimit, setActiveWeek, getActiveWeek, updateStudent, deleteStudent } from '../store/useStore'
+import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics, saveQuestionLimit, getQuestionLimit, setActiveWeek, getActiveWeek, updateStudent, deleteStudent, normalizeTopic, listenPayments, addPayment, extendSubscription, getAccessStatus, SUBSCRIPTION_PRICE_NGN } from '../store/useStore'
+
+async function compressImage(file, maxWidth = 800, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const ratio = Math.min(maxWidth / img.width, 1)
+        canvas.width = Math.round(img.width * ratio)
+        canvas.height = Math.round(img.height * ratio)
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.onerror = reject
+      img.src = e.target.result
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
 
 export default function Admin({ setView }) {
   const [tab, setTab] = useState('students')
@@ -10,7 +32,8 @@ export default function Admin({ setView }) {
   const [currentQuestions, setCurrentQuestions] = useState([])
   const [selectedSubject, setSelectedSubject] = useState(SUBJECTS[0])
   const [selectedWeek, setSelectedWeek] = useState(WEEKS[0])
-  const [form, setForm] = useState({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '' })
+  const [form, setForm] = useState({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '', image: '', optionImages: ['', '', '', ''] })
+  const [uploadingImg, setUploadingImg] = useState(null)
   const [editingFirestoreId, setEditingFirestoreId] = useState(null)
   const [expandedQuestion, setExpandedQuestion] = useState(null)
   const [questionLimit, setQuestionLimit] = useState(25)
@@ -27,6 +50,8 @@ export default function Admin({ setView }) {
   const [editNameValue, setEditNameValue] = useState('')
   const [editNameErr, setEditNameErr] = useState('')
   const [editNameLoading, setEditNameLoading] = useState(false)
+  const [payments, setPayments] = useState([])
+  const [paymentSearch, setPaymentSearch] = useState('')
 
   const currentYear = new Date().getFullYear()
   const jamb_years = ['SS3', ...Array.from({ length: 10 }, (_, i) => String(currentYear + i))]
@@ -35,8 +60,9 @@ export default function Admin({ setView }) {
   useEffect(() => {
     const unsubStudents = listenStudents((all) => setStudents(all))
     const unsubScores = listenScores((allScores) => setScores(allScores))
+    const unsubPayments = listenPayments((all) => setPayments(all))
     getActiveWeek().then((w) => setActiveWeekState(w))
-    return () => { unsubStudents(); unsubScores() }
+    return () => { unsubStudents(); unsubScores(); unsubPayments() }
   }, [])
 
   useEffect(() => {
@@ -46,13 +72,41 @@ export default function Admin({ setView }) {
   }, [selectedSubject, selectedWeek])
 
   useEffect(() => {
-    getTopics(topicWeek).then((t) => { setTopicsState(t || {}); setTopicInputs(t || {}) })
+    getTopics(topicWeek).then((raw) => {
+      const normalized = {}
+      Object.entries(raw || {}).forEach(([sub, val]) => {
+        const t = normalizeTopic(val)
+        if (t) normalized[sub] = t
+      })
+      setTopicsState(normalized)
+      setTopicInputs(normalized)
+    })
   }, [topicWeek])
 
   const resetForm = () => {
-    setForm({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '' })
+    setForm({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '', image: '', optionImages: ['', '', '', ''] })
     setEditingFirestoreId(null)
     setErr('')
+  }
+
+  const handleImageUpload = async (file, target, index = null) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setErr('Please choose an image file'); return }
+    setUploadingImg(target + (index !== null ? index : ''))
+    try {
+      const dataUrl = await compressImage(file)
+      if (target === 'question') setForm((f) => ({ ...f, image: dataUrl }))
+      else if (target === 'option' && index !== null) {
+        setForm((f) => {
+          const next = [...f.optionImages]
+          next[index] = dataUrl
+          return { ...f, optionImages: next }
+        })
+      }
+    } catch {
+      setErr('Failed to process image')
+    }
+    setUploadingImg(null)
   }
 
   const handleAddOrEdit = async () => {
@@ -63,6 +117,8 @@ export default function Admin({ setView }) {
       options: [form.optionA.trim(), form.optionB.trim(), form.optionC.trim(), form.optionD.trim()],
       answer: parseInt(form.answer),
       explanation: form.explanation.trim(),
+      image: form.image || '',
+      optionImages: form.optionImages || ['', '', '', ''],
     }
     try {
       if (editingFirestoreId) {
@@ -81,7 +137,14 @@ export default function Admin({ setView }) {
   }
 
   const handleEdit = (q) => {
-    setForm({ question: q.question, optionA: q.options[0], optionB: q.options[1], optionC: q.options[2], optionD: q.options[3], answer: q.answer, explanation: q.explanation || '' })
+    setForm({
+      question: q.question,
+      optionA: q.options[0], optionB: q.options[1], optionC: q.options[2], optionD: q.options[3],
+      answer: q.answer,
+      explanation: q.explanation || '',
+      image: q.image || '',
+      optionImages: q.optionImages && q.optionImages.length === 4 ? q.optionImages : ['', '', '', ''],
+    })
     setEditingFirestoreId(q.firestoreId)
     setExpandedQuestion(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -106,6 +169,22 @@ export default function Admin({ setView }) {
       setTopicSuccess('Topics saved!')
       setTimeout(() => setTopicSuccess(''), 3000)
     } catch { alert('Failed to save topics.') }
+  }
+
+  const handleCopyTopicsFrom = async (sourceWeek) => {
+    if (sourceWeek === topicWeek) return
+    if (!window.confirm(`Copy topics from ${sourceWeek} → ${topicWeek}? This replaces current inputs (you still need to Save).`)) return
+    try {
+      const raw = await getTopics(sourceWeek)
+      const normalized = {}
+      Object.entries(raw || {}).forEach(([sub, val]) => {
+        const t = normalizeTopic(val)
+        if (t) normalized[sub] = t
+      })
+      setTopicInputs(normalized)
+      setTopicSuccess(`Copied from ${sourceWeek} — review and Save`)
+      setTimeout(() => setTopicSuccess(''), 4000)
+    } catch { alert('Failed to copy topics.') }
   }
 
   const handleSaveLimit = async () => {
@@ -159,12 +238,80 @@ export default function Admin({ setView }) {
     const s = getScoresFor(studentId)
     return s.length ? Math.round(s.reduce((a, b) => a + b.score, 0) / s.length) : 0
   }
+
+  // Manually mark a student as paid (cash, transfer, etc.) — extends subscription by 1 month
+  const handleMarkPaid = async (student) => {
+    if (!window.confirm(`Mark ${student.name} as paid for ₦${SUBSCRIPTION_PRICE_NGN}? This extends access by 1 month.`)) return
+    try {
+      const newExpiry = await extendSubscription(student.id, 1)
+      await addPayment({
+        studentId: student.id,
+        studentName: student.name,
+        amount: SUBSCRIPTION_PRICE_NGN,
+        currency: 'NGN',
+        method: 'manual',
+        reference: `MANUAL-${Date.now()}`,
+        paidAt: new Date().toISOString(),
+        extendsTo: newExpiry,
+        recordedBy: 'admin',
+      })
+      setSuccess(`${student.name} extended by 1 month`)
+      setTimeout(() => setSuccess(''), 3000)
+    } catch {
+      alert('Failed to record payment.')
+    }
+  }
+
+  // Build a WhatsApp report message (best score per subject) and open wa.me
+  const sendWhatsAppReport = (student, recipient) => {
+    const phone = recipient === 'parent' ? student.parentPhone : student.teacherPhone
+    if (!phone) return
+    const cleanPhone = phone.replace(/[^0-9]/g, '')
+
+    const myScores = getScoresFor(student.id)
+    const best = {}
+    myScores.forEach((sc) => {
+      if (!best[sc.subject] || sc.score > best[sc.subject].score) best[sc.subject] = sc
+    })
+    const bestList = Object.values(best)
+    const total = bestList.reduce((a, sc) => a + sc.score, 0)
+    const totalOut = bestList.reduce((a, sc) => a + (sc.outOf || 100), 0)
+    const overallPct = totalOut ? Math.round((total / totalOut) * 100) : 0
+
+    const subjectLines = bestList.length
+      ? bestList.map((sc) => {
+          const pct = Math.round((sc.score / (sc.outOf || 100)) * 100)
+          const tag = pct >= 70 ? '🟢' : pct >= 50 ? '🟡' : '🔴'
+          return `${tag} ${sc.subject}: ${sc.score}/${sc.outOf || 100} (${pct}%)`
+        }).join('\n')
+      : 'No tests taken yet.'
+
+    const greeting = recipient === 'parent'
+      ? `Hello, this is a weekly performance update for *${student.name}* from 274Lab.`
+      : `Hello, weekly performance update for your student *${student.name}* from 274Lab.`
+
+    const message = `${greeting}
+
+📊 *JAMB Total:* ${total}/${totalOut || 400} (${overallPct}%)
+📝 *Tests taken:* ${myScores.length}
+
+*Best score per subject:*
+${subjectLines}
+
+— 274Lab · Supported by Adeola Memorial College`
+
+    const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
+    window.open(url, '_blank', 'noopener')
+  }
   const getTotalScore = (studentId) => {
     const s = getScoresFor(studentId)
     if (!s.length) return null
-    const bySubject = {}
-    s.forEach((sc) => { if (!bySubject[sc.subject]) bySubject[sc.subject] = sc })
-    const subjects = Object.values(bySubject)
+    // Highest score per subject — best attempt counts
+    const best = {}
+    s.forEach((sc) => {
+      if (!best[sc.subject] || sc.score > best[sc.subject].score) best[sc.subject] = sc
+    })
+    const subjects = Object.values(best)
     if (subjects.length < 4) return null
     return subjects.slice(0, 4).reduce((a, sc) => a + sc.score, 0)
   }
@@ -195,7 +342,7 @@ export default function Admin({ setView }) {
         const student = grp.find((s) => s.id === sc.studentId)
         if (!student) return
         if (!byStudent[sc.studentId] || sc.score > byStudent[sc.studentId].score) {
-          byStudent[sc.studentId] = { name: student.name, score: sc.score, outOf: sc.outOf || 160 }
+          byStudent[sc.studentId] = { name: student.name, score: sc.score, outOf: sc.outOf || 100 }
         }
       })
 
@@ -210,7 +357,7 @@ export default function Admin({ setView }) {
     return { count: grp.length, attempts: grpScores.length, avg, top, topBySubject }
   }
 
-  const TABS = ['students', 'stats', 'questions', 'topics']
+  const TABS = ['students', 'stats', 'payments', 'questions', 'topics']
 
   return (
     <div className="min-h-screen bg-[#F8F8F7]">
@@ -220,7 +367,7 @@ export default function Admin({ setView }) {
         <div className="flex justify-between items-center pt-8 pb-6">
           <div>
             <p className="text-[10px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-0.5">
-              Adeola Memorial College
+              274Lab
             </p>
             <h2 className="text-xl font-bold text-[#111] font-display">Quiz Manager</h2>
           </div>
@@ -327,6 +474,24 @@ export default function Admin({ setView }) {
                                   {student.year}
                                 </span>
                               )}
+                              {(() => {
+                                const access = getAccessStatus(student)
+                                const cls = access.status === 'active'
+                                  ? 'bg-green-50 text-green-700 border border-green-100'
+                                  : access.status === 'trial'
+                                  ? 'bg-yellow-50 text-yellow-700 border border-yellow-100'
+                                  : 'bg-red-50 text-red-700 border border-red-100'
+                                const label = access.status === 'active'
+                                  ? `Paid · ${access.daysLeft}d`
+                                  : access.status === 'trial'
+                                  ? `Trial · ${access.daysLeft}d`
+                                  : 'Expired'
+                                return (
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full font-label ${cls}`}>
+                                    {label}
+                                  </span>
+                                )
+                              })()}
                             </div>
                             <p className="text-[10px] text-[#AAA] font-label mt-0.5">
                               Joined {new Date(student.joinedAt).toLocaleDateString('en-NG')}
@@ -338,6 +503,13 @@ export default function Admin({ setView }) {
                                 {total}<span className="text-[10px] text-[#AAA] font-label">/400</span>
                               </p>
                             )}
+                            <button
+                              onClick={() => handleMarkPaid(student)}
+                              title={`Record ₦${SUBSCRIPTION_PRICE_NGN} payment (extends 1 month)`}
+                              className="h-8 px-2.5 flex items-center justify-center rounded-xl border border-green-100 text-green-700 bg-green-50 hover:bg-green-100 transition-colors text-[11px] font-bold font-label"
+                            >
+                              + ₦{SUBSCRIPTION_PRICE_NGN}
+                            </button>
                             <button
                               onClick={() => startEditName(student)}
                               title="Rename student"
@@ -370,6 +542,32 @@ export default function Admin({ setView }) {
                         </div>
                       )}
 
+                      {(student.parentPhone || student.teacherPhone) && (
+                        <div className="border-t border-[#F3F3F2] pt-3 mb-3">
+                          <p className="text-[10px] text-[#AAA] font-label mb-1.5">Send weekly report via WhatsApp</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {student.parentPhone && (
+                              <button
+                                onClick={() => sendWhatsAppReport(student, 'parent')}
+                                className="inline-flex items-center gap-1 text-[11px] font-bold bg-green-50 text-green-700 border border-green-100 px-2.5 py-1 rounded-lg font-label hover:bg-green-100 transition-colors"
+                                title={`Send report to parent: ${student.parentPhone}`}
+                              >
+                                💬 Parent
+                              </button>
+                            )}
+                            {student.teacherPhone && (
+                              <button
+                                onClick={() => sendWhatsAppReport(student, 'teacher')}
+                                className="inline-flex items-center gap-1 text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-1 rounded-lg font-label hover:bg-blue-100 transition-colors"
+                                title={`Send report to teacher: ${student.teacherPhone}`}
+                              >
+                                💬 Teacher
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       {getScoresFor(student.id).length > 0 && (
                         <div className="border-t border-[#F3F3F2] pt-3">
                           <p className="text-[10px] text-[#AAA] font-label mb-2">Score history</p>
@@ -381,8 +579,8 @@ export default function Admin({ setView }) {
                                   <p className="text-[10px] text-[#CCC] font-label">{new Date(sc.date).toLocaleDateString('en-NG')}</p>
                                 </div>
                                 <div className="text-right">
-                                  <span className={`text-xs font-bold font-display ${sc.score / (sc.outOf || 160) >= 0.7 ? 'text-green-600' : sc.score / (sc.outOf || 160) >= 0.5 ? 'text-yellow-600' : 'text-red-500'}`}>
-                                    {sc.score}/{sc.outOf || 160}
+                                  <span className={`text-xs font-bold font-display ${sc.score / (sc.outOf || 100) >= 0.7 ? 'text-green-600' : sc.score / (sc.outOf || 100) >= 0.5 ? 'text-yellow-600' : 'text-red-500'}`}>
+                                    {sc.score}/{sc.outOf || 100}
                                   </span>
                                   <p className="text-[10px] text-[#CCC] font-label">{sc.correct}✓ {sc.wrong || 0}✗ {sc.unanswered || 0}–</p>
                                 </div>
@@ -437,6 +635,55 @@ export default function Admin({ setView }) {
                       </div>
                     ))}
                   </div>
+
+                  {/* Revenue widget */}
+                  {(() => {
+                    const grpStudents = statsYear === 'all' ? students : students.filter((s) => s.year === statsYear)
+                    const grpStudentIds = new Set(grpStudents.map((s) => s.id))
+                    const grpPayments = payments.filter((p) => grpStudentIds.has(p.studentId))
+                    const totalRev = grpPayments.reduce((a, p) => a + (p.amount || 0), 0)
+                    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime()
+                    const monthRev = grpPayments.filter((p) => new Date(p.paidAt).getTime() >= monthStart).reduce((a, p) => a + (p.amount || 0), 0)
+                    let active = 0, trial = 0, expired = 0
+                    grpStudents.forEach((s) => {
+                      const st = getAccessStatus(s).status
+                      if (st === 'active') active++
+                      else if (st === 'trial') trial++
+                      else expired++
+                    })
+                    return (
+                      <button
+                        onClick={() => setTab('payments')}
+                        className="w-full text-left bg-[#111] text-white rounded-2xl p-5 hover:bg-[#222] transition-colors"
+                      >
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <p className="text-[10px] font-semibold text-[#666] uppercase tracking-[0.2em] font-label mb-1">Revenue {statsYear !== 'all' ? `— ${statsYear}` : ''}</p>
+                            <div className="flex items-end gap-1.5">
+                              <span className="text-3xl font-bold font-display">₦{totalRev.toLocaleString()}</span>
+                              <span className="text-[#666] text-xs mb-1 font-label">all time</span>
+                            </div>
+                            <p className="text-[11px] text-[#AAA] font-label mt-1">₦{monthRev.toLocaleString()} this month</p>
+                          </div>
+                          <span className="text-[10px] font-semibold text-[#888] hover:text-white font-label">View →</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 pt-3 border-t border-white/10">
+                          <div className="text-center">
+                            <p className="text-base font-bold text-green-400 font-display">{active}</p>
+                            <p className="text-[10px] text-[#666] font-label">Active</p>
+                          </div>
+                          <div className="text-center border-x border-white/10">
+                            <p className="text-base font-bold text-yellow-400 font-display">{trial}</p>
+                            <p className="text-[10px] text-[#666] font-label">Trial</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-base font-bold text-red-400 font-display">{expired}</p>
+                            <p className="text-[10px] text-[#666] font-label">Expired</p>
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })()}
 
                   {stats.top.length > 0 && (
                     <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
@@ -536,6 +783,125 @@ export default function Admin({ setView }) {
           </div>
         )}
 
+        {/* ── PAYMENTS ── */}
+        {tab === 'payments' && (() => {
+          const totalRevenue = payments.reduce((a, p) => a + (p.amount || 0), 0)
+          const now = new Date()
+          const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+          const monthRevenue = payments
+            .filter((p) => new Date(p.paidAt).getTime() >= monthStart)
+            .reduce((a, p) => a + (p.amount || 0), 0)
+          const last30Start = now.getTime() - 30 * 24 * 60 * 60 * 1000
+          const last30Revenue = payments
+            .filter((p) => new Date(p.paidAt).getTime() >= last30Start)
+            .reduce((a, p) => a + (p.amount || 0), 0)
+
+          // Subscriber buckets
+          let active = 0, trial = 0, expired = 0
+          students.forEach((s) => {
+            const st = getAccessStatus(s).status
+            if (st === 'active') active++
+            else if (st === 'trial') trial++
+            else expired++
+          })
+
+          // Filter + sort payments
+          const filtered = paymentSearch.trim()
+            ? payments.filter((p) => (p.studentName || '').toLowerCase().includes(paymentSearch.trim().toLowerCase()))
+            : payments
+          const sorted = [...filtered].sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt))
+
+          return (
+            <div className="space-y-4">
+              {/* Revenue hero */}
+              <div className="bg-[#111] text-white rounded-2xl p-5">
+                <p className="text-[10px] font-semibold text-[#666] uppercase tracking-[0.2em] font-label mb-1">Total Revenue</p>
+                <div className="flex items-end gap-1.5">
+                  <span className="text-4xl font-bold font-display">₦{totalRevenue.toLocaleString()}</span>
+                  <span className="text-[#666] text-sm mb-1 font-label">all time</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-white/10">
+                  <div>
+                    <p className="text-[10px] text-[#666] font-label mb-0.5">This month</p>
+                    <p className="text-lg font-bold font-display">₦{monthRevenue.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-[#666] font-label mb-0.5">Last 30 days</p>
+                    <p className="text-lg font-bold font-display">₦{last30Revenue.toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Subscriber buckets */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-white border border-[#EBEBEB] rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-green-600 font-display">{active}</p>
+                  <p className="text-[10px] text-[#888] font-label mt-0.5">Active</p>
+                </div>
+                <div className="bg-white border border-[#EBEBEB] rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-yellow-600 font-display">{trial}</p>
+                  <p className="text-[10px] text-[#888] font-label mt-0.5">On Trial</p>
+                </div>
+                <div className="bg-white border border-[#EBEBEB] rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-red-500 font-display">{expired}</p>
+                  <p className="text-[10px] text-[#888] font-label mt-0.5">Expired</p>
+                </div>
+              </div>
+
+              {/* Search */}
+              <input
+                value={paymentSearch}
+                onChange={(e) => setPaymentSearch(e.target.value)}
+                placeholder="Search by student name…"
+                className="w-full border border-[#E5E5E5] rounded-xl px-4 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white"
+              />
+
+              {success && (
+                <div className="bg-green-50 border border-green-100 rounded-xl px-3.5 py-2">
+                  <p className="text-green-600 text-xs font-label">{success}</p>
+                </div>
+              )}
+
+              {/* Payment list */}
+              <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
+                <div className="flex justify-between items-center mb-3">
+                  <p className="text-sm font-bold text-[#111] font-display">All Payments</p>
+                  <span className="text-[11px] font-semibold bg-[#F3F3F2] text-[#555] px-2.5 py-1 rounded-lg font-label">
+                    {sorted.length} record{sorted.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                {sorted.length === 0 ? (
+                  <p className="text-[#CCC] text-sm text-center py-6 font-label">No payments yet</p>
+                ) : (
+                  <div className="space-y-1">
+                    {sorted.map((p) => (
+                      <div key={p.id} className="flex justify-between items-center py-2.5 border-b border-[#F3F3F2] last:border-0">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-[#111] font-body truncate">{p.studentName || 'Unknown'}</p>
+                          <p className="text-[10px] text-[#AAA] font-label mt-0.5">
+                            {new Date(p.paidAt).toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            {' · '}
+                            <span className={p.method === 'paystack' ? 'text-blue-600' : 'text-[#888]'}>{p.method || 'unknown'}</span>
+                          </p>
+                          {p.reference && (
+                            <p className="text-[9px] text-[#CCC] font-label truncate mt-0.5">{p.reference}</p>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0 ml-2">
+                          <p className="text-sm font-bold text-green-600 font-display">₦{(p.amount || 0).toLocaleString()}</p>
+                          {p.extendsTo && (
+                            <p className="text-[10px] text-[#AAA] font-label">until {new Date(p.extendsTo).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+
         {/* ── QUESTIONS ── */}
         {tab === 'questions' && (
           <div>
@@ -567,7 +933,10 @@ export default function Admin({ setView }) {
               <div className="flex justify-between items-center">
                 <div>
                   <p className="text-xs font-bold text-[#111] font-body">{currentQuestions.length} questions in pool</p>
-                  <p className="text-[11px] text-[#AAA] font-label mt-0.5">Each student gets {Math.min(questionLimit, currentQuestions.length)} random questions</p>
+                  <p className="text-[11px] text-[#AAA] font-label mt-0.5">
+                    Each student gets {Math.min(questionLimit, currentQuestions.length)} random questions
+                    <span className="text-[#CCC]"> · default {selectedSubject === 'English Language' ? 40 : 25}</span>
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <input
@@ -575,7 +944,7 @@ export default function Admin({ setView }) {
                     min={1}
                     max={currentQuestions.length || 100}
                     value={questionLimit}
-                    onChange={(e) => setQuestionLimit(parseInt(e.target.value) || 25)}
+                    onChange={(e) => setQuestionLimit(parseInt(e.target.value) || (selectedSubject === 'English Language' ? 40 : 25))}
                     className="w-14 border border-[#E5E5E5] rounded-lg px-2 py-1.5 text-xs text-center bg-white focus:outline-none focus:border-[#111]"
                   />
                   <button
@@ -607,15 +976,74 @@ export default function Admin({ setView }) {
                     className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] resize-none"
                   />
                 </div>
-                {['A', 'B', 'C', 'D'].map((letter) => (
+                <div>
+                  <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">
+                    Question Image <span className="text-[#CCC] normal-case tracking-normal">optional · auto-compressed</span>
+                  </label>
+                  {form.image ? (
+                    <div className="relative inline-block">
+                      <img src={form.image} alt="Question" className="max-h-40 rounded-xl border border-[#E5E5E5]" />
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, image: '' })}
+                        className="absolute -top-2 -right-2 w-6 h-6 bg-white border border-[#E5E5E5] rounded-full flex items-center justify-center text-[#555] hover:text-red-500 hover:border-red-200 shadow-sm"
+                        title="Remove image"
+                      >
+                        <HugeiconsIcon icon={Cancel01Icon} size={12} color="currentColor" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex items-center gap-2 px-3 py-2.5 border border-dashed border-[#CCC] rounded-xl cursor-pointer hover:border-[#111] hover:bg-[#FAFAF9] transition-colors">
+                      <span className="text-xs text-[#888] font-label">
+                        {uploadingImg === 'question' ? 'Uploading…' : '📷 Upload image'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleImageUpload(e.target.files?.[0], 'question')}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+                {['A', 'B', 'C', 'D'].map((letter, idx) => (
                   <div key={letter}>
                     <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">Option {letter}</label>
                     <input
                       value={form[`option${letter}`]}
                       onChange={(e) => setForm({ ...form, [`option${letter}`]: e.target.value })}
                       placeholder={`Option ${letter}`}
-                      className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111]"
+                      className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] mb-1.5"
                     />
+                    {form.optionImages[idx] ? (
+                      <div className="relative inline-block mt-1">
+                        <img src={form.optionImages[idx]} alt={`Option ${letter}`} className="max-h-24 rounded-lg border border-[#E5E5E5]" />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = [...form.optionImages]
+                            next[idx] = ''
+                            setForm({ ...form, optionImages: next })
+                          }}
+                          className="absolute -top-2 -right-2 w-5 h-5 bg-white border border-[#E5E5E5] rounded-full flex items-center justify-center text-[#555] hover:text-red-500 hover:border-red-200 shadow-sm"
+                          title="Remove image"
+                        >
+                          <HugeiconsIcon icon={Cancel01Icon} size={10} color="currentColor" />
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 border border-dashed border-[#DDD] rounded-lg cursor-pointer hover:border-[#111] transition-colors">
+                        <span className="text-[10px] text-[#888] font-label">
+                          {uploadingImg === 'option' + idx ? 'Uploading…' : '📷 Add image'}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleImageUpload(e.target.files?.[0], 'option', idx)}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
                   </div>
                 ))}
                 <div>
@@ -696,20 +1124,22 @@ export default function Admin({ setView }) {
 
                       {expandedQuestion === q.firestoreId && (
                         <div className="px-3 pb-3 border-t border-[#F0F0F0]">
-                          <p className="text-xs text-[#111] font-semibold font-body mt-2 mb-3 leading-snug">{q.question}</p>
+                          <p className="text-xs text-[#111] font-semibold font-body mt-2 mb-2 leading-snug">{q.question}</p>
+                          {q.image && <img src={q.image} alt="Question" className="max-h-32 rounded-lg border border-[#E5E5E5] mb-3" />}
                           <div className="grid grid-cols-2 gap-1 mb-3">
                             {q.options.map((opt, oi) => (
-                              <p key={oi} className={`text-xs px-2.5 py-1.5 rounded-lg font-label ${
+                              <div key={oi} className={`text-xs px-2.5 py-1.5 rounded-lg font-label ${
                                 oi === q.answer ? 'bg-green-100 text-green-700 font-semibold' : 'bg-[#F8F8F7] text-[#888]'
                               }`}>
-                                {String.fromCharCode(65 + oi)}. {opt}{oi === q.answer && ' ✓'}
-                              </p>
+                                <p>{String.fromCharCode(65 + oi)}. {opt}{oi === q.answer && ' ✓'}</p>
+                                {q.optionImages?.[oi] && <img src={q.optionImages[oi]} alt={`Option ${oi}`} className="max-h-16 rounded mt-1" />}
+                              </div>
                             ))}
                           </div>
                           {q.explanation && (
                             <div className="bg-blue-50 border border-blue-100 rounded-xl p-2.5 mb-3">
                               <p className="text-[10px] font-bold text-blue-700 font-label mb-0.5">Explanation</p>
-                              <p className="text-xs text-blue-600 font-label">{q.explanation}</p>
+                              <p className="text-xs text-blue-600 font-label whitespace-pre-line leading-relaxed">{q.explanation}</p>
                             </div>
                           )}
                           <div className="flex gap-2">
@@ -772,24 +1202,50 @@ export default function Admin({ setView }) {
               </select>
             </div>
 
+            {/* Copy from another week */}
+            <div className="bg-white border border-[#EBEBEB] rounded-xl p-3 mb-4 flex items-center gap-2">
+              <p className="text-[11px] text-[#888] font-label shrink-0">Copy from:</p>
+              <div className="flex flex-wrap gap-1.5 flex-1">
+                {WEEKS.filter((w) => w !== topicWeek).map((w) => (
+                  <button
+                    key={w}
+                    onClick={() => handleCopyTopicsFrom(w)}
+                    className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-[#E5E5E5] text-[#555] bg-white hover:border-[#111] hover:text-[#111] transition-colors font-label"
+                  >
+                    ↺ {w}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Topic inputs */}
             <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mb-4">
               <p className="text-sm font-bold text-[#111] font-display mb-1">Topics for {topicWeek}</p>
               <p className="text-xs text-[#AAA] font-label mb-4">
                 Shown to students after completing their quiz as next week's revision guide.
               </p>
-              <div className="space-y-3">
-                {SUBJECTS.map((subject) => (
-                  <div key={subject}>
-                    <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">{subject}</label>
-                    <input
-                      value={topicInputs[subject] || ''}
-                      onChange={(e) => setTopicInputs({ ...topicInputs, [subject]: e.target.value })}
-                      placeholder="e.g. Vectors, Adaptation…"
-                      className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111]"
-                    />
-                  </div>
-                ))}
+              <div className="space-y-4">
+                {SUBJECTS.map((subject) => {
+                  const cur = topicInputs[subject] || { name: '', video: '' }
+                  return (
+                    <div key={subject}>
+                      <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">{subject}</label>
+                      <input
+                        value={cur.name || ''}
+                        onChange={(e) => setTopicInputs({ ...topicInputs, [subject]: { ...cur, name: e.target.value } })}
+                        placeholder="e.g. Vectors, Adaptation…"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] mb-1.5"
+                      />
+                      <input
+                        type="url"
+                        value={cur.video || ''}
+                        onChange={(e) => setTopicInputs({ ...topicInputs, [subject]: { ...cur, video: e.target.value } })}
+                        placeholder="YouTube URL (optional)"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-xs text-[#555] focus:outline-none focus:border-[#111] placeholder:text-[#CCC]"
+                      />
+                    </div>
+                  )
+                })}
               </div>
               {topicSuccess && (
                 <div className="mt-3 px-3.5 py-2 bg-green-50 border border-green-100 rounded-xl">
@@ -805,14 +1261,21 @@ export default function Admin({ setView }) {
             </div>
 
             {/* Saved topics preview */}
-            {Object.keys(topics).some((k) => topics[k]) && (
+            {Object.keys(topics).some((k) => topics[k]?.name) && (
               <div className="bg-[#F3F3F2] border border-[#EBEBEB] rounded-2xl p-4">
                 <p className="text-xs font-bold text-[#555] font-display mb-3">Saved — {topicWeek}</p>
                 <div className="space-y-2">
-                  {Object.entries(topics).map(([subject, topic]) => topic ? (
-                    <div key={subject} className="flex justify-between items-center">
-                      <p className="text-xs text-[#555] font-body">{subject}</p>
-                      <p className="text-xs font-semibold text-[#111] bg-white border border-[#E5E5E5] px-2.5 py-1 rounded-lg font-label">{topic}</p>
+                  {Object.entries(topics).map(([subject, t]) => t?.name ? (
+                    <div key={subject} className="flex justify-between items-center gap-2">
+                      <p className="text-xs text-[#555] font-body shrink-0">{subject}</p>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <p className="text-xs font-semibold text-[#111] bg-white border border-[#E5E5E5] px-2.5 py-1 rounded-lg font-label truncate">{t.name}</p>
+                        {t.video && (
+                          <a href={t.video} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label hover:bg-red-100 shrink-0" title={t.video}>
+                            ▶ Video
+                          </a>
+                        )}
+                      </div>
                     </div>
                   ) : null)}
                 </div>

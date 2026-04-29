@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { listenActiveWeek, listenScores, getTopics } from '../store/useStore'
+import { listenActiveWeek, listenScores, getTopics, normalizeTopic, getAccessStatus, getConsistencyRank } from '../store/useStore'
 
 function isQuizTime() {
   const now = new Date()
@@ -7,25 +7,29 @@ function isQuizTime() {
   const h = now.getHours()
   const m = now.getMinutes()
   const mins = h * 60 + m
-  return day === 5 && mins >= 17 * 60 && mins < 18 * 60 + 30
+  return (day === 5 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
 }
 
 function getTimeUntilQuiz() {
   const now = new Date()
   const day = now.getDay()
   const h = now.getHours()
-  const daysUntilFriday = (day === 5 && h < 17) ? 0 : ((5 - day + 7) % 7 || 7)
-  const friday = new Date(now)
-  friday.setDate(now.getDate() + daysUntilFriday)
-  friday.setHours(17, 0, 0, 0)
-  const diff = friday - now
+  // Next quiz day is Friday OR Saturday — pick whichever comes first
+  let daysUntil
+  if ((day === 5 || day === 6) && h < 17) daysUntil = 0
+  else if (day === 5 && h >= 17) daysUntil = 1 // already Fri quiz time over → Sat tomorrow
+  else daysUntil = (5 - day + 7) % 7 || 7
+  const target = new Date(now)
+  target.setDate(now.getDate() + daysUntil)
+  target.setHours(17, 0, 0, 0)
+  const diff = target - now
   const days = Math.floor(diff / (1000 * 60 * 60 * 24))
   const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
   const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
   return { days, hours, mins }
 }
 
-export default function Dashboard({ student, setView, setSelectedSubjectDetail }) {
+export default function Dashboard({ student, setView, setStudent, setSelectedSubjectDetail }) {
   const [quizTime, setQuizTime] = useState(isQuizTime())
   const [timeLeft, setTimeLeft] = useState(getTimeUntilQuiz())
   const [scores, setScores] = useState([])
@@ -63,10 +67,18 @@ export default function Dashboard({ student, setView, setSelectedSubjectDetail }
     student.subjects.length > 0 &&
     student.subjects.every((sub) => todaySubjectsAttempted.includes(sub))
 
+  // Highest score per subject — best attempt counts
+  const getBestBySubject = () => {
+    const best = {}
+    scores.forEach((s) => {
+      if (!best[s.subject] || s.score > best[s.subject].score) best[s.subject] = s
+    })
+    return best
+  }
+
   const getTotalScore = () => {
-    const bySubject = {}
-    scores.forEach((s) => { if (!bySubject[s.subject]) bySubject[s.subject] = s })
-    const subjects = Object.values(bySubject)
+    const best = getBestBySubject()
+    const subjects = Object.values(best)
     if (subjects.length < 4) return null
     const top4 = subjects.slice(0, 4)
     return {
@@ -75,7 +87,7 @@ export default function Dashboard({ student, setView, setSelectedSubjectDetail }
     }
   }
 
-  const getSubjectScore = (sub) => scores.find((s) => s.subject === sub) || null
+  const getSubjectScore = (sub) => getBestBySubject()[sub] || null
 
   const getSubjectPct = (sub) => {
     const sc = getSubjectScore(sub)
@@ -86,10 +98,10 @@ export default function Dashboard({ student, setView, setSelectedSubjectDetail }
 
   const totalScore = getTotalScore()
 
-  // Topics for this week filtered to student's subjects
+  // Topics for this week filtered to student's subjects (normalized to {name, video})
   const thisWeekTopics = student.subjects
-    .map((sub) => ({ subject: sub, topic: weekTopics[sub] || null }))
-    .filter((t) => t.topic)
+    .map((sub) => ({ subject: sub, topic: normalizeTopic(weekTopics[sub]) }))
+    .filter((t) => t.topic && t.topic.name)
 
   return (
     <div className="min-h-screen bg-[#F8F8F7]">
@@ -104,19 +116,64 @@ export default function Dashboard({ student, setView, setSelectedSubjectDetail }
             <h2 className="text-xl font-bold text-[#111] font-display leading-tight">
               {student.name}
             </h2>
-            {student.year && (
-              <span className="inline-block text-[10px] font-bold bg-[#111] text-white px-2 py-0.5 rounded-full mt-1.5 font-label tracking-wide">
-                {student.year}
-              </span>
-            )}
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              {student.year && (
+                <span className="inline-block text-[10px] font-bold bg-[#111] text-white px-2 py-0.5 rounded-full font-label tracking-wide">
+                  {student.year}
+                </span>
+              )}
+              {(() => {
+                const r = getConsistencyRank(scores)
+                const colorMap = {
+                  gray: 'bg-[#F3F3F2] text-[#555] border-[#E5E5E5]',
+                  yellow: 'bg-yellow-50 text-yellow-700 border-yellow-100',
+                  blue: 'bg-blue-50 text-blue-700 border-blue-100',
+                  purple: 'bg-purple-50 text-purple-700 border-purple-100',
+                  green: 'bg-green-50 text-green-700 border-green-100',
+                }
+                return (
+                  <span
+                    title={r.nextRank ? `${r.sessions} sessions · ${r.nextAt - r.sessions} to ${r.nextRank}` : `${r.sessions} sessions · max rank!`}
+                    className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full font-label tracking-wide border ${colorMap[r.color]}`}
+                  >
+                    ⚡ {r.rank}
+                  </span>
+                )
+              })()}
+            </div>
           </div>
           <button
-            onClick={() => setView('home')}
+            onClick={() => { if (setStudent) setStudent(null); setView('home') }}
             className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors"
           >
             Log out
           </button>
         </div>
+
+        {/* Subscription banner */}
+        {(() => {
+          const access = getAccessStatus(student)
+          if (access.status === 'active' && access.daysLeft > 7) return null
+          const styles = {
+            trial: { bg: 'bg-yellow-50', border: 'border-yellow-100', text: 'text-yellow-800', label: `Free trial · ${access.daysLeft} day${access.daysLeft !== 1 ? 's' : ''} left` },
+            active: { bg: 'bg-blue-50', border: 'border-blue-100', text: 'text-blue-800', label: `Subscription expires in ${access.daysLeft} day${access.daysLeft !== 1 ? 's' : ''}` },
+            expired: { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-700', label: 'Access expired — renew to continue' },
+          }[access.status]
+          return (
+            <button
+              onClick={() => setView('subscribe')}
+              className={`w-full text-left ${styles.bg} ${styles.border} border rounded-xl px-4 py-3 mb-4 flex items-center justify-between hover:opacity-90 transition-opacity`}
+            >
+              <div>
+                <p className={`text-xs font-bold ${styles.text} font-display`}>{styles.label}</p>
+                <p className="text-[10px] text-[#888] font-label mt-0.5">
+                  {access.status === 'expired' ? 'Tap to subscribe (₦800/month)' : 'Tap to manage subscription'}
+                </p>
+              </div>
+              <span className={`text-xs font-bold ${styles.text} font-label`}>→</span>
+            </button>
+          )
+        })()}
 
         {/* JAMB Total Score */}
         {totalScore !== null && (
@@ -176,8 +233,19 @@ export default function Dashboard({ student, setView, setSelectedSubjectDetail }
                   <div className="w-1.5 h-1.5 bg-[#111] rounded-full shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] font-bold text-[#888] uppercase tracking-wide font-label leading-none mb-0.5">{subject}</p>
-                    <p className="text-sm font-semibold text-[#111] font-body">{topic}</p>
+                    <p className="text-sm font-semibold text-[#111] font-body">{topic.name}</p>
                   </div>
+                  {topic.video && (
+                    <a
+                      href={topic.video}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label hover:bg-red-100 transition-colors"
+                      title="Watch on YouTube"
+                    >
+                      ▶ Watch
+                    </a>
+                  )}
                 </div>
               ))}
             </div>
@@ -241,7 +309,7 @@ export default function Dashboard({ student, setView, setSelectedSubjectDetail }
                 <p className="text-sm font-bold text-green-700 font-display">Quiz is LIVE now</p>
               </div>
               <p className="text-xs text-[#888] mb-4 font-label">
-                Login closes 6:00 pm · 1 hr 30 min once started
+                Login closes 6:00 pm · 1 hour once started
               </p>
               {hasAttemptedAllSubjects ? (
                 <div className="bg-[#F3F3F2] rounded-xl p-3 text-center">
@@ -260,7 +328,11 @@ export default function Dashboard({ student, setView, setSelectedSubjectDetail }
                     </div>
                   )}
                   <button
-                    onClick={() => setView('quiz')}
+                    onClick={() => {
+                      const access = getAccessStatus(student)
+                      if (access.status === 'expired') { setView('subscribe'); return }
+                      setView('quiz')
+                    }}
                     className="w-full bg-[#111] text-white rounded-xl py-3.5 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display"
                   >
                     {todaySubjectsAttempted.length > 0
@@ -289,7 +361,7 @@ export default function Dashboard({ student, setView, setSelectedSubjectDetail }
                   <span className="text-xs text-[#AAA] ml-1 font-label">min</span>
                 </div>
               </div>
-              <p className="text-[11px] text-[#CCC] font-label">Every Friday · 5:00 pm – 6:00 pm login window</p>
+              <p className="text-[11px] text-[#CCC] font-label">Fri & Sat · 5:00 pm – 6:00 pm login window</p>
             </div>
           )}
         </div>

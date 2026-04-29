@@ -27,9 +27,12 @@ export default function Results({ student, lastScore, setView }) {
 
   const getTotalScore = () => {
     if (!scores.length) return null
-    const bySubject = {}
-    scores.forEach((s) => { if (!bySubject[s.subject]) bySubject[s.subject] = s })
-    const subjects = Object.values(bySubject)
+    // Highest score per subject — best attempt counts
+    const best = {}
+    scores.forEach((s) => {
+      if (!best[s.subject] || s.score > best[s.subject].score) best[s.subject] = s
+    })
+    const subjects = Object.values(best)
     if (subjects.length < 4) return null
     const top4 = subjects.slice(0, 4)
     return {
@@ -57,26 +60,30 @@ export default function Results({ student, lastScore, setView }) {
               <p className="text-xs font-semibold text-[#111] mb-2 font-body leading-snug">
                 {i + 1}. {q.question}
               </p>
+              {q.image && <img src={q.image} alt="Question" className="mb-2 max-h-48 w-full object-contain rounded-lg border border-[#EBEBEB] bg-white" />}
               <div className="space-y-1 mb-2">
                 {q.options.map((opt, oi) => (
-                  <p key={oi} className={`text-xs px-2.5 py-1.5 rounded-lg font-label ${
+                  <div key={oi} className={`text-xs px-2.5 py-1.5 rounded-lg font-label ${
                     oi === q.answer
                       ? 'bg-green-200 text-green-800 font-semibold'
                       : oi === studentAns && !isCorrect
                       ? 'bg-red-200 text-red-800'
                       : 'text-[#888]'
                   }`}>
-                    {String.fromCharCode(65 + oi)}. {opt}
-                    {oi === q.answer && ' ✓'}
-                    {oi === studentAns && !isCorrect && ' ✗'}
-                  </p>
+                    <p>
+                      {String.fromCharCode(65 + oi)}. {opt}
+                      {oi === q.answer && ' ✓'}
+                      {oi === studentAns && !isCorrect && ' ✗'}
+                    </p>
+                    {q.optionImages?.[oi] && <img src={q.optionImages[oi]} alt={`Option ${oi + 1}`} className="mt-1 max-h-24 rounded" />}
+                  </div>
                 ))}
               </div>
               {isSkipped && <p className="text-[11px] text-[#AAA] font-label">You skipped this</p>}
               {q.explanation && (
                 <div className="bg-blue-50 border border-blue-100 rounded-xl p-2.5 mt-2">
                   <p className="text-[10px] font-bold text-blue-700 font-label mb-0.5">Explanation</p>
-                  <p className="text-xs text-blue-600 font-label leading-relaxed">{q.explanation}</p>
+                  <p className="text-xs text-blue-600 font-label leading-relaxed whitespace-pre-line">{q.explanation}</p>
                 </div>
               )}
             </div>
