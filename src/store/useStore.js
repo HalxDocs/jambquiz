@@ -54,15 +54,15 @@ function getAccessStatus(student) {
   return { status: 'expired', daysLeft: 0, expiresAt: new Date(trialEnd).toISOString() }
 }
 
-// Consistency rank — based on number of distinct (week, subject) test sessions completed
-// 0 → GHOST · 1-3 → ROOKIE · 4-9 → LEARNER · 10-19 → CADET · 20-39 → SCHOLAR · 40+ → ELITE
+// Consistency rank — 5 sessions per rank tier (each session = distinct week+subject combo)
+// GHOST(0) → ROOKIE(1–5) → LEARNER(6–10) → CADET(11–15) → SCHOLAR(16–20) → ELITE(21+)
 const RANK_TIERS = [
-  { name: 'GHOST',    min: 0,  color: 'gray' },
-  { name: 'ROOKIE',   min: 1,  color: 'gray' },
-  { name: 'LEARNER',  min: 4,  color: 'yellow' },
-  { name: 'CADET',    min: 10, color: 'blue' },
-  { name: 'SCHOLAR',  min: 20, color: 'purple' },
-  { name: 'ELITE',    min: 40, color: 'green' },
+  { name: 'GHOST',   min: 0,  color: 'gray' },
+  { name: 'ROOKIE',  min: 1,  color: 'gray' },
+  { name: 'LEARNER', min: 6,  color: 'yellow' },
+  { name: 'CADET',   min: 11, color: 'blue' },
+  { name: 'SCHOLAR', min: 16, color: 'purple' },
+  { name: 'ELITE',   min: 21, color: 'green' },
 ]
 function getConsistencyRank(scores) {
   const sessions = new Set()
@@ -74,7 +74,19 @@ function getConsistencyRank(scores) {
     if (count >= RANK_TIERS[i].min) current = RANK_TIERS[i]
     else { next = RANK_TIERS[i]; break }
   }
-  return { rank: current.name, color: current.color, sessions: count, nextRank: next?.name || null, nextAt: next?.min || null }
+  const isElite = current.name === 'ELITE'
+  const sessionsInRank = count - current.min          // 0–4 within current tier
+  const barFill = isElite ? 5 : Math.min(sessionsInRank, 5) // segments filled (0–5)
+  const toNext = next ? next.min - count : 0
+  return {
+    rank: current.name,
+    color: current.color,
+    sessions: count,
+    nextRank: next?.name || null,
+    nextAt: next?.min || null,
+    barFill,   // 0–5
+    toNext,    // sessions until next rank
+  }
 }
 
 async function addPayment(payment) {

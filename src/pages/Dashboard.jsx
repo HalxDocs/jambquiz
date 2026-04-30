@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { listenActiveWeek, listenScores, getTopics, normalizeTopic, getAccessStatus, getConsistencyRank } from '../store/useStore'
 
 function isQuizTime() {
@@ -35,6 +35,9 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const [scores, setScores] = useState([])
   const [currentWeek, setCurrentWeek] = useState('Week 1')
   const [weekTopics, setWeekTopics] = useState({})
+  const [rankUpToast, setRankUpToast] = useState(null)
+  const prevRankRef = useRef(null)
+  const firstLoadRef = useRef(true)
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -47,6 +50,15 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         .filter((s) => s.studentId === student.id)
         .sort((a, b) => new Date(b.date) - new Date(a.date))
       setScores(mine)
+      const { rank } = getConsistencyRank(mine)
+      if (firstLoadRef.current) {
+        prevRankRef.current = rank
+        firstLoadRef.current = false
+      } else if (prevRankRef.current && rank !== prevRankRef.current) {
+        setRankUpToast(rank)
+        prevRankRef.current = rank
+        setTimeout(() => setRankUpToast(null), 5000)
+      }
     })
     return () => { clearInterval(t); unsubWeek(); unsubScores() }
   }, [student])
@@ -105,6 +117,28 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   return (
     <div className="min-h-screen bg-[#F8F8F7]">
+
+      {/* Rank-up toast */}
+      {rankUpToast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm">
+          <div className="bg-[#111] text-white rounded-2xl shadow-xl px-5 py-4 flex items-center gap-3">
+            <span className="text-2xl">⚡</span>
+            <div className="flex-1">
+              <p className="text-sm font-bold font-display">Rank Up!</p>
+              <p className="text-xs text-[#888] font-label mt-0.5">
+                Consistency Rank: <span className="text-white font-semibold">{rankUpToast}</span>
+              </p>
+            </div>
+            <button
+              onClick={() => setRankUpToast(null)}
+              className="text-[#666] hover:text-white text-lg leading-none transition-colors"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-md mx-auto px-4 pb-10">
 
         {/* Top bar */}
@@ -116,31 +150,45 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
             <h2 className="text-xl font-bold text-[#111] font-display leading-tight">
               {student.name}
             </h2>
-            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-              {student.year && (
-                <span className="inline-block text-[10px] font-bold bg-[#111] text-white px-2 py-0.5 rounded-full font-label tracking-wide">
-                  {student.year}
-                </span>
-              )}
-              {(() => {
-                const r = getConsistencyRank(scores)
-                const colorMap = {
-                  gray: 'bg-[#F3F3F2] text-[#555] border-[#E5E5E5]',
-                  yellow: 'bg-yellow-50 text-yellow-700 border-yellow-100',
-                  blue: 'bg-blue-50 text-blue-700 border-blue-100',
-                  purple: 'bg-purple-50 text-purple-700 border-purple-100',
-                  green: 'bg-green-50 text-green-700 border-green-100',
-                }
-                return (
-                  <span
-                    title={r.nextRank ? `${r.sessions} sessions · ${r.nextAt - r.sessions} to ${r.nextRank}` : `${r.sessions} sessions · max rank!`}
-                    className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full font-label tracking-wide border ${colorMap[r.color]}`}
-                  >
-                    ⚡ {r.rank}
-                  </span>
-                )
-              })()}
-            </div>
+            {(() => {
+              const r = getConsistencyRank(scores)
+              const badge = {
+                gray:   'bg-[#1C1C1C] text-[#AAA] border-[#333]',
+                yellow: 'bg-yellow-950 text-yellow-300 border-yellow-800',
+                blue:   'bg-blue-950 text-blue-300 border-blue-800',
+                purple: 'bg-purple-950 text-purple-300 border-purple-800',
+                green:  'bg-green-950 text-green-300 border-green-800',
+              }
+              const bar = {
+                gray:   'bg-[#666]',
+                yellow: 'bg-yellow-400',
+                blue:   'bg-blue-500',
+                purple: 'bg-purple-500',
+                green:  'bg-green-500',
+              }
+              return (
+                <div className="mt-1.5">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-[10px] text-[#888] font-label">Consistency Rank</span>
+                    <span
+                      title={r.nextRank ? `${r.toNext} session${r.toNext !== 1 ? 's' : ''} to ${r.nextRank}` : 'Max rank!'}
+                      className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full font-label tracking-widest border ${badge[r.color]}`}
+                    >
+                      <span className="text-[9px]">⚡</span>{r.rank}
+                    </span>
+                  </div>
+                  {/* 5-segment rank progress bar */}
+                  <div className="flex gap-[3px]">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div
+                        key={i}
+                        className={`h-[3px] flex-1 rounded-full transition-all duration-500 ${i <= r.barFill ? bar[r.color] : 'bg-[#E0E0E0]'}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
           <button
             onClick={() => { if (setStudent) setStudent(null); setView('home') }}
@@ -404,12 +452,20 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           </div>
         )}
 
-        <button
-          onClick={() => setView('results')}
-          className="w-full bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label"
-        >
-          View All My Results
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setView('results')}
+            className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label"
+          >
+            My Results
+          </button>
+          <button
+            onClick={() => setView('leaderboard')}
+            className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label"
+          >
+            🏆 Leaderboard
+          </button>
+        </div>
 
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { addPayment, extendSubscription, listenPayments, getAccessStatus, SUBSCRIPTION_PRICE_NGN, TRIAL_DAYS, findStudent } from '../store/useStore'
+import { addPayment, extendSubscription, listenPayments, getAccessStatus, SUBSCRIPTION_PRICE_NGN, TRIAL_DAYS, findStudent, updateStudent } from '../store/useStore'
 
 const PAYSTACK_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ''
 
@@ -8,6 +8,7 @@ export default function Subscribe({ student, setStudent, setView }) {
   const [err, setErr] = useState('')
   const [success, setSuccess] = useState('')
   const [history, setHistory] = useState([])
+  const [email, setEmail] = useState(student.email || '')
 
   useEffect(() => {
     const unsub = listenPayments((all) => {
@@ -23,7 +24,7 @@ export default function Subscribe({ student, setStudent, setView }) {
     if (fresh) setStudent(fresh)
   }
 
-  const handlePay = () => {
+  const handlePay = async () => {
     if (!PAYSTACK_KEY) {
       setErr('Online payment not configured. Please contact admin to record a manual payment.')
       return
@@ -32,39 +33,59 @@ export default function Subscribe({ student, setStudent, setView }) {
       setErr('Payment library not loaded. Refresh and try again.')
       return
     }
+    const cleanEmail = email.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setErr('Enter a valid email address for your receipt')
+      return
+    }
+
     setPaying(true)
     setErr('')
     setSuccess('')
+
+    // Persist the email on the student record so we don't ask again
+    if (cleanEmail !== student.email) {
+      try { await updateStudent(student.id, { email: cleanEmail }) } catch { /* non-fatal */ }
+    }
+
     const handler = window.PaystackPop.setup({
       key: PAYSTACK_KEY,
-      email: `${student.name.replace(/\s+/g, '').toLowerCase()}@274lab.local`,
+      email: cleanEmail,
       amount: SUBSCRIPTION_PRICE_NGN * 100, // kobo
       currency: 'NGN',
       ref: `274LAB-${student.id}-${Date.now()}`,
       metadata: {
         studentId: student.id,
         studentName: student.name,
+        custom_fields: [
+          { display_name: 'Student Name', variable_name: 'student_name', value: student.name },
+          { display_name: 'JAMB Year', variable_name: 'jamb_year', value: student.year || 'N/A' },
+        ],
       },
-      callback: async (response) => {
-        try {
-          const newExpiry = await extendSubscription(student.id, 1)
-          await addPayment({
-            studentId: student.id,
-            studentName: student.name,
-            amount: SUBSCRIPTION_PRICE_NGN,
-            currency: 'NGN',
-            method: 'paystack',
-            reference: response.reference,
-            paidAt: new Date().toISOString(),
-            extendsTo: newExpiry,
-          })
-          setSuccess('Payment received — access extended by 1 month!')
-          await refreshStudent()
-        } catch (e) {
-          console.error(e)
-          setErr('Payment received but failed to update. Contact admin with reference: ' + response.reference)
-        }
-        setPaying(false)
+      callback: (response) => {
+        // Paystack callback runs in the inline iframe context; use Promise + setTimeout(0)
+        setTimeout(async () => {
+          try {
+            const newExpiry = await extendSubscription(student.id, 1)
+            await addPayment({
+              studentId: student.id,
+              studentName: student.name,
+              email: cleanEmail,
+              amount: SUBSCRIPTION_PRICE_NGN,
+              currency: 'NGN',
+              method: 'paystack',
+              reference: response.reference,
+              paidAt: new Date().toISOString(),
+              extendsTo: newExpiry,
+            })
+            setSuccess('Payment received — access extended by 1 month!')
+            await refreshStudent()
+          } catch (e) {
+            console.error(e)
+            setErr('Payment received but failed to update. Contact admin with reference: ' + response.reference)
+          }
+          setPaying(false)
+        }, 0)
       },
       onClose: () => {
         setPaying(false)
@@ -133,6 +154,20 @@ export default function Subscribe({ student, setStudent, setView }) {
             <li>✓ Topic videos & study guides</li>
             <li>✓ Performance tracking</li>
           </ul>
+
+          {/* Email for receipt */}
+          <div className="mb-3">
+            <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">
+              Email <span className="text-[#CCC] normal-case tracking-normal">for payment receipt</span>
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => { setEmail(e.target.value); setErr('') }}
+              placeholder="you@example.com"
+              className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white"
+            />
+          </div>
 
           {err && (
             <div className="mb-3 px-3.5 py-2 bg-red-50 border border-red-100 rounded-xl">

@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
-import { listenScores } from '../store/useStore'
+import { listenScores, listenActiveWeek } from '../store/useStore'
 
 export default function Results({ student, lastScore, setView }) {
   const [scores, setScores] = useState([])
   const [filter, setFilter] = useState('all')
   const [expandedScore, setExpandedScore] = useState(lastScore ? 'latest' : null)
+  const [currentWeek, setCurrentWeek] = useState('Week 1')
+  const [reportSent, setReportSent] = useState(false)
 
   useEffect(() => {
     const unsubscribe = listenScores((allScores) => {
@@ -13,8 +15,37 @@ export default function Results({ student, lastScore, setView }) {
         .sort((a, b) => new Date(b.date) - new Date(a.date))
       setScores(mine)
     })
-    return () => unsubscribe()
+    const unsubWeek = listenActiveWeek((w) => setCurrentWeek(w))
+    return () => { unsubscribe(); unsubWeek() }
   }, [student])
+
+  const buildWhatsAppMessage = (recipientType) => {
+    const weekScores = scores.filter((s) => s.week === currentWeek)
+    const bySubject = {}
+    weekScores.forEach((sc) => {
+      if (!bySubject[sc.subject] || sc.score > bySubject[sc.subject].score) bySubject[sc.subject] = sc
+    })
+    const lines = student.subjects.map((sub) => {
+      const sc = bySubject[sub]
+      if (sc) {
+        const pct = Math.round((sc.score / (sc.outOf || 100)) * 100)
+        const tag = pct >= 70 ? '🟢' : pct >= 50 ? '🟡' : '🔴'
+        return `${tag} ${sub}: ${sc.score}/${sc.outOf || 100} (${pct}%)`
+      }
+      return `⚫ ${sub}: ABSENT`
+    }).join('\n')
+    const greeting = recipientType === 'parent'
+      ? `Hello, weekly update for *${student.name}* from 274Lab.`
+      : `Hello, weekly update for your student *${student.name}* from 274Lab.`
+    return `${greeting}\n\n📋 *${currentWeek} — Weekly Mock:*\n${lines}\n\n— 274Lab · Adeola Memorial College`
+  }
+
+  const sendWhatsApp = (phone, recipientType) => {
+    const clean = phone.replace(/[^0-9]/g, '')
+    const url = `https://wa.me/${clean}?text=${encodeURIComponent(buildWhatsAppMessage(recipientType))}`
+    window.open(url, '_blank', 'noopener')
+    setReportSent(true)
+  }
 
   const filtered = filter === 'all' ? scores : scores.filter((s) => s.subject === filter)
 
@@ -107,6 +138,42 @@ export default function Results({ student, lastScore, setView }) {
           </button>
           <h2 className="text-xl font-bold text-[#111] font-display">My Results</h2>
         </div>
+
+        {/* WhatsApp report — shown after completing a quiz */}
+        {lastScore && (student.parentPhone || student.teacherPhone) && (
+          <div className={`rounded-2xl p-4 mb-4 border ${reportSent ? 'bg-green-50 border-green-100' : 'bg-[#111] border-[#111]'}`}>
+            {reportSent ? (
+              <p className="text-xs font-bold text-green-700 font-label text-center">Report sent ✓</p>
+            ) : (
+              <>
+                <p className={`text-[11px] font-bold uppercase tracking-wide font-label mb-1 ${reportSent ? 'text-green-700' : 'text-[#888]'}`}>
+                  Send {currentWeek} Report
+                </p>
+                <p className="text-xs text-[#555] font-label mb-3">
+                  Sends your scores (and ABSENT for missed subjects) via WhatsApp.
+                </p>
+                <div className="flex gap-2">
+                  {student.parentPhone && (
+                    <button
+                      onClick={() => sendWhatsApp(student.parentPhone, 'parent')}
+                      className="flex-1 bg-green-500 hover:bg-green-600 text-white rounded-xl py-2.5 text-xs font-bold font-label transition-colors"
+                    >
+                      💬 Send to Parent
+                    </button>
+                  )}
+                  {student.teacherPhone && (
+                    <button
+                      onClick={() => sendWhatsApp(student.teacherPhone, 'teacher')}
+                      className="flex-1 bg-blue-500 hover:bg-blue-600 text-white rounded-xl py-2.5 text-xs font-bold font-label transition-colors"
+                    >
+                      💬 Send to Teacher
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* JAMB Total Score */}
         {totalScore && (

@@ -8,15 +8,15 @@ export default function Intro({ onContinue }) {
     },
     {
       n: 2,
-      title: 'Consistency',
+      title: 'Discipline',
       window: 'Always',
       body: 'Choose an accountability partner.',
     },
     {
       n: 3,
-      title: 'Activate Patch',
+      title: 'Patch',
       window: 'Mar – Apr',
-      body: 'Daily targeted learning points.',
+      body: 'Targeted key points on weak topics.',
     },
   ]
 
@@ -56,6 +56,8 @@ export default function Intro({ onContinue }) {
             </div>
           ))}
         </div>
+
+
 
         <button
           onClick={onContinue}

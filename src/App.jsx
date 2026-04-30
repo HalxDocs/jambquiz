@@ -9,6 +9,8 @@ import Results from './pages/Results'
 import Admin from './pages/Admin'
 import SubjectDetail from './pages/SubjectDetail'
 import Subscribe from './pages/Subscribe'
+import Leaderboard from './pages/Leaderboard'
+import Supporters from './pages/Supporters'
 import { findStudent } from './store/useStore'
 
 function isIos() {
@@ -95,6 +97,9 @@ export default function App() {
       {view === 'home' && (
         <Home setView={setView} setStudent={setStudent} setAdminAuthed={setAdminAuthed} />
       )}
+      {view === 'supporters' && student && (
+        <Supporters student={student} setStudent={setStudent} setView={setView} />
+      )}
       {view === 'subjects' && (
         <SubjectSelect student={student} setStudent={setStudent} setView={setView} />
       )}
@@ -122,6 +127,9 @@ export default function App() {
       )}
       {view === 'subscribe' && student && (
         <Subscribe student={student} setStudent={setStudent} setView={setView} />
+      )}
+      {view === 'leaderboard' && student && (
+        <Leaderboard student={student} setView={setView} />
       )}
       {view === 'admin' && adminAuthed && (
         <Admin setView={setView} />

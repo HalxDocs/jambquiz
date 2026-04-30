@@ -7,15 +7,13 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [year, setYear] = useState('SS3')
-  const [parentPhone, setParentPhone] = useState('')
-  const [teacherPhone, setTeacherPhone] = useState('')
+  const [year, setYear] = useState('2027')
+  const [email, setEmail] = useState('')
   const [adminPw, setAdminPw] = useState('')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const currentYear = new Date().getFullYear()
-  const years = ['SS3', ...Array.from({ length: 10 }, (_, i) => String(currentYear + i))]
+  const years = Array.from({ length: 10 }, (_, i) => String(2027 + i))
 
   const handleLogin = async () => {
     const trimmed = name.trim()
@@ -37,6 +35,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const handleRegister = async () => {
     const trimmed = name.trim()
     if (trimmed.length < 3) { setErr('Enter your full name (at least 3 characters)'); return }
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setErr('Enter a valid email'); return }
     if (password.length < 4) { setErr('Password must be at least 4 characters'); return }
     if (password !== confirmPassword) { setErr('Passwords do not match'); return }
     setLoading(true); setErr('')
@@ -47,15 +46,16 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
         name: trimmed,
         password,
         year,
-        parentPhone: parentPhone.trim(),
-        teacherPhone: teacherPhone.trim(),
+        email: email.trim().toLowerCase(),
+        parentPhone: '',
+        teacherPhone: '',
         subjects: [],
         joinedAt: new Date().toISOString(),
       }
       const saved = await registerStudent(newStudent)
       if (!saved) { setErr('Name already exists. Please lock in.'); setLoading(false); return }
       setStudent(saved)
-      setView('subjects')
+      setView('supporters')
     } catch {
       setErr('Connection error. Check your internet.')
     }
@@ -80,7 +80,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
             274 days to identify weaknesses and fix them to ace JAMB
           </p>
           <p className="text-xs text-[#AAA] mt-2 font-label">
-            Fri & Sat · 5:00 pm – 6:00 pm
+            Weekly Mock: Fri & Sat · 5:00 pm – 6:00 pm
           </p>
         </div>
 
@@ -140,6 +140,21 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                   {mode === 'register' && (
                     <div>
                       <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Email <span className="text-[#CCC] normal-case tracking-normal">for payment receipts · optional</span>
+                      </label>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                    </div>
+                  )}
+
+                  {mode === 'register' && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
                         JAMB Year
                       </label>
                       <select
@@ -148,7 +163,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                         className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white transition-colors"
                       >
                         {years.map((y) => (
-                          <option key={y} value={y}>{y === 'SS3' ? 'SS3 (Current)' : y}</option>
+                          <option key={y} value={y}>{y}</option>
                         ))}
                       </select>
                     </div>
@@ -182,35 +197,6 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                         className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
                       />
                     </div>
-                  )}
-
-                  {mode === 'register' && (
-                    <>
-                      <div>
-                        <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                          Parent Phone <span className="text-[#CCC] normal-case tracking-normal">optional</span>
-                        </label>
-                        <input
-                          type="tel"
-                          value={parentPhone}
-                          onChange={(e) => setParentPhone(e.target.value)}
-                          placeholder="e.g. +234 803 000 0000"
-                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                          Teacher Phone <span className="text-[#CCC] normal-case tracking-normal">optional</span>
-                        </label>
-                        <input
-                          type="tel"
-                          value={teacherPhone}
-                          onChange={(e) => setTeacherPhone(e.target.value)}
-                          placeholder="e.g. +234 803 000 0000"
-                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                        />
-                      </div>
-                    </>
                   )}
                 </div>
 

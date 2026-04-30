@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon } from '@hugeicons/core-free-icons'
+import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon, UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon } from '@hugeicons/core-free-icons'
 import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics, saveQuestionLimit, getQuestionLimit, setActiveWeek, getActiveWeek, updateStudent, deleteStudent, normalizeTopic, listenPayments, addPayment, extendSubscription, getAccessStatus, SUBSCRIPTION_PRICE_NGN } from '../store/useStore'
 
 async function compressImage(file, maxWidth = 800, quality = 0.7) {
@@ -357,27 +357,33 @@ ${subjectLines}
     return { count: grp.length, attempts: grpScores.length, avg, top, topBySubject }
   }
 
-  const TABS = ['students', 'stats', 'payments', 'questions', 'topics']
+  const TABS = [
+    { key: 'students',  icon: UserGroupIcon,    label: 'Students' },
+    { key: 'stats',     icon: Analytics01Icon,  label: 'Stats' },
+    { key: 'payments',  icon: Wallet01Icon,     label: 'Payments' },
+    { key: 'questions', icon: HelpCircleIcon,   label: 'Questions' },
+    { key: 'topics',    icon: Book01Icon,       label: 'Topics' },
+  ]
 
   return (
     <div className="min-h-screen bg-[#F8F8F7]">
       <div className="max-w-2xl mx-auto px-4 pb-10">
 
         {/* Header */}
-        <div className="flex justify-between items-center pt-8 pb-6">
-          <div>
+        <div className="flex justify-between items-center gap-2 pt-8 pb-6">
+          <div className="min-w-0 flex-1">
             <p className="text-[10px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-0.5">
               274Lab
             </p>
-            <h2 className="text-xl font-bold text-[#111] font-display">Quiz Manager</h2>
+            <h2 className="text-lg sm:text-xl font-bold text-[#111] font-display truncate">Quiz Manager</h2>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold text-white bg-[#111] px-3 py-1.5 rounded-full font-label">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[10px] sm:text-[11px] font-bold text-white bg-[#111] px-2 sm:px-3 py-1.5 rounded-full font-label whitespace-nowrap">
               {activeWeek}
             </span>
             <button
               onClick={() => setView('home')}
-              className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors"
+              className="text-[11px] sm:text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-2.5 sm:px-3 py-2 font-label transition-colors whitespace-nowrap"
             >
               Log out
             </button>
@@ -386,19 +392,28 @@ ${subjectLines}
 
         {/* Tab bar */}
         <div className="flex gap-1 p-1 bg-[#EBEBEB] rounded-xl mb-6">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all capitalize font-label whitespace-nowrap ${
-                tab === t
-                  ? 'bg-white text-[#111] shadow-sm'
-                  : 'text-[#999] hover:text-[#555]'
-              }`}
-            >
-              {t === 'students' ? `Students (${students.length})` : t}
-            </button>
-          ))}
+          {TABS.map((t) => {
+            const isActive = tab === t.key
+            const isStudents = t.key === 'students'
+            return (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                title={t.label}
+                aria-label={t.label}
+                className={`flex-1 py-2.5 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all ${
+                  isActive
+                    ? 'bg-white text-[#111] shadow-sm'
+                    : 'text-[#999] hover:text-[#555]'
+                }`}
+              >
+                <HugeiconsIcon icon={t.icon} size={18} color="currentColor" strokeWidth={isActive ? 2 : 1.5} />
+                <span className="text-[9px] font-bold font-label tracking-wide">
+                  {isStudents ? `${t.label} (${students.length})` : t.label}
+                </span>
+              </button>
+            )
+          })}
         </div>
 
         {/* ── STUDENTS ── */}
@@ -465,44 +480,50 @@ ${subjectLines}
                           {editNameErr && <p className="text-red-500 text-xs mt-1.5 font-label">{editNameErr}</p>}
                         </div>
                       ) : (
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-bold text-[#111] font-body">{student.name}</p>
-                              {student.year && (
-                                <span className="text-[10px] font-bold text-white bg-[#111] px-2 py-0.5 rounded-full font-label">
-                                  {student.year}
-                                </span>
-                              )}
-                              {(() => {
-                                const access = getAccessStatus(student)
-                                const cls = access.status === 'active'
-                                  ? 'bg-green-50 text-green-700 border border-green-100'
-                                  : access.status === 'trial'
-                                  ? 'bg-yellow-50 text-yellow-700 border border-yellow-100'
-                                  : 'bg-red-50 text-red-700 border border-red-100'
-                                const label = access.status === 'active'
-                                  ? `Paid · ${access.daysLeft}d`
-                                  : access.status === 'trial'
-                                  ? `Trial · ${access.daysLeft}d`
-                                  : 'Expired'
-                                return (
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full font-label ${cls}`}>
-                                    {label}
-                                  </span>
-                                )
-                              })()}
-                            </div>
-                            <p className="text-[10px] text-[#AAA] font-label mt-0.5">
-                              Joined {new Date(student.joinedAt).toLocaleDateString('en-NG')}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1.5 ml-2">
+                        <div className="mb-3">
+                          {/* Top row: name + score */}
+                          <div className="flex justify-between items-start gap-2 mb-1.5">
+                            <p className="text-sm font-bold text-[#111] font-body min-w-0 break-words">{student.name}</p>
                             {total !== null && (
-                              <p className="text-sm font-bold text-[#111] font-display mr-2">
+                              <p className="text-sm font-bold text-[#111] font-display shrink-0">
                                 {total}<span className="text-[10px] text-[#AAA] font-label">/400</span>
                               </p>
                             )}
+                          </div>
+
+                          {/* Tag row: year + subscription */}
+                          <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                            {student.year && (
+                              <span className="text-[10px] font-bold text-white bg-[#111] px-2 py-0.5 rounded-full font-label">
+                                {student.year}
+                              </span>
+                            )}
+                            {(() => {
+                              const access = getAccessStatus(student)
+                              const cls = access.status === 'active'
+                                ? 'bg-green-50 text-green-700 border border-green-100'
+                                : access.status === 'trial'
+                                ? 'bg-yellow-50 text-yellow-700 border border-yellow-100'
+                                : 'bg-red-50 text-red-700 border border-red-100'
+                              const label = access.status === 'active'
+                                ? `Paid · ${access.daysLeft}d`
+                                : access.status === 'trial'
+                                ? `Trial · ${access.daysLeft}d`
+                                : 'Expired'
+                              return (
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full font-label ${cls}`}>
+                                  {label}
+                                </span>
+                              )
+                            })()}
+                          </div>
+
+                          <p className="text-[10px] text-[#AAA] font-label mb-2">
+                            Joined {new Date(student.joinedAt).toLocaleDateString('en-NG')}
+                          </p>
+
+                          {/* Action row: wraps on mobile */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <button
                               onClick={() => handleMarkPaid(student)}
                               title={`Record ₦${SUBSCRIPTION_PRICE_NGN} payment (extends 1 month)`}
@@ -573,12 +594,12 @@ ${subjectLines}
                           <p className="text-[10px] text-[#AAA] font-label mb-2">Score history</p>
                           <div className="space-y-1">
                             {getScoresFor(student.id).sort((a, b) => new Date(b.date) - new Date(a.date)).map((sc, i) => (
-                              <div key={i} className="flex justify-between items-center py-0.5">
-                                <div>
-                                  <p className="text-xs text-[#555] font-body">{sc.subject} · {sc.week}</p>
+                              <div key={i} className="flex justify-between items-center gap-2 py-0.5">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs text-[#555] font-body truncate">{sc.subject} · {sc.week}</p>
                                   <p className="text-[10px] text-[#CCC] font-label">{new Date(sc.date).toLocaleDateString('en-NG')}</p>
                                 </div>
-                                <div className="text-right">
+                                <div className="text-right shrink-0">
                                   <span className={`text-xs font-bold font-display ${sc.score / (sc.outOf || 100) >= 0.7 ? 'text-green-600' : sc.score / (sc.outOf || 100) >= 0.5 ? 'text-yellow-600' : 'text-red-500'}`}>
                                     {sc.score}/{sc.outOf || 100}
                                   </span>
