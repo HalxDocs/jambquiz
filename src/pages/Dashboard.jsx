@@ -1,37 +1,63 @@
 import { useState, useEffect, useRef } from 'react'
-import { listenActiveWeek, listenScores, getTopics, normalizeTopic, getAccessStatus, getConsistencyRank } from '../store/useStore'
+import { listenActiveWeek, listenScores, getTopics, normalizeTopic, getAccessStatus, getConsistencyRank, listenQuizDates } from '../store/useStore'
 
-function isQuizTime() {
-  const now = new Date()
-  const day = now.getDay()
-  const h = now.getHours()
-  const m = now.getMinutes()
+function isQuizTime(quizDates) {
+  const now = Date.now()
+  if (quizDates && (quizDates.date1 || quizDates.date2)) {
+    const WINDOW = 60 * 60 * 1000
+    for (const d of [quizDates.date1, quizDates.date2]) {
+      if (!d) continue
+      const t = new Date(d).getTime()
+      if (now >= t && now < t + WINDOW) return true
+    }
+    return false
+  }
+  const nowD = new Date()
+  const day = nowD.getDay()
+  const h = nowD.getHours()
+  const m = nowD.getMinutes()
   const mins = h * 60 + m
   return (day === 5 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
 }
 
-function getTimeUntilQuiz() {
-  const now = new Date()
-  const day = now.getDay()
-  const h = now.getHours()
-  // Next quiz day is Friday OR Saturday — pick whichever comes first
+function getTimeUntilQuiz(quizDates) {
+  const now = Date.now()
+  if (quizDates && (quizDates.date1 || quizDates.date2)) {
+    const upcoming = [quizDates.date1, quizDates.date2]
+      .filter(Boolean)
+      .map((d) => new Date(d).getTime())
+      .filter((t) => t > now)
+      .sort((a, b) => a - b)
+    if (!upcoming.length) return { days: 0, hours: 0, mins: 0 }
+    const diff = upcoming[0] - now
+    return {
+      days: Math.floor(diff / (1000 * 60 * 60 * 24)),
+      hours: Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+      mins: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
+    }
+  }
+  const nowD = new Date()
+  const day = nowD.getDay()
+  const h = nowD.getHours()
   let daysUntil
   if ((day === 5 || day === 6) && h < 17) daysUntil = 0
-  else if (day === 5 && h >= 17) daysUntil = 1 // already Fri quiz time over → Sat tomorrow
+  else if (day === 5 && h >= 17) daysUntil = 1
   else daysUntil = (5 - day + 7) % 7 || 7
-  const target = new Date(now)
-  target.setDate(now.getDate() + daysUntil)
+  const target = new Date(nowD)
+  target.setDate(nowD.getDate() + daysUntil)
   target.setHours(17, 0, 0, 0)
-  const diff = target - now
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-  const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-  return { days, hours, mins }
+  const diff = target - nowD
+  return {
+    days: Math.floor(diff / (1000 * 60 * 60 * 24)),
+    hours: Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+    mins: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
+  }
 }
 
 export default function Dashboard({ student, setView, setStudent, setSelectedSubjectDetail }) {
-  const [quizTime, setQuizTime] = useState(isQuizTime())
-  const [timeLeft, setTimeLeft] = useState(getTimeUntilQuiz())
+  const [quizDates, setQuizDates] = useState(null)
+  const [quizTime, setQuizTime] = useState(false)
+  const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, mins: 0 })
   const [scores, setScores] = useState([])
   const [currentWeek, setCurrentWeek] = useState('Week 1')
   const [weekTopics, setWeekTopics] = useState({})
@@ -39,10 +65,26 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const prevRankRef = useRef(null)
   const firstLoadRef = useRef(true)
 
+  // Patches (ACTIVATE MY PATCHES)
+  const [patchesActive, setPatchesActive] = useState(() => localStorage.getItem('patches_active') === '1')
+  const [currentPatchIdx, setCurrentPatchIdx] = useState(0)
+
+  // Key points notification (auto-cycling)
+  const [keyPointIdx, setKeyPointIdx] = useState(0)
+  const [kpDismissed, setKpDismissed] = useState(false)
+
   useEffect(() => {
+    const unsubDates = listenQuizDates((dates) => {
+      setQuizDates(dates)
+      setQuizTime(isQuizTime(dates))
+      setTimeLeft(getTimeUntilQuiz(dates))
+    })
     const t = setInterval(() => {
-      setQuizTime(isQuizTime())
-      setTimeLeft(getTimeUntilQuiz())
+      setQuizDates((prev) => {
+        setQuizTime(isQuizTime(prev))
+        setTimeLeft(getTimeUntilQuiz(prev))
+        return prev
+      })
     }, 10000)
     const unsubWeek = listenActiveWeek((week) => setCurrentWeek(week))
     const unsubScores = listenScores((allScores) => {
@@ -60,12 +102,13 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         setTimeout(() => setRankUpToast(null), 5000)
       }
     })
-    return () => { clearInterval(t); unsubWeek(); unsubScores() }
+    return () => { clearInterval(t); unsubWeek(); unsubScores(); unsubDates() }
   }, [student])
 
-  // Re-fetch topics whenever the active week changes
   useEffect(() => {
     getTopics(currentWeek).then((t) => setWeekTopics(t || {}))
+    setKpDismissed(false)
+    setKeyPointIdx(0)
   }, [currentWeek])
 
   const todaySubjectsAttempted = scores
@@ -79,7 +122,6 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     student.subjects.length > 0 &&
     student.subjects.every((sub) => todaySubjectsAttempted.includes(sub))
 
-  // Highest score per subject — best attempt counts
   const getBestBySubject = () => {
     const best = {}
     scores.forEach((s) => {
@@ -104,16 +146,70 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const getSubjectPct = (sub) => {
     const sc = getSubjectScore(sub)
     if (!sc) return null
-    const outOf = sc.outOf || 100
-    return Math.round((sc.score / outOf) * 100)
+    return Math.round((sc.score / (sc.outOf || 100)) * 100)
   }
 
   const totalScore = getTotalScore()
 
-  // Topics for this week filtered to student's subjects (normalized to {name, video})
   const thisWeekTopics = student.subjects
     .map((sub) => ({ subject: sub, topic: normalizeTopic(weekTopics[sub]) }))
     .filter((t) => t.topic && t.topic.name)
+
+  // All key points for current week topics (for notification card)
+  const allKeyPoints = student.subjects.flatMap((sub) => {
+    const topic = normalizeTopic(weekTopics[sub])
+    if (!topic?.keyPoints) return []
+    return topic.keyPoints
+      .filter((kp) => kp?.trim())
+      .map((kp) => ({ subject: sub, point: kp }))
+  })
+
+  // Weak subjects: no score or < 50%
+  const weakSubjects = student.subjects.filter((sub) => {
+    const pct = getSubjectPct(sub)
+    return pct === null || pct < 50
+  })
+
+  // Key points for weak subjects (patches mode)
+  const patchKeyPoints = weakSubjects.flatMap((sub) => {
+    const topic = normalizeTopic(weekTopics[sub])
+    if (!topic?.keyPoints) return []
+    return topic.keyPoints
+      .filter((kp) => kp?.trim())
+      .map((kp) => ({ subject: sub, point: kp }))
+  })
+
+  // Auto-cycle key points notification
+  useEffect(() => {
+    if (!allKeyPoints.length || kpDismissed) return
+    const t = setInterval(() => setKeyPointIdx((i) => (i + 1) % allKeyPoints.length), 5000)
+    return () => clearInterval(t)
+  }, [allKeyPoints.length, kpDismissed])
+
+  // Auto-cycle patches overlay
+  useEffect(() => {
+    if (!patchesActive || !patchKeyPoints.length) return
+    const t = setInterval(() => setCurrentPatchIdx((i) => (i + 1) % patchKeyPoints.length), 6000)
+    return () => clearInterval(t)
+  }, [patchesActive, patchKeyPoints.length])
+
+  const handleActivatePatches = () => {
+    setPatchesActive(true)
+    localStorage.setItem('patches_active', '1')
+    setCurrentPatchIdx(0)
+  }
+
+  const handleDeactivatePatches = () => {
+    setPatchesActive(false)
+    localStorage.removeItem('patches_active')
+  }
+
+  // Theme based on patches mode
+  const P = patchesActive
+    ? { bg: 'bg-red-700', hoverBg: 'hover:bg-red-800', textColor: 'text-red-700' }
+    : { bg: 'bg-[#111]', hoverBg: 'hover:bg-[#222]', textColor: 'text-[#111]' }
+
+  const isValentine = (() => { const d = new Date(); return d.getMonth() === 1 && d.getDate() === 14 })()
 
   return (
     <div className="min-h-screen bg-[#F8F8F7]">
@@ -139,6 +235,39 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         </div>
       )}
 
+      {/* Patches overlay */}
+      {patchesActive && patchKeyPoints.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 p-4 pointer-events-none">
+          <div className="max-w-md mx-auto bg-red-700 text-white rounded-2xl p-5 shadow-2xl pointer-events-auto">
+            <div className="flex justify-between items-start mb-2">
+              <div>
+                <p className="text-[10px] font-bold text-red-300 uppercase tracking-widest font-label">
+                  Key Point {currentPatchIdx + 1}/{patchKeyPoints.length}
+                </p>
+                <p className="text-[11px] font-semibold text-red-200 font-label mt-0.5">
+                  {patchKeyPoints[currentPatchIdx]?.subject}
+                </p>
+              </div>
+              <button
+                onClick={() => setCurrentPatchIdx((i) => (i + 1) % patchKeyPoints.length)}
+                className="text-red-300 hover:text-white text-xs font-bold font-label transition-colors"
+              >
+                Next →
+              </button>
+            </div>
+            <p className="text-sm font-semibold leading-relaxed font-body mb-4">
+              {patchKeyPoints[currentPatchIdx]?.point}
+            </p>
+            <button
+              onClick={handleDeactivatePatches}
+              className="w-full bg-red-900 text-red-300 rounded-xl py-2.5 text-xs font-bold font-label hover:bg-red-950 transition-colors"
+            >
+              Deactivate Patches
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-md mx-auto px-4 pb-10">
 
         {/* Top bar */}
@@ -147,7 +276,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
             <p className="text-[11px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-0.5">
               Welcome back
             </p>
-            <h2 className="text-xl font-bold text-[#111] font-display leading-tight">
+            <h2 className={`text-xl font-bold font-display leading-tight ${P.textColor}`}>
               {student.name}
             </h2>
             {(() => {
@@ -177,12 +306,11 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                       <span className="text-[9px]">⚡</span>{r.rank}
                     </span>
                   </div>
-                  {/* 5-segment rank progress bar */}
-                  <div className="flex gap-[3px]">
+                  <div className="flex gap-0.75">
                     {[1, 2, 3, 4, 5].map((i) => (
                       <div
                         key={i}
-                        className={`h-[3px] flex-1 rounded-full transition-all duration-500 ${i <= r.barFill ? bar[r.color] : 'bg-[#E0E0E0]'}`}
+                        className={`h-0.75 flex-1 rounded-full transition-all duration-500 ${i <= r.barFill ? bar[r.color] : 'bg-[#E0E0E0]'}`}
                       />
                     ))}
                   </div>
@@ -223,22 +351,40 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           )
         })()}
 
+        {/* Key points notification card */}
+        {allKeyPoints.length > 0 && !kpDismissed && !patchesActive && (
+          <div className={`${P.bg} text-white rounded-2xl p-4 mb-4 flex items-start gap-3`}>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest font-label mb-0.5">
+                Study Point · {allKeyPoints[keyPointIdx]?.subject}
+              </p>
+              <p className="text-sm font-semibold font-body leading-snug">
+                {allKeyPoints[keyPointIdx]?.point}
+              </p>
+              {allKeyPoints.length > 1 && (
+                <p className="text-[10px] text-white/40 font-label mt-1">{keyPointIdx + 1} / {allKeyPoints.length}</p>
+              )}
+            </div>
+            <button onClick={() => setKpDismissed(true)} className="text-white/40 hover:text-white text-lg leading-none shrink-0 transition-colors">×</button>
+          </div>
+        )}
+
         {/* JAMB Total Score */}
         {totalScore !== null && (
-          <div className="bg-[#111] text-white rounded-2xl p-5 mb-4">
+          <div className={`${P.bg} text-white rounded-2xl p-5 mb-4`}>
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-1">
+                <p className="text-[10px] font-semibold text-white/40 uppercase tracking-[0.2em] font-label mb-1">
                   JAMB Total Score
                 </p>
                 <div className="flex items-end gap-1.5">
                   <span className="text-4xl font-bold font-display">{totalScore.total}</span>
-                  <span className="text-[#666] text-sm mb-1 font-label">/ {totalScore.totalOut}</span>
+                  <span className="text-white/40 text-sm mb-1 font-label">/ {totalScore.totalOut}</span>
                 </div>
               </div>
               <button
                 onClick={() => setView('results')}
-                className="text-[11px] font-semibold text-[#888] hover:text-white transition-colors font-label mt-1"
+                className="text-[11px] font-semibold text-white/40 hover:text-white transition-colors font-label mt-1"
               >
                 View →
               </button>
@@ -250,7 +396,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               />
             </div>
             <div className="flex justify-between mt-1.5">
-              <p className="text-[10px] text-[#666] font-label">
+              <p className="text-[10px] text-white/30 font-label">
                 {Math.round((totalScore.total / totalScore.totalOut) * 100)}%
               </p>
               <p className={`text-[10px] font-semibold font-label ${
@@ -263,7 +409,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           </div>
         )}
 
-        {/* This week's topics — shown only when topics are set */}
+        {/* This week's topics */}
         {thisWeekTopics.length > 0 && (
           <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
             <div className="flex justify-between items-center mb-3">
@@ -271,14 +417,14 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                 <p className="text-sm font-bold text-[#111] font-display">Topics to Study</p>
                 <p className="text-[11px] text-[#AAA] font-label mt-0.5">{currentWeek} · Prepare before the quiz</p>
               </div>
-              <span className="text-[10px] font-bold bg-[#111] text-white px-2.5 py-1 rounded-full font-label">
+              <span className={`text-[10px] font-bold ${P.bg} text-white px-2.5 py-1 rounded-full font-label`}>
                 {currentWeek}
               </span>
             </div>
             <div className="space-y-2">
               {thisWeekTopics.map(({ subject, topic }) => (
                 <div key={subject} className="flex items-center gap-3 py-2 border-b border-[#F3F3F2] last:border-0">
-                  <div className="w-1.5 h-1.5 bg-[#111] rounded-full shrink-0" />
+                  <div className={`w-1.5 h-1.5 ${P.bg} rounded-full shrink-0`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] font-bold text-[#888] uppercase tracking-wide font-label leading-none mb-0.5">{subject}</p>
                     <p className="text-sm font-semibold text-[#111] font-body">{topic.name}</p>
@@ -289,7 +435,6 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                       target="_blank"
                       rel="noreferrer"
                       className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label hover:bg-red-100 transition-colors"
-                      title="Watch on YouTube"
                     >
                       ▶ Watch
                     </a>
@@ -300,7 +445,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           </div>
         )}
 
-        {/* My Subjects — clickable cards */}
+        {/* My Subjects */}
         <div className="mb-4">
           <div className="flex justify-between items-center mb-2">
             <p className="text-sm font-bold text-[#111] font-display">My Subjects</p>
@@ -309,11 +454,14 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           <div className="grid grid-cols-2 gap-2">
             {student.subjects.map((sub) => {
               const pct = getSubjectPct(sub)
+              const isWeak = pct === null || pct < 50
               return (
                 <button
                   key={sub}
                   onClick={() => { setSelectedSubjectDetail(sub); setView('subject-detail') }}
-                  className="bg-white border border-[#EBEBEB] rounded-xl p-3.5 text-left hover:border-[#111] hover:shadow-sm active:scale-[0.98] transition-all group"
+                  className={`bg-white border rounded-xl p-3.5 text-left hover:shadow-sm active:scale-[0.98] transition-all group ${
+                    patchesActive && isWeak ? 'border-red-200' : 'border-[#EBEBEB] hover:border-[#111]'
+                  }`}
                 >
                   <p className="text-[10px] font-semibold text-[#AAA] uppercase tracking-wide font-label mb-1">Subject</p>
                   <p className="text-xs font-bold text-[#111] leading-snug font-body mb-2">{sub}</p>
@@ -357,7 +505,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                 <p className="text-sm font-bold text-green-700 font-display">Quiz is LIVE now</p>
               </div>
               <p className="text-xs text-[#888] mb-4 font-label">
-                Login closes 6:00 pm · 1 hour once started
+                Login closes at end of window · 1 hour once started
               </p>
               {hasAttemptedAllSubjects ? (
                 <div className="bg-[#F3F3F2] rounded-xl p-3 text-center">
@@ -369,7 +517,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                   {todaySubjectsAttempted.length > 0 && (
                     <div className="mb-3 flex flex-wrap gap-1.5">
                       {todaySubjectsAttempted.map((s) => (
-                        <span key={s} className="text-[10px] font-semibold bg-[#111] text-white px-2 py-0.5 rounded-full font-label">
+                        <span key={s} className={`text-[10px] font-semibold ${P.bg} text-white px-2 py-0.5 rounded-full font-label`}>
                           ✓ {s}
                         </span>
                       ))}
@@ -381,7 +529,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                       if (access.status === 'expired') { setView('subscribe'); return }
                       setView('quiz')
                     }}
-                    className="w-full bg-[#111] text-white rounded-xl py-3.5 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display"
+                    className={`w-full ${P.bg} text-white rounded-xl py-3.5 text-sm font-bold ${P.hoverBg} active:scale-[0.99] transition-all font-display`}
                   >
                     {todaySubjectsAttempted.length > 0
                       ? `Continue Quiz (${4 - todaySubjectsAttempted.length} left) →`
@@ -409,48 +557,47 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                   <span className="text-xs text-[#AAA] ml-1 font-label">min</span>
                 </div>
               </div>
-              <p className="text-[11px] text-[#CCC] font-label">Fri & Sat · 5:00 pm – 6:00 pm login window</p>
+              <p className="text-[11px] text-[#CCC] font-label">
+                {quizDates?.date1 || quizDates?.date2
+                  ? [quizDates.date1, quizDates.date2].filter(Boolean).map((d) =>
+                      new Date(d).toLocaleString('en-NG', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    ).join(' & ')
+                  : 'Fri & Sat · 5:00 pm – 6:00 pm login window'}
+              </p>
             </div>
           )}
         </div>
 
-        {/* Recent results */}
-        {scores.length > 0 && (
-          <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mb-3">
-            <div className="flex justify-between items-center mb-3">
-              <p className="text-sm font-bold text-[#111] font-display">Recent Results</p>
+        {/* ACTIVATE MY PATCHES */}
+        <div className="mb-4">
+          {patchesActive ? (
+            <button
+              onClick={handleDeactivatePatches}
+              className="w-full bg-red-700 text-white rounded-xl py-3.5 text-sm font-bold hover:bg-red-800 active:scale-[0.99] transition-all font-display"
+            >
+              🔴 Deactivate Patches
+            </button>
+          ) : (
+            <>
               <button
-                onClick={() => setView('results')}
-                className="text-xs text-[#888] hover:text-[#111] font-label transition-colors"
+                onClick={isValentine ? handleActivatePatches : undefined}
+                disabled={!isValentine}
+                className={`w-full rounded-xl py-3.5 text-sm font-bold transition-all font-display ${
+                  isValentine
+                    ? 'bg-[#111] text-white hover:bg-[#222] active:scale-[0.99]'
+                    : 'bg-[#F3F3F2] text-[#CCC] cursor-not-allowed'
+                }`}
               >
-                View all →
+                ❤️ ACTIVATE MY PATCHES
               </button>
-            </div>
-            <div className="space-y-0">
-              {scores.slice(0, 4).map((s, i) => (
-                <div key={i} className={`flex justify-between items-center py-2.5 ${
-                  i < Math.min(scores.length, 4) - 1 ? 'border-b border-[#F3F3F2]' : ''
-                }`}>
-                  <div>
-                    <p className="text-xs font-semibold text-[#111] font-body">{s.subject}</p>
-                    <p className="text-[10px] text-[#AAA] font-label mt-0.5">
-                      {s.week} · {new Date(s.date).toLocaleDateString('en-NG')}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className={`text-sm font-bold font-display ${
-                      s.score / (s.outOf || 100) >= 0.7 ? 'text-green-600' :
-                      s.score / (s.outOf || 100) >= 0.5 ? 'text-yellow-600' : 'text-red-500'
-                    }`}>
-                      {s.score}
-                    </p>
-                    <p className="text-[10px] text-[#CCC] font-label">/{s.outOf || 100}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+              {!isValentine && (
+                <p className="text-center text-[10px] text-[#CCC] font-label mt-1.5">
+                  Unlocks on February 14 only
+                </p>
+              )}
+            </>
+          )}
+        </div>
 
         <div className="flex gap-2">
           <button

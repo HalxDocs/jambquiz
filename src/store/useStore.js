@@ -14,14 +14,14 @@ const SUBJECTS = [
   'Economics',
 ]
 
-const WEEKS = ['Week 1', 'Week 2', 'Week 3', 'Week 4']
+const WEEKS = Array.from({ length: 26 }, (_, i) => `Week ${i + 1}`)
 
-// A topic value can be either a string (legacy: just the topic name) or an object { name, video }.
+// A topic value can be a string (legacy), { name, video } (v1), or { name, video, keyPoints } (v2).
 // Always normalize via this helper before reading.
 function normalizeTopic(t) {
   if (!t) return null
-  if (typeof t === 'string') return { name: t, video: '' }
-  return { name: t.name || '', video: t.video || '' }
+  if (typeof t === 'string') return { name: t, video: '', keyPoints: [] }
+  return { name: t.name || '', video: t.video || '', keyPoints: Array.isArray(t.keyPoints) ? t.keyPoints : [] }
 }
 
 const SUBSCRIPTION_PRICE_NGN = 800
@@ -280,6 +280,46 @@ async function getQuestionLimit(subject, week) {
   return found ? found.data().limit : defaultQuestionLimit(subject)
 }
 
+async function copyQuestionsToWeek(subject, fromWeek, toWeek) {
+  const snapshot = await getDocs(collection(db, 'questions'))
+  const toTransfer = snapshot.docs
+    .map((d) => ({ _id: d.id, ...d.data() }))
+    .filter((q) => q.subject === subject && q.week === fromWeek)
+  for (const q of toTransfer) {
+    const { _id, createdAt, ...cleanQ } = q
+    await addDoc(collection(db, 'questions'), {
+      ...cleanQ,
+      week: toWeek,
+      createdAt: new Date().toISOString(),
+    })
+  }
+  return toTransfer.length
+}
+
+async function setQuizDates(date1, date2) {
+  const snapshot = await getDocs(collection(db, 'settings'))
+  const existing = snapshot.docs.find((d) => d.data().key === 'quizDates')
+  const payload = { date1: date1 || '', date2: date2 || '' }
+  if (existing) {
+    await updateDoc(doc(db, 'settings', existing.id), payload)
+  } else {
+    await addDoc(collection(db, 'settings'), { key: 'quizDates', ...payload })
+  }
+}
+
+async function getQuizDates() {
+  const snapshot = await getDocs(collection(db, 'settings'))
+  const found = snapshot.docs.find((d) => d.data().key === 'quizDates')
+  return found ? { date1: found.data().date1 || '', date2: found.data().date2 || '' } : { date1: '', date2: '' }
+}
+
+function listenQuizDates(callback) {
+  return onSnapshot(collection(db, 'settings'), (snapshot) => {
+    const found = snapshot.docs.find((d) => d.data().key === 'quizDates')
+    callback(found ? { date1: found.data().date1 || '', date2: found.data().date2 || '' } : { date1: '', date2: '' })
+  })
+}
+
 async function setActiveWeek(week) {
   const snapshot = await getDocs(collection(db, 'settings'))
   const existing = snapshot.docs.find((d) => d.data().key === 'activeWeek')
@@ -326,6 +366,7 @@ export {
   deleteQuestion,
   getQuestions,
   listenQuestions,
+  copyQuestionsToWeek,
   addScore,
   listenScores,
   getStudentScores,
@@ -337,4 +378,7 @@ export {
   setActiveWeek,
   getActiveWeek,
   listenActiveWeek,
+  setQuizDates,
+  getQuizDates,
+  listenQuizDates,
 }

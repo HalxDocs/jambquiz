@@ -84,22 +84,22 @@ export default function Results({ student, lastScore, setView }) {
           const isSkipped = studentAns === null
           return (
             <div key={i} className={`rounded-xl p-3 border ${
-              isCorrect ? 'bg-green-50 border-green-100' :
-              isSkipped ? 'bg-[#F8F8F7] border-[#EBEBEB]' :
-              'bg-red-50 border-red-100'
+              isCorrect ? 'bg-green-900/40 border-green-700/50' :
+              isSkipped ? 'bg-white/5 border-white/10' :
+              'bg-red-900/40 border-red-700/50'
             }`}>
-              <p className="text-xs font-semibold text-[#111] mb-2 font-body leading-snug">
+              <p className="text-xs font-semibold text-white mb-2 font-body leading-snug">
                 {i + 1}. {q.question}
               </p>
-              {q.image && <img src={q.image} alt="Question" className="mb-2 max-h-48 w-full object-contain rounded-lg border border-[#EBEBEB] bg-white" />}
+              {q.image && <img src={q.image} alt="Question" className="mb-2 max-h-48 w-full object-contain rounded-lg border border-white/10 bg-white/5" />}
               <div className="space-y-1 mb-2">
                 {q.options.map((opt, oi) => (
                   <div key={oi} className={`text-xs px-2.5 py-1.5 rounded-lg font-label ${
                     oi === q.answer
-                      ? 'bg-green-200 text-green-800 font-semibold'
+                      ? 'bg-green-700 text-green-100 font-semibold'
                       : oi === studentAns && !isCorrect
-                      ? 'bg-red-200 text-red-800'
-                      : 'text-[#888]'
+                      ? 'bg-red-700 text-red-100'
+                      : 'text-white/40'
                   }`}>
                     <p>
                       {String.fromCharCode(65 + oi)}. {opt}
@@ -110,11 +110,11 @@ export default function Results({ student, lastScore, setView }) {
                   </div>
                 ))}
               </div>
-              {isSkipped && <p className="text-[11px] text-[#AAA] font-label">You skipped this</p>}
+              {isSkipped && <p className="text-[11px] text-white/30 font-label">You skipped this</p>}
               {q.explanation && (
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-2.5 mt-2">
-                  <p className="text-[10px] font-bold text-blue-700 font-label mb-0.5">Explanation</p>
-                  <p className="text-xs text-blue-600 font-label leading-relaxed whitespace-pre-line">{q.explanation}</p>
+                <div className="bg-blue-900/40 border border-blue-700/50 rounded-xl p-2.5 mt-2">
+                  <p className="text-[10px] font-bold text-blue-300 font-label mb-0.5">Explanation</p>
+                  <p className="text-xs text-blue-200 font-label leading-relaxed whitespace-pre-line">{q.explanation}</p>
                 </div>
               )}
             </div>
@@ -262,56 +262,46 @@ export default function Results({ student, lastScore, setView }) {
         ) : (
           <div className="space-y-2.5">
             {filtered.map((s, i) => {
-              const grade = getGrade(s.score, s.outOf)
               const outOf = s.outOf || 100
               const pct = Math.round((s.score / outOf) * 100)
+              const barColor = pct >= 70 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-400'
+              const scoreColor = pct >= 70 ? 'text-green-400' : pct >= 50 ? 'text-yellow-400' : 'text-red-400'
               const isExpanded = expandedScore === s.id || (i === 0 && expandedScore === 'latest')
               return (
-                <div key={i} className="bg-white border border-[#EBEBEB] rounded-xl overflow-hidden">
-                  {/* Score summary row */}
-                  <div className="p-4">
+                <div key={i} className="bg-[#111] rounded-xl overflow-hidden">
+                  <button
+                    className="w-full p-4 text-left"
+                    onClick={() => setExpandedScore(isExpanded ? null : (s.id || i))}
+                  >
                     <div className="flex justify-between items-start mb-2">
                       <div>
-                        <p className="text-sm font-bold text-[#111] font-body">{s.subject}</p>
-                        <p className="text-[10px] text-[#AAA] font-label mt-0.5">
+                        <p className="text-sm font-bold text-white font-body">{s.subject}</p>
+                        <p className="text-[10px] text-white/40 font-label mt-0.5">
                           {s.week} · {new Date(s.date).toLocaleDateString('en-NG')}
                         </p>
                       </div>
-                      <div className="text-right">
-                        <p className={`text-xl font-bold font-display ${grade.color}`}>{s.score}</p>
-                        <p className="text-[10px] text-[#AAA] font-label">/ {outOf}</p>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className={`text-xl font-bold font-display ${scoreColor}`}>{s.score}</p>
+                          <p className="text-[10px] text-white/30 font-label">/ {outOf}</p>
+                        </div>
+                        <span className={`text-sm font-bold font-label transition-transform ${isExpanded ? 'rotate-90' : ''} text-white/30`}>→</span>
                       </div>
                     </div>
 
-                    <div className="flex gap-3 mb-2.5">
-                      <span className="text-[11px] text-green-600 font-label font-semibold">{s.correct} correct</span>
-                      <span className="text-[11px] text-red-500 font-label font-semibold">{s.wrong || 0} wrong</span>
-                      <span className="text-[11px] text-[#AAA] font-label">{s.unanswered || 0} skipped</span>
+                    <div className="flex gap-3 mb-2">
+                      <span className="text-[11px] text-green-400 font-label font-semibold">{s.correct} correct</span>
+                      <span className="text-[11px] text-red-400 font-label font-semibold">{s.wrong || 0} wrong</span>
+                      <span className="text-[11px] text-white/30 font-label">{s.unanswered || 0} skipped</span>
                     </div>
 
-                    <div className="w-full bg-[#F3F3F2] rounded-full h-1 mb-3">
-                      <div className={`h-1 rounded-full ${grade.bar}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                    <div className="w-full bg-white/10 rounded-full h-1">
+                      <div className={`h-1 rounded-full ${barColor}`} style={{ width: `${Math.min(pct, 100)}%` }} />
                     </div>
-
-                    <div className="flex items-center justify-between">
-                      <p className={`text-[11px] font-bold font-label ${grade.color}`}>{grade.label} · {pct}%</p>
-                      {s.questions && (
-                        <button
-                          onClick={() => setExpandedScore(isExpanded ? null : (s.id || i))}
-                          className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors font-label ${
-                            isExpanded
-                              ? 'bg-[#111] text-white border-[#111]'
-                              : 'bg-white text-[#555] border-[#E5E5E5] hover:border-[#111] hover:text-[#111]'
-                          }`}
-                        >
-                          {isExpanded ? '▲ Hide Corrections' : '▼ View Corrections'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                  </button>
 
                   {isExpanded && s.questions && (
-                    <div className="px-4 pb-4 border-t border-[#F3F3F2]">
+                    <div className="px-4 pb-4 border-t border-white/10">
                       {renderCorrections(s)}
                     </div>
                   )}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon, UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon } from '@hugeicons/core-free-icons'
-import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics, saveQuestionLimit, getQuestionLimit, setActiveWeek, getActiveWeek, updateStudent, deleteStudent, normalizeTopic, listenPayments, addPayment, extendSubscription, getAccessStatus, SUBSCRIPTION_PRICE_NGN } from '../store/useStore'
+import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics, saveQuestionLimit, getQuestionLimit, setActiveWeek, getActiveWeek, updateStudent, deleteStudent, normalizeTopic, listenPayments, addPayment, extendSubscription, getAccessStatus, SUBSCRIPTION_PRICE_NGN, copyQuestionsToWeek, setQuizDates, getQuizDates } from '../store/useStore'
 
 async function compressImage(file, maxWidth = 800, quality = 0.7) {
   return new Promise((resolve, reject) => {
@@ -52,6 +52,10 @@ export default function Admin({ setView }) {
   const [editNameLoading, setEditNameLoading] = useState(false)
   const [payments, setPayments] = useState([])
   const [paymentSearch, setPaymentSearch] = useState('')
+  const [quizDate1, setQuizDate1] = useState('')
+  const [quizDate2, setQuizDate2] = useState('')
+  const [transferring, setTransferring] = useState(false)
+  const [openKeyPoints, setOpenKeyPoints] = useState(new Set())
 
   const currentYear = new Date().getFullYear()
   const jamb_years = ['SS3', ...Array.from({ length: 10 }, (_, i) => String(currentYear + i))]
@@ -62,6 +66,7 @@ export default function Admin({ setView }) {
     const unsubScores = listenScores((allScores) => setScores(allScores))
     const unsubPayments = listenPayments((all) => setPayments(all))
     getActiveWeek().then((w) => setActiveWeekState(w))
+    getQuizDates().then(({ date1, date2 }) => { setQuizDate1(date1); setQuizDate2(date2) })
     return () => { unsubStudents(); unsubScores(); unsubPayments() }
   }, [])
 
@@ -193,6 +198,37 @@ export default function Admin({ setView }) {
       setSuccess('Limit saved!')
       setTimeout(() => setSuccess(''), 3000)
     } catch { alert('Failed to save limit.') }
+  }
+
+  const handleTransferQuestions = async (fromWeek) => {
+    if (!window.confirm(`Copy all ${selectedSubject} questions from ${fromWeek} → ${selectedWeek}?`)) return
+    setTransferring(true)
+    try {
+      const count = await copyQuestionsToWeek(selectedSubject, fromWeek, selectedWeek)
+      setSuccess(`${count} question(s) transferred from ${fromWeek}!`)
+      setTimeout(() => setSuccess(''), 4000)
+    } catch { alert('Transfer failed. Check your connection.') }
+    setTransferring(false)
+  }
+
+  const handleSaveQuizDates = async () => {
+    try {
+      await setQuizDates(
+        quizDate1 ? new Date(quizDate1).toISOString() : '',
+        quizDate2 ? new Date(quizDate2).toISOString() : '',
+      )
+      setSuccess('Quiz dates saved!')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch { alert('Failed to save quiz dates.') }
+  }
+
+  const toggleKeyPoints = (subject) => {
+    setOpenKeyPoints((prev) => {
+      const next = new Set(prev)
+      if (next.has(subject)) next.delete(subject)
+      else next.add(subject)
+      return next
+    })
   }
 
   const handleSetActiveWeek = async (week) => {
@@ -949,6 +985,38 @@ ${subjectLines}
               </div>
             </div>
 
+            {/* Quiz Schedule */}
+            <div className="bg-white border border-[#EBEBEB] rounded-xl p-4 mb-4">
+              <p className="text-xs font-bold text-[#111] font-body mb-0.5">Quiz Schedule</p>
+              <p className="text-[11px] text-[#AAA] font-label mb-3">Set 2 dates when students can take the quiz</p>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <div>
+                  <label className="text-[10px] font-bold text-[#888] uppercase tracking-wide block mb-1 font-label">Date 1</label>
+                  <input
+                    type="datetime-local"
+                    value={quizDate1 ? (() => { try { const d = new Date(quizDate1); const p = (n) => String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}` } catch { return '' } })() : ''}
+                    onChange={(e) => setQuizDate1(e.target.value)}
+                    className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-xs text-[#111] focus:outline-none focus:border-[#111] bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-[#888] uppercase tracking-wide block mb-1 font-label">Date 2</label>
+                  <input
+                    type="datetime-local"
+                    value={quizDate2 ? (() => { try { const d = new Date(quizDate2); const p = (n) => String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}` } catch { return '' } })() : ''}
+                    onChange={(e) => setQuizDate2(e.target.value)}
+                    className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-xs text-[#111] focus:outline-none focus:border-[#111] bg-white"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleSaveQuizDates}
+                className="text-xs bg-[#111] text-white px-3 py-1.5 rounded-lg font-label hover:bg-[#222] transition-colors"
+              >
+                Save Dates
+              </button>
+            </div>
+
             {/* Question limit */}
             <div className="bg-white border border-[#EBEBEB] rounded-xl p-4 mb-4">
               <div className="flex justify-between items-center">
@@ -975,6 +1043,24 @@ ${subjectLines}
                     Save
                   </button>
                 </div>
+              </div>
+            </div>
+
+            {/* Transfer questions */}
+            <div className="bg-white border border-[#EBEBEB] rounded-xl p-4 mb-4">
+              <p className="text-xs font-bold text-[#111] font-body mb-0.5">Transfer Questions → {selectedWeek}</p>
+              <p className="text-[11px] text-[#AAA] font-label mb-2">Copy {selectedSubject} questions from another week into this one</p>
+              <div className="flex flex-wrap gap-1.5">
+                {WEEKS.filter((w) => w !== selectedWeek).map((w) => (
+                  <button
+                    key={w}
+                    onClick={() => handleTransferQuestions(w)}
+                    disabled={transferring}
+                    className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-[#E5E5E5] text-[#555] bg-white hover:border-[#111] hover:text-[#111] disabled:opacity-40 transition-colors font-label"
+                  >
+                    {w} +
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -1192,12 +1278,12 @@ ${subjectLines}
               <p className="text-xs text-[#666] mb-4 font-label">
                 Controls which week students quiz on.
               </p>
-              <div className="grid grid-cols-4 gap-2 mb-3">
+              <div className="flex flex-wrap gap-2 mb-3">
                 {WEEKS.map((w) => (
                   <button
                     key={w}
                     onClick={() => handleSetActiveWeek(w)}
-                    className={`py-2.5 rounded-xl text-sm font-bold transition-all font-display ${
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition-all font-display ${
                       activeWeek === w ? 'bg-white text-[#111]' : 'bg-white/10 text-white hover:bg-white/20'
                     }`}
                   >
@@ -1245,9 +1331,12 @@ ${subjectLines}
               <p className="text-xs text-[#AAA] font-label mb-4">
                 Shown to students after completing their quiz as next week's revision guide.
               </p>
-              <div className="space-y-4">
+              <div className="space-y-5">
                 {SUBJECTS.map((subject) => {
-                  const cur = topicInputs[subject] || { name: '', video: '' }
+                  const cur = topicInputs[subject] || { name: '', video: '', keyPoints: [] }
+                  const kps = Array.from({ length: 10 }, (_, i) => cur.keyPoints?.[i] || '')
+                  const filledKps = kps.filter((k) => k.trim()).length
+                  const isOpen = openKeyPoints.has(subject)
                   return (
                     <div key={subject}>
                       <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">{subject}</label>
@@ -1262,8 +1351,38 @@ ${subjectLines}
                         value={cur.video || ''}
                         onChange={(e) => setTopicInputs({ ...topicInputs, [subject]: { ...cur, video: e.target.value } })}
                         placeholder="YouTube URL (optional)"
-                        className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-xs text-[#555] focus:outline-none focus:border-[#111] placeholder:text-[#CCC]"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-xs text-[#555] focus:outline-none focus:border-[#111] placeholder:text-[#CCC] mb-1.5"
                       />
+                      <button
+                        type="button"
+                        onClick={() => toggleKeyPoints(subject)}
+                        className="flex items-center gap-1.5 text-[11px] font-bold text-[#555] hover:text-[#111] transition-colors font-label"
+                      >
+                        <span>{isOpen ? '▲' : '▼'}</span>
+                        <span>Key Points</span>
+                        {filledKps > 0 && (
+                          <span className="bg-[#111] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full font-label">{filledKps}</span>
+                        )}
+                      </button>
+                      {isOpen && (
+                        <div className="mt-2 space-y-1.5 pl-1">
+                          {kps.map((kp, kpIdx) => (
+                            <div key={kpIdx} className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold text-[#CCC] font-label w-4 shrink-0">{kpIdx + 1}</span>
+                              <input
+                                value={kp}
+                                onChange={(e) => {
+                                  const newKps = [...kps]
+                                  newKps[kpIdx] = e.target.value
+                                  setTopicInputs({ ...topicInputs, [subject]: { ...cur, keyPoints: newKps } })
+                                }}
+                                placeholder={`Key point ${kpIdx + 1}…`}
+                                className="flex-1 border border-[#E5E5E5] rounded-lg px-2.5 py-1.5 text-xs text-[#111] focus:outline-none focus:border-[#111] placeholder:text-[#DDD]"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )
                 })}
