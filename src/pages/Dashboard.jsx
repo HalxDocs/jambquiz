@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { listenActiveWeek, listenScores, getTopics, normalizeTopic, getAccessStatus, getConsistencyRank, listenQuizDates } from '../store/useStore'
+import { listenActiveWeek, listenScores, getTopics, normalizeTopic, getAccessStatus, getConsistencyRank, listenQuizDates, WEEKS } from '../store/useStore'
 
 function isQuizTime(quizDates) {
   const now = Date.now()
@@ -288,16 +288,19 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                 purple: 'bg-purple-950 text-purple-300 border-purple-800',
                 green:  'bg-green-950 text-green-300 border-green-800',
               }
-              const bar = {
-                gray:   'bg-[#666]',
-                yellow: 'bg-yellow-400',
-                blue:   'bg-blue-500',
-                purple: 'bg-purple-500',
-                green:  'bg-green-500',
-              }
+              // 26-week medal track
+              const currentWeekIdx = WEEKS.indexOf(currentWeek)
+              const weeklyMedals = WEEKS.map((week) => {
+                const ws = scores.filter((s) => s.week === week)
+                if (!ws.length) return null
+                const bySubject = {}
+                ws.forEach((s) => { if (!bySubject[s.subject] || s.score > bySubject[s.subject]) bySubject[s.subject] = s.score })
+                const total = Object.values(bySubject).reduce((a, b) => a + b, 0)
+                return total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
+              })
               return (
                 <div className="mt-1.5">
-                  <div className="flex items-center gap-1.5 mb-1">
+                  <div className="flex items-center gap-1.5 mb-1.5">
                     <span className="text-[10px] text-[#888] font-label">Consistency Rank</span>
                     <span
                       title={r.nextRank ? `${r.toNext} session${r.toNext !== 1 ? 's' : ''} to ${r.nextRank}` : 'Max rank!'}
@@ -306,13 +309,32 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                       <span className="text-[9px]">⚡</span>{r.rank}
                     </span>
                   </div>
-                  <div className="flex gap-0.75">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <div
-                        key={i}
-                        className={`h-0.75 flex-1 rounded-full transition-all duration-500 ${i <= r.barFill ? bar[r.color] : 'bg-[#E0E0E0]'}`}
-                      />
-                    ))}
+                  {/* 26-week medal track */}
+                  <div className="overflow-x-auto -mx-0.5">
+                    <div className="flex gap-1 px-0.5 pb-0.5">
+                      {WEEKS.map((week, idx) => {
+                        const medal = weeklyMedals[idx]
+                        const isPast = idx < currentWeekIdx
+                        const isCurrent = idx === currentWeekIdx
+                        return (
+                          <div
+                            key={week}
+                            title={`${week}${medal ? ` — ${medal}` : isPast ? ' — Missed' : ''}`}
+                            className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] leading-none border ${
+                              isCurrent && !medal
+                                ? 'border-[#555] bg-[#2A2A2A]'
+                                : medal
+                                ? 'border-transparent'
+                                : isPast
+                                ? 'border-[#333] bg-[#2A2A2A]'
+                                : 'border-[#333] bg-transparent'
+                            }`}
+                          >
+                            {medal || (isPast ? <span className="text-[8px] text-[#444]">●</span> : '')}
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
                 </div>
               )
@@ -369,13 +391,13 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           </div>
         )}
 
-        {/* JAMB Total Score */}
+        {/* Total Score */}
         {totalScore !== null && (
           <div className={`${P.bg} text-white rounded-2xl p-5 mb-4`}>
             <div className="flex justify-between items-start">
               <div>
                 <p className="text-[10px] font-semibold text-white/40 uppercase tracking-[0.2em] font-label mb-1">
-                  JAMB Total Score
+                  Total Score
                 </p>
                 <div className="flex items-end gap-1.5">
                   <span className="text-4xl font-bold font-display">{totalScore.total}</span>

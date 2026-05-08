@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { listenScores, listenStudents, getConsistencyRank, SUBJECTS } from '../store/useStore'
+import { listenScores, listenStudents, getConsistencyRank, SUBJECTS, WEEKS } from '../store/useStore'
 
 const RANK_COLOR = {
   gray:   { badge: 'bg-[#F3F3F2] text-[#555] border-[#E5E5E5]' },
@@ -15,6 +15,7 @@ export default function Leaderboard({ student, setView }) {
   const [students, setStudents] = useState([])
   const [scores, setScores] = useState([])
   const [activeTab, setActiveTab] = useState('overall')
+  const [friendSearch, setFriendSearch] = useState('')
 
   useEffect(() => {
     const unsubStudents = listenStudents((all) => setStudents(all))
@@ -79,10 +80,27 @@ export default function Leaderboard({ student, setView }) {
 
   const myRow = overallBoard.findIndex((s) => s.id === student.id)
 
+  // Medal track helper
+  const getStudentMedals = (studentId) => {
+    const mine = scores.filter((s) => s.studentId === studentId)
+    return WEEKS.map((week) => {
+      const ws = mine.filter((s) => s.week === week)
+      if (!ws.length) return null
+      const bySubject = {}
+      ws.forEach((s) => { if (!bySubject[s.subject] || s.score > bySubject[s.subject]) bySubject[s.subject] = s.score })
+      const total = Object.values(bySubject).reduce((a, b) => a + b, 0)
+      return total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
+    }).filter(Boolean)
+  }
+
+  const friendResults = friendSearch.trim().length >= 2
+    ? students.filter((s) => s.name.toLowerCase().includes(friendSearch.trim().toLowerCase()))
+    : []
+
   const TABS = [
     { key: 'overall', label: 'Overall' },
     { key: 'subject', label: 'By Subject' },
-    { key: 'rank',    label: 'By Rank' },
+    { key: 'friends', label: 'Find Friends' },
   ]
 
   return (
@@ -233,54 +251,65 @@ export default function Leaderboard({ student, setView }) {
           </div>
         )}
 
-        {/* ── BY RANK ── */}
-        {activeTab === 'rank' && (
-          <div className="space-y-4">
-            {rankGroups.length === 0 ? (
+        {/* ── FIND FRIENDS ── */}
+        {activeTab === 'friends' && (
+          <div>
+            <input
+              value={friendSearch}
+              onChange={(e) => setFriendSearch(e.target.value)}
+              placeholder="Search by name…"
+              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] bg-white mb-4"
+              autoFocus
+            />
+            {friendSearch.trim().length > 0 && friendSearch.trim().length < 2 && (
+              <p className="text-xs text-[#AAA] font-label text-center py-4">Type at least 2 characters to search</p>
+            )}
+            {friendSearch.trim().length >= 2 && friendResults.length === 0 && (
               <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
-                <p className="text-[#CCC] text-sm font-label">No data yet</p>
+                <p className="text-[#CCC] text-sm font-label">No student found</p>
               </div>
-            ) : rankGroups.map(({ rank, color, members }) => (
-              <div key={rank} className="bg-white border border-[#EBEBEB] rounded-2xl overflow-hidden">
-                <div className={`px-4 py-2.5 border-b border-[#F3F3F2] flex items-center gap-2 ${
-                  color === 'green' ? 'bg-green-50' :
-                  color === 'purple' ? 'bg-purple-50' :
-                  color === 'blue' ? 'bg-blue-50' :
-                  color === 'yellow' ? 'bg-yellow-50' : 'bg-[#F8F8F7]'
-                }`}>
-                  <span className="text-base">⚡</span>
-                  <p className={`text-xs font-bold font-label tracking-wide ${
-                    color === 'green' ? 'text-green-700' :
-                    color === 'purple' ? 'text-purple-700' :
-                    color === 'blue' ? 'text-blue-700' :
-                    color === 'yellow' ? 'text-yellow-700' : 'text-[#555]'
-                  }`}>{rank}</p>
-                  <span className="text-[10px] text-[#AAA] font-label ml-auto">{members.length} qualif.</span>
-                </div>
-                <div className="divide-y divide-[#F8F8F7]">
-                  {members.map((s, i) => {
-                    const isMe = s.id === student.id
-                    return (
-                      <div key={s.id} className={`flex items-center gap-3 px-4 py-2.5 ${isMe ? 'bg-[#FAFAF9]' : ''}`}>
-                        <span className="w-5 text-xs font-bold text-[#CCC] font-display shrink-0">
-                          {i < 3 ? MEDAL[i] : i + 1}
-                        </span>
-                        <p className={`flex-1 text-sm font-semibold font-body truncate ${isMe ? 'text-[#111] font-bold' : 'text-[#333]'}`}>
-                          {s.name}{isMe && <span className="text-[10px] text-[#AAA] font-label ml-1">(you)</span>}
-                        </p>
-                        {s.total !== null ? (
-                          <p className="text-xs font-bold text-[#111] font-display shrink-0">
-                            {s.total}<span className="text-[10px] text-[#AAA] font-label">/400</span>
+            )}
+            {friendResults.length > 0 && (
+              <div className="space-y-3">
+                {friendResults.map((s) => {
+                  const myScores = scores.filter((sc) => sc.studentId === s.id)
+                  const { rank, color } = getConsistencyRank(myScores)
+                  const medals = getStudentMedals(s.id)
+                  const isMe = s.id === student.id
+                  return (
+                    <div key={s.id} className={`bg-white border rounded-2xl p-4 ${isMe ? 'border-[#111]' : 'border-[#EBEBEB]'}`}>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <p className="text-sm font-bold text-[#111] font-body">
+                            {s.name}{isMe && <span className="text-[10px] text-[#AAA] font-label ml-1">(you)</span>}
                           </p>
-                        ) : (
-                          <p className="text-[10px] text-[#CCC] font-label shrink-0">no total</p>
-                        )}
+                          <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full font-label tracking-widest border mt-1 ${RANK_COLOR[color]?.badge || RANK_COLOR.gray.badge}`}>
+                            ⚡ {rank}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-[#AAA] font-label">{medals.length} medal{medals.length !== 1 ? 's' : ''}</p>
                       </div>
-                    )
-                  })}
-                </div>
+                      {medals.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {medals.map((m, i) => (
+                            <span key={i} className="text-base leading-none">{m}</span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-[#CCC] font-label">No medals yet</p>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
-            ))}
+            )}
+            {!friendSearch.trim() && (
+              <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
+                <p className="text-2xl mb-2">🔍</p>
+                <p className="text-sm font-semibold text-[#111] font-display mb-1">Find a Friend</p>
+                <p className="text-[11px] text-[#AAA] font-label">Search by name to see their rank and medals</p>
+              </div>
+            )}
           </div>
         )}
 

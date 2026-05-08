@@ -25,14 +25,18 @@ export default function Intro({ onContinue }) {
       <div className="w-full max-w-sm">
 
         <div className="text-center mb-8 pt-6">
-          <h1 className="text-[2.5rem] font-bold text-[#111] leading-[1.05] tracking-tight font-display">
-            274Lab
-          </h1>
+          <div className="w-20 h-20 mx-auto bg-[#111] rounded-3xl flex flex-col items-center justify-center mb-5 shadow-lg">
+            <span className="text-[1.6rem] font-bold text-white font-display leading-none tracking-tighter">274</span>
+            <span className="text-[0.65rem] font-bold text-white/50 font-display leading-none tracking-widest uppercase mt-0.5">Lab</span>
+          </div>
+          <p className="text-[11px] font-semibold text-[#888] font-label tracking-[0.25em] uppercase">
+            Diagnose • Discipline • Patch
+          </p>
           <p className="text-[13px] text-[#555] mt-3 font-body leading-snug max-w-[18rem] mx-auto">
             Hi there! Welcome to the Lab.
           </p>
-          <p className="text-xs text-[#888] mt-1.5 font-label leading-relaxed">
-            We've built a simple 3-step system to help you pass your exams.
+          <p className="text-xs text-[#AAA] mt-1.5 font-label leading-relaxed">
+            A simple 3-step system to help you pass your exams.
           </p>
         </div>
 

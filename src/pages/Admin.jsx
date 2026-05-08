@@ -32,7 +32,7 @@ export default function Admin({ setView }) {
   const [currentQuestions, setCurrentQuestions] = useState([])
   const [selectedSubject, setSelectedSubject] = useState(SUBJECTS[0])
   const [selectedWeek, setSelectedWeek] = useState(WEEKS[0])
-  const [form, setForm] = useState({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '', image: '', optionImages: ['', '', '', ''] })
+  const [form, setForm] = useState({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '', explanationImage: '', image: '', optionImages: ['', '', '', ''] })
   const [uploadingImg, setUploadingImg] = useState(null)
   const [editingFirestoreId, setEditingFirestoreId] = useState(null)
   const [expandedQuestion, setExpandedQuestion] = useState(null)
@@ -89,7 +89,7 @@ export default function Admin({ setView }) {
   }, [topicWeek])
 
   const resetForm = () => {
-    setForm({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '', image: '', optionImages: ['', '', '', ''] })
+    setForm({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '', explanationImage: '', image: '', optionImages: ['', '', '', ''] })
     setEditingFirestoreId(null)
     setErr('')
   }
@@ -101,6 +101,7 @@ export default function Admin({ setView }) {
     try {
       const dataUrl = await compressImage(file)
       if (target === 'question') setForm((f) => ({ ...f, image: dataUrl }))
+      else if (target === 'explanation') setForm((f) => ({ ...f, explanationImage: dataUrl }))
       else if (target === 'option' && index !== null) {
         setForm((f) => {
           const next = [...f.optionImages]
@@ -122,6 +123,7 @@ export default function Admin({ setView }) {
       options: [form.optionA.trim(), form.optionB.trim(), form.optionC.trim(), form.optionD.trim()],
       answer: parseInt(form.answer),
       explanation: form.explanation.trim(),
+      explanationImage: form.explanationImage || '',
       image: form.image || '',
       optionImages: form.optionImages || ['', '', '', ''],
     }
@@ -147,6 +149,7 @@ export default function Admin({ setView }) {
       optionA: q.options[0], optionB: q.options[1], optionC: q.options[2], optionD: q.options[3],
       answer: q.answer,
       explanation: q.explanation || '',
+      explanationImage: q.explanationImage || '',
       image: q.image || '',
       optionImages: q.optionImages && q.optionImages.length === 4 ? q.optionImages : ['', '', '', ''],
     })
@@ -1172,8 +1175,33 @@ ${subjectLines}
                     onChange={(e) => setForm({ ...form, explanation: e.target.value })}
                     placeholder="Why is this the correct answer?"
                     rows={2}
-                    className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] resize-none"
+                    className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] resize-none mb-1.5"
                   />
+                  {form.explanationImage ? (
+                    <div className="relative inline-block mt-1">
+                      <img src={form.explanationImage} alt="Explanation" className="max-h-32 rounded-xl border border-[#E5E5E5]" />
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, explanationImage: '' })}
+                        className="absolute -top-2 -right-2 w-6 h-6 bg-white border border-[#E5E5E5] rounded-full flex items-center justify-center text-[#555] hover:text-red-500 hover:border-red-200 shadow-sm"
+                        title="Remove image"
+                      >
+                        <HugeiconsIcon icon={Cancel01Icon} size={12} color="currentColor" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex items-center gap-2 px-3 py-2 border border-dashed border-[#CCC] rounded-xl cursor-pointer hover:border-[#111] hover:bg-[#FAFAF9] transition-colors">
+                      <span className="text-xs text-[#888] font-label">
+                        {uploadingImg === 'explanation' ? 'Uploading…' : '📷 Add explanation image (optional)'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleImageUpload(e.target.files?.[0], 'explanation')}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
                 </div>
               </div>
 

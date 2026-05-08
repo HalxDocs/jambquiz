@@ -1,120 +1,72 @@
 import { useState, useEffect } from 'react'
-import { listenScores, listenActiveWeek } from '../store/useStore'
+import { listenScores, WEEKS } from '../store/useStore'
 
-export default function Results({ student, lastScore, setView }) {
+export default function Results({ student, setView }) {
   const [scores, setScores] = useState([])
-  const [filter, setFilter] = useState('all')
-  const [expandedScore, setExpandedScore] = useState(lastScore ? 'latest' : null)
-  const [currentWeek, setCurrentWeek] = useState('Week 1')
-  const [reportSent, setReportSent] = useState(false)
+  const [expandedWeek, setExpandedWeek] = useState(null)
+  const [expandedSubject, setExpandedSubject] = useState(null)
 
   useEffect(() => {
-    const unsubscribe = listenScores((allScores) => {
-      const mine = allScores
-        .filter((s) => s.studentId === student.id)
-        .sort((a, b) => new Date(b.date) - new Date(a.date))
-      setScores(mine)
+    const unsub = listenScores((all) => {
+      setScores(all.filter((s) => s.studentId === student.id))
     })
-    const unsubWeek = listenActiveWeek((w) => setCurrentWeek(w))
-    return () => { unsubscribe(); unsubWeek() }
+    return () => unsub()
   }, [student])
 
-  const buildWhatsAppMessage = (recipientType) => {
-    const weekScores = scores.filter((s) => s.week === currentWeek)
+  // Group by week — best score per subject per week
+  const weekGroups = WEEKS.map((week) => {
+    const ws = scores.filter((s) => s.week === week)
+    if (!ws.length) return null
     const bySubject = {}
-    weekScores.forEach((sc) => {
-      if (!bySubject[sc.subject] || sc.score > bySubject[sc.subject].score) bySubject[sc.subject] = sc
+    ws.forEach((s) => {
+      if (!bySubject[s.subject] || s.score > bySubject[s.subject].score) bySubject[s.subject] = s
     })
-    const lines = student.subjects.map((sub) => {
-      const sc = bySubject[sub]
-      if (sc) {
-        const pct = Math.round((sc.score / (sc.outOf || 100)) * 100)
-        const tag = pct >= 70 ? '🟢' : pct >= 50 ? '🟡' : '🔴'
-        return `${tag} ${sub}: ${sc.score}/${sc.outOf || 100} (${pct}%)`
-      }
-      return `⚫ ${sub}: ABSENT`
-    }).join('\n')
-    const greeting = recipientType === 'parent'
-      ? `Hello, weekly update for *${student.name}* from 274Lab.`
-      : `Hello, weekly update for your student *${student.name}* from 274Lab.`
-    return `${greeting}\n\n📋 *${currentWeek} — Weekly Mock:*\n${lines}\n\n— 274Lab · Adeola Memorial College`
-  }
+    const entries = Object.values(bySubject)
+    const total = entries.reduce((a, s) => a + s.score, 0)
+    const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
+    const latestDate = entries.reduce((latest, s) => {
+      const d = new Date(s.date)
+      return d > latest ? d : latest
+    }, new Date(0))
+    return { week, entries, total, maxTotal: entries.length * 100, medal, latestDate }
+  }).filter(Boolean).reverse()
 
-  const sendWhatsApp = (phone, recipientType) => {
-    const clean = phone.replace(/[^0-9]/g, '')
-    const url = `https://wa.me/${clean}?text=${encodeURIComponent(buildWhatsAppMessage(recipientType))}`
-    window.open(url, '_blank', 'noopener')
-    setReportSent(true)
-  }
-
-  const filtered = filter === 'all' ? scores : scores.filter((s) => s.subject === filter)
-
-  const getGrade = (score, outOf) => {
-    const pct = outOf ? (score / outOf) * 100 : 0
-    if (pct >= 70) return { label: 'Excellent', color: 'text-green-600', bg: 'bg-green-50 border-green-100', bar: 'bg-green-500' }
-    if (pct >= 50) return { label: 'Pass', color: 'text-yellow-600', bg: 'bg-yellow-50 border-yellow-100', bar: 'bg-yellow-500' }
-    return { label: 'Fail', color: 'text-red-500', bg: 'bg-red-50 border-red-100', bar: 'bg-red-500' }
-  }
-
-  const getTotalScore = () => {
-    if (!scores.length) return null
-    // Highest score per subject — best attempt counts
-    const best = {}
-    scores.forEach((s) => {
-      if (!best[s.subject] || s.score > best[s.subject].score) best[s.subject] = s
-    })
-    const subjects = Object.values(best)
-    if (subjects.length < 4) return null
-    const top4 = subjects.slice(0, 4)
-    return {
-      total: top4.reduce((a, s) => a + s.score, 0),
-      totalOut: top4.reduce((a, s) => a + (s.outOf || 100), 0),
-    }
-  }
-
-  const totalScore = getTotalScore()
+  // All-time best (across all attempts, best per subject)
+  const allBest = {}
+  scores.forEach((s) => {
+    if (!allBest[s.subject] || s.score > allBest[s.subject]) allBest[s.subject] = s.score
+  })
+  const allBestSubjects = Object.keys(allBest)
+  const allBestTotal = allBestSubjects.length >= 4
+    ? Object.values(allBest).slice(0, 4).reduce((a, b) => a + b, 0)
+    : null
 
   const renderCorrections = (s) => {
-    if (!s.questions) return null
+    if (!s.questions) return <p className="text-xs text-white/30 font-label py-2">No corrections data</p>
     return (
-      <div className="mt-3 space-y-3">
+      <div className="mt-2 space-y-2">
         {s.questions.map((q, i) => {
-          const studentAns = s.answers[i]
-          const isCorrect = studentAns === q.answer
-          const isSkipped = studentAns === null
+          const sa = s.answers[i]
+          const isOk = sa === q.answer
+          const isSkip = sa === null
           return (
-            <div key={i} className={`rounded-xl p-3 border ${
-              isCorrect ? 'bg-green-900/40 border-green-700/50' :
-              isSkipped ? 'bg-white/5 border-white/10' :
-              'bg-red-900/40 border-red-700/50'
-            }`}>
-              <p className="text-xs font-semibold text-white mb-2 font-body leading-snug">
-                {i + 1}. {q.question}
-              </p>
-              {q.image && <img src={q.image} alt="Question" className="mb-2 max-h-48 w-full object-contain rounded-lg border border-white/10 bg-white/5" />}
-              <div className="space-y-1 mb-2">
+            <div key={i} className={`rounded-xl p-3 border text-xs ${isOk ? 'bg-green-900/40 border-green-700/50' : isSkip ? 'bg-white/5 border-white/10' : 'bg-red-900/40 border-red-700/50'}`}>
+              <p className="font-semibold text-white mb-1.5 font-body leading-snug">{i + 1}. {q.question}</p>
+              {q.image && <img src={q.image} alt="Q" className="mb-2 max-h-40 w-full object-contain rounded-lg border border-white/10 bg-white/5" />}
+              <div className="space-y-0.5 mb-1.5">
                 {q.options.map((opt, oi) => (
-                  <div key={oi} className={`text-xs px-2.5 py-1.5 rounded-lg font-label ${
-                    oi === q.answer
-                      ? 'bg-green-700 text-green-100 font-semibold'
-                      : oi === studentAns && !isCorrect
-                      ? 'bg-red-700 text-red-100'
-                      : 'text-white/40'
-                  }`}>
-                    <p>
-                      {String.fromCharCode(65 + oi)}. {opt}
-                      {oi === q.answer && ' ✓'}
-                      {oi === studentAns && !isCorrect && ' ✗'}
-                    </p>
-                    {q.optionImages?.[oi] && <img src={q.optionImages[oi]} alt={`Option ${oi + 1}`} className="mt-1 max-h-24 rounded" />}
+                  <div key={oi} className={`px-2.5 py-1.5 rounded-lg font-label ${oi === q.answer ? 'bg-green-700 text-green-100 font-semibold' : oi === sa && !isOk ? 'bg-red-700 text-red-100' : 'text-white/40'}`}>
+                    {String.fromCharCode(65 + oi)}. {opt}{oi === q.answer && ' ✓'}{oi === sa && !isOk && ' ✗'}
+                    {q.optionImages?.[oi] && <img src={q.optionImages[oi]} alt="" className="mt-1 max-h-20 rounded" />}
                   </div>
                 ))}
               </div>
-              {isSkipped && <p className="text-[11px] text-white/30 font-label">You skipped this</p>}
+              {isSkip && <p className="text-white/30 font-label">Skipped</p>}
               {q.explanation && (
-                <div className="bg-blue-900/40 border border-blue-700/50 rounded-xl p-2.5 mt-2">
+                <div className="bg-blue-900/40 border border-blue-700/50 rounded-lg p-2 mt-1.5">
                   <p className="text-[10px] font-bold text-blue-300 font-label mb-0.5">Explanation</p>
-                  <p className="text-xs text-blue-200 font-label leading-relaxed whitespace-pre-line">{q.explanation}</p>
+                  <p className="text-blue-200 font-label leading-relaxed whitespace-pre-line">{q.explanation}</p>
+                  {q.explanationImage && <img src={q.explanationImage} alt="" className="mt-1.5 max-h-40 w-full object-contain rounded-lg border border-blue-700/30" />}
                 </div>
               )}
             </div>
@@ -128,181 +80,91 @@ export default function Results({ student, lastScore, setView }) {
     <div className="min-h-screen bg-[#F8F8F7]">
       <div className="max-w-md mx-auto px-4 pb-10">
 
-        {/* Header */}
         <div className="flex items-center gap-3 pt-8 pb-5">
-          <button
-            onClick={() => setView('dashboard')}
-            className="text-[#888] hover:text-[#111] text-sm font-label transition-colors"
-          >
-            ← Back
-          </button>
+          <button onClick={() => setView('dashboard')} className="text-[#888] hover:text-[#111] text-sm font-label transition-colors">← Back</button>
           <h2 className="text-xl font-bold text-[#111] font-display">My Results</h2>
         </div>
 
-        {/* WhatsApp report — shown after completing a quiz */}
-        {lastScore && (student.parentPhone || student.teacherPhone) && (
-          <div className={`rounded-2xl p-4 mb-4 border ${reportSent ? 'bg-green-50 border-green-100' : 'bg-[#111] border-[#111]'}`}>
-            {reportSent ? (
-              <p className="text-xs font-bold text-green-700 font-label text-center">Report sent ✓</p>
-            ) : (
-              <>
-                <p className={`text-[11px] font-bold uppercase tracking-wide font-label mb-1 ${reportSent ? 'text-green-700' : 'text-[#888]'}`}>
-                  Send {currentWeek} Report
-                </p>
-                <p className="text-xs text-[#555] font-label mb-3">
-                  Sends your scores (and ABSENT for missed subjects) via WhatsApp.
-                </p>
-                <div className="flex gap-2">
-                  {student.parentPhone && (
-                    <button
-                      onClick={() => sendWhatsApp(student.parentPhone, 'parent')}
-                      className="flex-1 bg-green-500 hover:bg-green-600 text-white rounded-xl py-2.5 text-xs font-bold font-label transition-colors"
-                    >
-                      💬 Send to Parent
-                    </button>
-                  )}
-                  {student.teacherPhone && (
-                    <button
-                      onClick={() => sendWhatsApp(student.teacherPhone, 'teacher')}
-                      className="flex-1 bg-blue-500 hover:bg-blue-600 text-white rounded-xl py-2.5 text-xs font-bold font-label transition-colors"
-                    >
-                      💬 Send to Teacher
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* JAMB Total Score */}
-        {totalScore && (
-          <div className="bg-[#111] text-white rounded-2xl p-5 mb-4">
-            <p className="text-[10px] font-semibold text-[#666] uppercase tracking-[0.2em] font-label mb-1">
-              JAMB Total Score
-            </p>
-            <div className="flex items-end gap-2 mb-1">
-              <span className="text-5xl font-bold font-display">{totalScore.total}</span>
-              <span className="text-[#555] text-lg mb-1 font-label">/ {totalScore.totalOut}</span>
+        {/* All-time best hero */}
+        {allBestTotal !== null && (
+          <div className="bg-[#111] text-white rounded-2xl p-5 mb-5">
+            <p className="text-[10px] font-semibold text-[#666] uppercase tracking-[0.2em] font-label mb-1">Total Score</p>
+            <div className="flex items-end gap-2 mb-3">
+              <span className="text-5xl font-bold font-display">{allBestTotal}</span>
+              <span className="text-[#555] text-lg mb-1 font-label">/ 400</span>
             </div>
-            <div className="w-full bg-white/10 rounded-full h-1.5 mt-3 mb-1.5">
-              <div
-                className="h-1.5 rounded-full bg-white transition-all"
-                style={{ width: `${Math.min((totalScore.total / totalScore.totalOut) * 100, 100)}%` }}
-              />
+            <div className="w-full bg-white/10 rounded-full h-1.5 mb-1.5">
+              <div className="h-1.5 rounded-full bg-white transition-all" style={{ width: `${Math.min((allBestTotal / 400) * 100, 100)}%` }} />
             </div>
             <div className="flex justify-between">
-              <p className="text-[11px] text-[#555] font-label">
-                {Math.round((totalScore.total / totalScore.totalOut) * 100)}%
-              </p>
-              <p className={`text-[11px] font-bold font-label ${
-                totalScore.total >= 250 ? 'text-green-400' :
-                totalScore.total >= 180 ? 'text-yellow-400' : 'text-red-400'
-              }`}>
-                {totalScore.total >= 250 ? 'Strong Performance' :
-                 totalScore.total >= 180 ? 'Average' : 'Needs Improvement'}
+              <p className="text-[11px] text-[#555] font-label">{Math.round((allBestTotal / 400) * 100)}%</p>
+              <p className={`text-[11px] font-bold font-label ${allBestTotal >= 250 ? 'text-green-400' : allBestTotal >= 180 ? 'text-yellow-400' : 'text-red-400'}`}>
+                {allBestTotal >= 250 ? 'Strong Performance' : allBestTotal >= 180 ? 'Average' : 'Needs Improvement'}
               </p>
             </div>
           </div>
         )}
 
-        {/* Summary stats */}
-        {scores.length > 0 && (
-          <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
-            <p className="text-xs font-bold text-[#888] uppercase tracking-wide font-label mb-3">Overview</p>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-[#111] font-display">{scores.length}</p>
-                <p className="text-[10px] text-[#AAA] font-label mt-0.5">Attempts</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-[#111] font-display">
-                  {Math.round(scores.reduce((a, s) => a + s.score, 0) / scores.length)}
-                </p>
-                <p className="text-[10px] text-[#AAA] font-label mt-0.5">Avg Score</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-[#111] font-display">
-                  {Math.max(...scores.map((s) => s.score))}
-                </p>
-                <p className="text-[10px] text-[#AAA] font-label mt-0.5">Best</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Subject filter */}
-        <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
-          <button
-            onClick={() => setFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors font-label ${
-              filter === 'all' ? 'bg-[#111] text-white' : 'bg-white border border-[#E5E5E5] text-[#555] hover:border-[#AAA]'
-            }`}
-          >
-            All
-          </button>
-          {student.subjects.map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors font-label ${
-                filter === s ? 'bg-[#111] text-white' : 'bg-white border border-[#E5E5E5] text-[#555] hover:border-[#AAA]'
-              }`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-
-        {/* Results list */}
-        {filtered.length === 0 ? (
+        {/* Week-by-week cards */}
+        {weekGroups.length === 0 ? (
           <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
             <p className="text-[#CCC] text-sm font-label">No results yet</p>
           </div>
         ) : (
-          <div className="space-y-2.5">
-            {filtered.map((s, i) => {
-              const outOf = s.outOf || 100
-              const pct = Math.round((s.score / outOf) * 100)
-              const barColor = pct >= 70 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-400'
-              const scoreColor = pct >= 70 ? 'text-green-400' : pct >= 50 ? 'text-yellow-400' : 'text-red-400'
-              const isExpanded = expandedScore === s.id || (i === 0 && expandedScore === 'latest')
+          <div className="space-y-3">
+            {weekGroups.map(({ week, entries, total, maxTotal, medal, latestDate }) => {
+              const isExp = expandedWeek === week
+              const pct = Math.round((total / maxTotal) * 100)
+              const pctColor = pct >= 70 ? 'text-green-400' : pct >= 50 ? 'text-yellow-400' : 'text-red-400'
               return (
-                <div key={i} className="bg-[#111] rounded-xl overflow-hidden">
-                  <button
-                    className="w-full p-4 text-left"
-                    onClick={() => setExpandedScore(isExpanded ? null : (s.id || i))}
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <p className="text-sm font-bold text-white font-body">{s.subject}</p>
-                        <p className="text-[10px] text-white/40 font-label mt-0.5">
-                          {s.week} · {new Date(s.date).toLocaleDateString('en-NG')}
-                        </p>
+                <div key={week} className="bg-[#111] rounded-2xl overflow-hidden">
+                  <button className="w-full p-4 text-left" onClick={() => { setExpandedWeek(isExp ? null : week); setExpandedSubject(null) }}>
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl shrink-0">{medal}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-white font-display">{week}</p>
+                        <p className="text-[10px] text-white/40 font-label">{latestDate.toLocaleDateString('en-NG', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <p className={`text-xl font-bold font-display ${scoreColor}`}>{s.score}</p>
-                          <p className="text-[10px] text-white/30 font-label">/ {outOf}</p>
-                        </div>
-                        <span className={`text-sm font-bold font-label transition-transform ${isExpanded ? 'rotate-90' : ''} text-white/30`}>→</span>
+                      <div className="text-right shrink-0">
+                        <p className={`text-xl font-bold font-display ${pctColor}`}>{total}</p>
+                        <p className="text-[10px] text-white/30 font-label">/{maxTotal}</p>
                       </div>
+                      <span className={`text-white/30 text-sm transition-transform shrink-0 ${isExp ? 'rotate-90' : ''}`}>→</span>
                     </div>
-
-                    <div className="flex gap-3 mb-2">
-                      <span className="text-[11px] text-green-400 font-label font-semibold">{s.correct} correct</span>
-                      <span className="text-[11px] text-red-400 font-label font-semibold">{s.wrong || 0} wrong</span>
-                      <span className="text-[11px] text-white/30 font-label">{s.unanswered || 0} skipped</span>
-                    </div>
-
                     <div className="w-full bg-white/10 rounded-full h-1">
-                      <div className={`h-1 rounded-full ${barColor}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                      <div className={`h-1 rounded-full transition-all ${pct >= 70 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-400'}`} style={{ width: `${Math.min(pct, 100)}%` }} />
                     </div>
                   </button>
 
-                  {isExpanded && s.questions && (
-                    <div className="px-4 pb-4 border-t border-white/10">
-                      {renderCorrections(s)}
+                  {isExp && (
+                    <div className="px-4 pb-4 border-t border-white/10 pt-3">
+                      <p className="text-[10px] font-bold text-white/40 uppercase tracking-[0.15em] font-label mb-2">Subject Breakdown</p>
+                      <div className="space-y-1.5">
+                        {entries.map((s) => {
+                          const sp = s.score
+                          const isSubExp = expandedSubject === `${week}-${s.subject}`
+                          return (
+                            <div key={s.subject}>
+                              <button
+                                onClick={() => setExpandedSubject(isSubExp ? null : `${week}-${s.subject}`)}
+                                className="flex items-center gap-2.5 w-full py-1.5 text-left"
+                              >
+                                <p className="flex-1 text-xs font-semibold text-white/80 font-body">{s.subject}</p>
+                                <div className="w-14 bg-white/10 rounded-full h-1 shrink-0">
+                                  <div className={`h-1 rounded-full ${sp >= 70 ? 'bg-green-500' : sp >= 50 ? 'bg-yellow-500' : 'bg-red-400'}`} style={{ width: `${sp}%` }} />
+                                </div>
+                                <span className={`text-xs font-bold font-display w-14 text-right shrink-0 ${sp >= 70 ? 'text-green-400' : sp >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>{s.score}/100</span>
+                                <span className="text-white/30 text-[10px] shrink-0">{isSubExp ? '▲' : '▼'}</span>
+                              </button>
+                              {isSubExp && (
+                                <div className="ml-1 mb-2">
+                                  {renderCorrections(s)}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -311,13 +173,9 @@ export default function Results({ student, lastScore, setView }) {
           </div>
         )}
 
-        <button
-          onClick={() => setView('dashboard')}
-          className="w-full mt-5 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label"
-        >
+        <button onClick={() => setView('dashboard')} className="w-full mt-5 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label">
           Back to Dashboard
         </button>
-
       </div>
     </div>
   )

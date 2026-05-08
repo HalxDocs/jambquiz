@@ -10,16 +10,14 @@ export default function Supporters({ student, setStudent, setView }) {
   const handleSave = async () => {
     const p = parentPhone.trim()
     const t = teacherPhone.trim()
-    if (!p) { setErr('Parent phone is required'); return }
-    if (!t) { setErr('Teacher phone is required'); return }
-    if (p.length < 7) { setErr('Enter a valid parent phone number'); return }
-    if (t.length < 7) { setErr('Enter a valid teacher phone number'); return }
+    if (!p && !t) { setErr('Enter at least one phone number (parent or teacher)'); return }
+    if (p && p.length < 7) { setErr('Enter a valid parent phone number'); return }
+    if (t && t.length < 7) { setErr('Enter a valid teacher phone number'); return }
     setLoading(true); setErr('')
     try {
-      const updates = {
-        parentPhone: `+234${p}`,
-        teacherPhone: `+234${t}`,
-      }
+      const updates = {}
+      if (p) updates.parentPhone = `+234${p}`
+      if (t) updates.teacherPhone = `+234${t}`
       await updateStudent(student.id, updates)
       setStudent({ ...student, ...updates })
       setView('subjects')

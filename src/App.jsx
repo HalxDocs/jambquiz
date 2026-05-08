@@ -50,6 +50,26 @@ export default function App() {
     setView('home')
   }
 
+  // Intercept hardware back button — go to dashboard instead of closing the app
+  useEffect(() => {
+    const subViews = ['quiz', 'results', 'leaderboard', 'subject-detail', 'subscribe', 'supporters', 'subjects']
+    if (subViews.includes(view)) {
+      window.history.pushState({ jamb: view }, '')
+    }
+  }, [view])
+
+  useEffect(() => {
+    const handler = () => {
+      const subViews = ['quiz', 'results', 'leaderboard', 'subject-detail', 'subscribe', 'supporters', 'subjects']
+      if (subViews.includes(view)) {
+        setView('dashboard')
+        window.history.pushState({ jamb: 'dashboard' }, '')
+      }
+    }
+    window.addEventListener('popstate', handler)
+    return () => window.removeEventListener('popstate', handler)
+  }, [view])
+
   // Refresh persisted student from server on mount (so subjects/year stay current)
   useEffect(() => {
     if (savedSession?.name) {

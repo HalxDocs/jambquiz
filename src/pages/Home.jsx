@@ -73,13 +73,14 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
 
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-[2.5rem] font-bold text-[#111] leading-[1.1] tracking-tight font-display">
-            274Lab
-          </h1>
-          <p className="text-[13px] text-[#555] mt-2 font-body leading-snug max-w-[18rem] mx-auto">
-            274 days to identify weaknesses and fix them to ace JAMB
+          <div className="w-16 h-16 mx-auto bg-[#111] rounded-2xl flex flex-col items-center justify-center mb-4 shadow-md">
+            <span className="text-xl font-bold text-white font-display leading-none tracking-tighter">274</span>
+            <span className="text-[9px] font-bold text-white/50 font-display leading-none tracking-widest uppercase mt-0.5">Lab</span>
+          </div>
+          <p className="text-[10px] font-semibold text-[#888] font-label tracking-[0.2em] uppercase mb-2">
+            Diagnose • Discipline • Patch
           </p>
-          <p className="text-xs text-[#AAA] mt-2 font-label">
+          <p className="text-xs text-[#AAA] font-label">
             Weekly Mock: Fri & Sat · 5:00 pm – 6:00 pm
           </p>
         </div>
