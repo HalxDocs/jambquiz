@@ -320,7 +320,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                           const isCurrent = idx === currentWeekIdx
                           
                           return (
-                            <div
+                            <div // test
                               key={week}
                               title={`${week}${medal ? ` — ${medal}` : isPast ? ' — Missed' : ''}`}
                               className={`flex-1 flex flex-col items-center min-w-0 ${
