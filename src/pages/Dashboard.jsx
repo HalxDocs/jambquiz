@@ -314,7 +314,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                     {[WEEKS.slice(0, 13), WEEKS.slice(13)].map((row, rowIdx) => (
                       <div key={rowIdx} className="flex gap-0.5 sm:gap-1">
                         {row.map((week, i) => {
-                          const idx = rowIdx * 13 + i
+                          const idx = rowIdx * 9 + i
                           const medal = weeklyMedals[idx]
                           const isPast = idx < currentWeekIdx
                           const isCurrent = idx === currentWeekIdx
