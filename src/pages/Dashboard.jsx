@@ -310,40 +310,50 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                     </span>
                   </div>
                   {/* 26-week medal track — 2 rows of 13 */}
-                  <div className="space-y-1">
+                  <div className="space-y-2 mt-2">
                     {[WEEKS.slice(0, 13), WEEKS.slice(13)].map((row, rowIdx) => (
-                      <div key={rowIdx} className="flex gap-1">
+                      <div key={rowIdx} className="flex gap-0.5 sm:gap-1">
                         {row.map((week, i) => {
                           const idx = rowIdx * 13 + i
                           const medal = weeklyMedals[idx]
                           const isPast = idx < currentWeekIdx
                           const isCurrent = idx === currentWeekIdx
+                          
                           return (
                             <div
                               key={week}
                               title={`${week}${medal ? ` — ${medal}` : isPast ? ' — Missed' : ''}`}
-                              className={`flex-1 flex flex-col items-center ${
-                                medal || isCurrent ? '' : isPast ? 'opacity-50' : 'opacity-20'
+                              className={`flex-1 flex flex-col items-center min-w-0 ${
+                                medal || isCurrent ? '' : isPast ? 'opacity-40' : 'opacity-15'
                               }`}
                             >
-                              <div className={`w-3 h-1.5 rounded-sm ${
+                              {/* Week number - hidden on very small screens */}
+                              <span className="text-[7px] text-[#666] font-label mb-0.5 hidden sm:block">
+                                {week.replace('Week ', '')}
+                              </span>
+                              
+                              {/* Medal circle */}
+                              <div className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-sm sm:text-base ${
+                                medal ? 'border-2 border-opacity-50' :
+                                isCurrent ? 'bg-[#2A2A2A] border border-[#555]' :
+                                'bg-[#222] border border-[#333]'
+                              } ${
+                                medal === '🥇' ? 'bg-yellow-400/30 border-yellow-400' :
+                                medal === '🥈' ? 'bg-gray-300/30 border-gray-400' :
+                                medal === '🥉' ? 'bg-amber-600/30 border-amber-500' :
+                                ''
+                              }`}>
+                                {medal && <span>{medal}</span>}
+                                {!medal && isPast && <span className="text-[8px] text-[#555]">●</span>}
+                              </div>
+                              
+                              {/* Progress bar */}
+                              <div className={`w-full max-w-[24px] sm:max-w-[28px] h-1 rounded-sm mt-0.5 ${
                                 medal === '🥇' ? 'bg-yellow-500' :
                                 medal === '🥈' ? 'bg-gray-400' :
                                 medal === '🥉' ? 'bg-amber-700' :
                                 isCurrent ? 'bg-[#555]' : 'bg-[#333]'
                               }`} />
-                              <div className={`w-5 h-5 rounded-full flex items-center justify-center border ${
-                                medal === '🥇' ? 'bg-yellow-400 border-yellow-600' :
-                                medal === '🥈' ? 'bg-gray-300 border-gray-400' :
-                                medal === '🥉' ? 'bg-amber-600 border-amber-800' :
-                                isCurrent ? 'bg-[#2A2A2A] border-[#555]' :
-                                'bg-[#222] border-[#333]'
-                              }`}>
-                                {medal === '🥇' && <span className="text-[9px] font-bold text-yellow-800">★</span>}
-                                {medal === '🥈' && <span className="text-[9px] font-bold text-gray-500">★</span>}
-                                {medal === '🥉' && <span className="text-[9px] font-bold text-amber-900">★</span>}
-                                {!medal && isPast && <span className="text-[7px] text-[#555]">●</span>}
-                              </div>
                             </div>
                           )
                         })}
