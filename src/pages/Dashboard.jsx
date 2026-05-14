@@ -311,7 +311,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                   </div>
                   {/* 26-week medal track — 2 rows of 13 */}
                   <div className="space-y-2 mt-2">
-                    {[WEEKS.slice(0, 13), WEEKS.slice(13)].map((row, rowIdx) => (
+                    {[WEEKS.slice(0, 9), WEEKS.slice(9, 18), WEEKS.slice(18)].map((row, rowIdx) => (
                       <div key={rowIdx} className="flex gap-0.5 sm:gap-1">
                         {row.map((week, i) => {
                           const idx = rowIdx * 9 + i
