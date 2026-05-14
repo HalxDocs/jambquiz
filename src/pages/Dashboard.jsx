@@ -309,32 +309,46 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                       <span className="text-[9px]">⚡</span>{r.rank}
                     </span>
                   </div>
-                  {/* 26-week medal track */}
-                  <div className="overflow-x-auto -mx-0.5">
-                    <div className="flex gap-1 px-0.5 pb-0.5">
-                      {WEEKS.map((week, idx) => {
-                        const medal = weeklyMedals[idx]
-                        const isPast = idx < currentWeekIdx
-                        const isCurrent = idx === currentWeekIdx
-                        return (
-                          <div
-                            key={week}
-                            title={`${week}${medal ? ` — ${medal}` : isPast ? ' — Missed' : ''}`}
-                            className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] leading-none border ${
-                              isCurrent && !medal
-                                ? 'border-[#555] bg-[#2A2A2A]'
-                                : medal
-                                ? 'border-transparent'
-                                : isPast
-                                ? 'border-[#333] bg-[#2A2A2A]'
-                                : 'border-[#333] bg-transparent'
-                            }`}
-                          >
-                            {medal || (isPast ? <span className="text-[8px] text-[#444]">●</span> : '')}
-                          </div>
-                        )
-                      })}
-                    </div>
+                  {/* 26-week medal track — 2 rows of 13 */}
+                  <div className="space-y-1">
+                    {[WEEKS.slice(0, 13), WEEKS.slice(13)].map((row, rowIdx) => (
+                      <div key={rowIdx} className="flex gap-1">
+                        {row.map((week, i) => {
+                          const idx = rowIdx * 13 + i
+                          const medal = weeklyMedals[idx]
+                          const isPast = idx < currentWeekIdx
+                          const isCurrent = idx === currentWeekIdx
+                          return (
+                            <div
+                              key={week}
+                              title={`${week}${medal ? ` — ${medal}` : isPast ? ' — Missed' : ''}`}
+                              className={`flex-1 flex flex-col items-center ${
+                                medal || isCurrent ? '' : isPast ? 'opacity-50' : 'opacity-20'
+                              }`}
+                            >
+                              <div className={`w-3 h-1.5 rounded-sm ${
+                                medal === '🥇' ? 'bg-yellow-500' :
+                                medal === '🥈' ? 'bg-gray-400' :
+                                medal === '🥉' ? 'bg-amber-700' :
+                                isCurrent ? 'bg-[#555]' : 'bg-[#333]'
+                              }`} />
+                              <div className={`w-5 h-5 rounded-full flex items-center justify-center border ${
+                                medal === '🥇' ? 'bg-yellow-400 border-yellow-600' :
+                                medal === '🥈' ? 'bg-gray-300 border-gray-400' :
+                                medal === '🥉' ? 'bg-amber-600 border-amber-800' :
+                                isCurrent ? 'bg-[#2A2A2A] border-[#555]' :
+                                'bg-[#222] border-[#333]'
+                              }`}>
+                                {medal === '🥇' && <span className="text-[9px] font-bold text-yellow-800">★</span>}
+                                {medal === '🥈' && <span className="text-[9px] font-bold text-gray-500">★</span>}
+                                {medal === '🥉' && <span className="text-[9px] font-bold text-amber-900">★</span>}
+                                {!medal && isPast && <span className="text-[7px] text-[#555]">●</span>}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )

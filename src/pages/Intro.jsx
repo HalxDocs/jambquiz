@@ -25,9 +25,9 @@ export default function Intro({ onContinue }) {
       <div className="w-full max-w-sm">
 
         <div className="text-center mb-8 pt-6">
-          <div className="w-20 h-20 mx-auto bg-[#111] rounded-3xl flex flex-col items-center justify-center mb-5 shadow-lg">
-            <span className="text-[1.6rem] font-bold text-white font-display leading-none tracking-tighter">274</span>
-            <span className="text-[0.65rem] font-bold text-white/50 font-display leading-none tracking-widest uppercase mt-0.5">Lab</span>
+          <div className="w-16 h-16 mx-auto bg-[#111] rounded-2xl flex flex-col items-center justify-center mb-4 shadow-md">
+            <span className="text-xl font-bold text-white font-display leading-none tracking-tighter">274</span>
+            <span className="text-[9px] font-bold text-white/50 font-display leading-none tracking-widest uppercase mt-0.5">Lab</span>
           </div>
           <p className="text-[11px] font-semibold text-[#888] font-label tracking-[0.25em] uppercase">
             Diagnose • Discipline • Patch
