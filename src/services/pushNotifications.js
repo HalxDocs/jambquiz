@@ -1,10 +1,11 @@
 // src/services/pushNotifications.js
 
-// In production, this comes from your backend / Firebase
 const VAPID_PUBLIC_KEY = 'YOUR_VAPID_PUBLIC_KEY_HERE'
 
 /**
- * Register the service worker and request push permission
+ * Register for push notifications
+ * The service worker is already registered by vite-plugin-pwa,
+ * so we just need to subscribe to push.
  */
 export async function registerPushNotifications() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -19,14 +20,22 @@ export async function registerPushNotifications() {
       return null
     }
 
-    const registration = await navigator.serviceWorker.register('/sw.js')
+    // Wait for the service worker to be ready (registered by vite-plugin-pwa)
+    const registration = await navigator.serviceWorker.ready
 
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-    })
+    // Check if already subscribed
+    let subscription = await registration.pushManager.getSubscription()
+    
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      })
+      console.log('[Push] Successfully subscribed')
+    } else {
+      console.log('[Push] Already subscribed')
+    }
 
-    console.log('[Push] Successfully subscribed')
     return subscription
   } catch (err) {
     console.error('[Push] Registration failed:', err)
@@ -35,7 +44,8 @@ export async function registerPushNotifications() {
 }
 
 /**
- * Trigger a local push notification (fallback if no service worker)
+ * Trigger a local push notification
+ * Works when app is in background or when service worker push fails
  */
 export function sendLocalNotification(point) {
   if (!('Notification' in window) || Notification.permission !== 'granted') {
