@@ -1,7 +1,9 @@
+// src/pages/Admin.jsx
 import { useState, useEffect } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon, UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon } from '@hugeicons/core-free-icons'
+import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon, UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon, Notification02Icon } from '@hugeicons/core-free-icons'
 import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, listenQuestions, listenScores, listenStudents, setTopics, getTopics, saveQuestionLimit, getQuestionLimit, setActiveWeek, getActiveWeek, updateStudent, deleteStudent, normalizeTopic, listenPayments, addPayment, extendSubscription, getAccessStatus, SUBSCRIPTION_PRICE_NGN, copyQuestionsToWeek, setQuizDates, getQuizDates } from '../store/useStore'
+import { useAdminNotificationStore } from '../store/notificationStore'
 
 async function compressImage(file, maxWidth = 800, quality = 0.7) {
   return new Promise((resolve, reject) => {
@@ -278,7 +280,6 @@ export default function Admin({ setView }) {
     return s.length ? Math.round(s.reduce((a, b) => a + b.score, 0) / s.length) : 0
   }
 
-  // Manually mark a student as paid (cash, transfer, etc.) — extends subscription by 1 month
   const handleMarkPaid = async (student) => {
     if (!window.confirm(`Mark ${student.name} as paid for ₦${SUBSCRIPTION_PRICE_NGN}? This extends access by 1 month.`)) return
     try {
@@ -301,7 +302,6 @@ export default function Admin({ setView }) {
     }
   }
 
-  // Build a WhatsApp report message (best score per subject) and open wa.me
   const sendWhatsAppReport = (student, recipient) => {
     const phone = recipient === 'parent' ? student.parentPhone : student.teacherPhone
     if (!phone) return
@@ -342,10 +342,10 @@ ${subjectLines}
     const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
     window.open(url, '_blank', 'noopener')
   }
+
   const getTotalScore = (studentId) => {
     const s = getScoresFor(studentId)
     if (!s.length) return null
-    // Highest score per subject — best attempt counts
     const best = {}
     s.forEach((sc) => {
       if (!best[sc.subject] || sc.score > best[sc.subject].score) best[sc.subject] = sc
@@ -363,19 +363,16 @@ ${subjectLines}
     const grpScores = scores.filter((sc) => grp.find((s) => s.id === sc.studentId))
     const avg = grpScores.length ? Math.round(grpScores.reduce((a, b) => a + b.score, 0) / grpScores.length) : 0
 
-    // Overall top performers — students who have scores in all 4 of their subjects
     const top = grp
       .map((s) => ({ name: s.name, total: getTotalScore(s.id) }))
       .filter((s) => s.total !== null)
       .sort((a, b) => b.total - a.total)
       .slice(0, 3)
 
-    // Per-subject top performers
     const topBySubject = SUBJECTS.map((subject) => {
       const subScores = grpScores.filter((sc) => sc.subject === subject)
       if (!subScores.length) return null
 
-      // For each student, take their best score on this subject
       const byStudent = {}
       subScores.forEach((sc) => {
         const student = grp.find((s) => s.id === sc.studentId)
@@ -402,6 +399,7 @@ ${subjectLines}
     { key: 'payments',  icon: Wallet01Icon,     label: 'Payments' },
     { key: 'questions', icon: HelpCircleIcon,   label: 'Questions' },
     { key: 'topics',    icon: Book01Icon,       label: 'Topics' },
+    { key: 'notifications', icon: Notification02Icon, label: 'Notifications' },
   ]
 
   return (
@@ -430,7 +428,7 @@ ${subjectLines}
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1 p-1 bg-[#EBEBEB] rounded-xl mb-6">
+        <div className="flex gap-1 p-1 bg-[#EBEBEB] rounded-xl mb-6 overflow-x-auto">
           {TABS.map((t) => {
             const isActive = tab === t.key
             const isStudents = t.key === 'students'
@@ -440,7 +438,7 @@ ${subjectLines}
                 onClick={() => setTab(t.key)}
                 title={t.label}
                 aria-label={t.label}
-                className={`flex-1 py-2.5 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all ${
+                className={`flex-1 min-w-[64px] py-2.5 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all ${
                   isActive
                     ? 'bg-white text-[#111] shadow-sm'
                     : 'text-[#999] hover:text-[#555]'
@@ -484,7 +482,6 @@ ${subjectLines}
                   const attempts = getScoresFor(student.id).length
                   return (
                     <div key={student.id} className="bg-white border border-[#EBEBEB] rounded-xl p-4">
-                      {/* Name row — normal or edit mode */}
                       {editingStudentId === student.id ? (
                         <div className="mb-3">
                           <p className="text-[10px] font-bold text-[#888] uppercase tracking-wide font-label mb-1.5">Edit Name</p>
@@ -520,7 +517,6 @@ ${subjectLines}
                         </div>
                       ) : (
                         <div className="mb-3">
-                          {/* Top row: name + score */}
                           <div className="flex justify-between items-start gap-2 mb-1.5">
                             <p className="text-sm font-bold text-[#111] font-body min-w-0 break-words">{student.name}</p>
                             {total !== null && (
@@ -530,7 +526,6 @@ ${subjectLines}
                             )}
                           </div>
 
-                          {/* Tag row: year + subscription */}
                           <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
                             {student.year && (
                               <span className="text-[10px] font-bold text-white bg-[#111] px-2 py-0.5 rounded-full font-label">
@@ -561,7 +556,6 @@ ${subjectLines}
                             Joined {new Date(student.joinedAt).toLocaleDateString('en-NG')}
                           </p>
 
-                          {/* Action row: wraps on mobile */}
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <button
                               onClick={() => handleMarkPaid(student)}
@@ -696,7 +690,6 @@ ${subjectLines}
                     ))}
                   </div>
 
-                  {/* Revenue widget */}
                   {(() => {
                     const grpStudents = statsYear === 'all' ? students : students.filter((s) => s.year === statsYear)
                     const grpStudentIds = new Set(grpStudents.map((s) => s.id))
@@ -856,7 +849,6 @@ ${subjectLines}
             .filter((p) => new Date(p.paidAt).getTime() >= last30Start)
             .reduce((a, p) => a + (p.amount || 0), 0)
 
-          // Subscriber buckets
           let active = 0, trial = 0, expired = 0
           students.forEach((s) => {
             const st = getAccessStatus(s).status
@@ -865,7 +857,6 @@ ${subjectLines}
             else expired++
           })
 
-          // Filter + sort payments
           const filtered = paymentSearch.trim()
             ? payments.filter((p) => (p.studentName || '').toLowerCase().includes(paymentSearch.trim().toLowerCase()))
             : payments
@@ -873,7 +864,6 @@ ${subjectLines}
 
           return (
             <div className="space-y-4">
-              {/* Revenue hero */}
               <div className="bg-[#111] text-white rounded-2xl p-5">
                 <p className="text-[10px] font-semibold text-[#666] uppercase tracking-[0.2em] font-label mb-1">Total Revenue</p>
                 <div className="flex items-end gap-1.5">
@@ -892,7 +882,6 @@ ${subjectLines}
                 </div>
               </div>
 
-              {/* Subscriber buckets */}
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-white border border-[#EBEBEB] rounded-xl p-3 text-center">
                   <p className="text-2xl font-bold text-green-600 font-display">{active}</p>
@@ -908,7 +897,6 @@ ${subjectLines}
                 </div>
               </div>
 
-              {/* Search */}
               <input
                 value={paymentSearch}
                 onChange={(e) => setPaymentSearch(e.target.value)}
@@ -922,7 +910,6 @@ ${subjectLines}
                 </div>
               )}
 
-              {/* Payment list */}
               <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
                 <div className="flex justify-between items-center mb-3">
                   <p className="text-sm font-bold text-[#111] font-display">All Payments</p>
@@ -988,7 +975,6 @@ ${subjectLines}
               </div>
             </div>
 
-            {/* Quiz Schedule */}
             <div className="bg-white border border-[#EBEBEB] rounded-xl p-4 mb-4">
               <p className="text-xs font-bold text-[#111] font-body mb-0.5">Quiz Schedule</p>
               <p className="text-[11px] text-[#AAA] font-label mb-3">Set 2 dates when students can take the quiz</p>
@@ -1020,7 +1006,6 @@ ${subjectLines}
               </button>
             </div>
 
-            {/* Question limit */}
             <div className="bg-white border border-[#EBEBEB] rounded-xl p-4 mb-4">
               <div className="flex justify-between items-center">
                 <div>
@@ -1049,7 +1034,6 @@ ${subjectLines}
               </div>
             </div>
 
-            {/* Transfer questions */}
             <div className="bg-white border border-[#EBEBEB] rounded-xl p-4 mb-4">
               <p className="text-xs font-bold text-[#111] font-body mb-0.5">Transfer Questions → {selectedWeek}</p>
               <p className="text-[11px] text-[#AAA] font-label mb-2">Copy {selectedSubject} questions from another week into this one</p>
@@ -1067,7 +1051,6 @@ ${subjectLines}
               </div>
             </div>
 
-            {/* Add/Edit form */}
             <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mb-4">
               <p className="text-sm font-bold text-[#111] font-display mb-4">
                 {editingFirestoreId ? '✏️ Edit Question' : 'Add Question'}
@@ -1223,7 +1206,6 @@ ${subjectLines}
               </div>
             </div>
 
-            {/* Question pool */}
             <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
               <div className="flex justify-between items-center mb-4">
                 <p className="text-sm font-bold text-[#111] font-display">Question Pool</p>
@@ -1298,7 +1280,6 @@ ${subjectLines}
         {/* ── TOPICS ── */}
         {tab === 'topics' && (
           <div>
-            {/* Active week control */}
             <div className="bg-[#111] text-white rounded-2xl p-5 mb-5">
               <p className="text-[10px] font-semibold text-[#666] uppercase tracking-[0.2em] font-label mb-0.5">
                 Active Quiz Week
@@ -1325,7 +1306,6 @@ ${subjectLines}
               {success && <p className="text-green-400 text-xs mt-2 font-label">{success}</p>}
             </div>
 
-            {/* Topic week selector */}
             <div className="mb-4">
               <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">Set Topics for Week</label>
               <select
@@ -1337,7 +1317,6 @@ ${subjectLines}
               </select>
             </div>
 
-            {/* Copy from another week */}
             <div className="bg-white border border-[#EBEBEB] rounded-xl p-3 mb-4 flex items-center gap-2">
               <p className="text-[11px] text-[#888] font-label shrink-0">Copy from:</p>
               <div className="flex flex-wrap gap-1.5 flex-1">
@@ -1353,7 +1332,6 @@ ${subjectLines}
               </div>
             </div>
 
-            {/* Topic inputs */}
             <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mb-4">
               <p className="text-sm font-bold text-[#111] font-display mb-1">Topics for {topicWeek}</p>
               <p className="text-xs text-[#AAA] font-label mb-4">
@@ -1428,7 +1406,6 @@ ${subjectLines}
               </button>
             </div>
 
-            {/* Saved topics preview */}
             {Object.keys(topics).some((k) => topics[k]?.name) && (
               <div className="bg-[#F3F3F2] border border-[#EBEBEB] rounded-2xl p-4">
                 <p className="text-xs font-bold text-[#555] font-display mb-3">Saved — {topicWeek}</p>
@@ -1452,6 +1429,184 @@ ${subjectLines}
           </div>
         )}
 
+        {/* ── NOTIFICATIONS ── */}
+        {tab === 'notifications' && <NotificationsPanel />}
+
+      </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────
+// Notifications sub-component
+// ────────────────────────────────────────────────────────────
+function NotificationsPanel() {
+  const { enabled, enabledSince, lastModifiedBy, enable, disable } = useAdminNotificationStore()
+  const [testStatus, setTestStatus] = useState(null)
+
+  const adminName = 'Admin'
+
+  const handleToggle = () => {
+    if (enabled) {
+      if (confirm('Disable notifications for ALL users? This will stop all scheduled key point deliveries immediately.')) {
+        disable(adminName)
+      }
+    } else {
+      if (confirm('Enable notifications for ALL users? This will start delivering key points every 2 hours.')) {
+        enable(adminName)
+      }
+    }
+  }
+
+  const handleTestNotification = () => {
+    setTestStatus('Sending test...')
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('📚 Test Key Point', {
+        body: 'This is a test notification. Key points will look like this for your students!',
+        icon: '/icon-192.png',
+        tag: 'test-notification',
+      })
+    } else if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then((perm) => {
+        if (perm === 'granted') {
+          new Notification('📚 Test Key Point', {
+            body: 'This is a test notification. Key points will look like this for your students!',
+            icon: '/icon-192.png',
+            tag: 'test-notification',
+          })
+        }
+      })
+    }
+
+    setTimeout(() => setTestStatus('Test sent! Check your notifications.'), 500)
+    setTimeout(() => setTestStatus(null), 3000)
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Master Toggle */}
+      <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex-1 min-w-0 pr-4">
+            <p className="text-sm font-bold text-[#111] font-display">Notification Service</p>
+            <p className="text-xs text-[#888] font-label mt-0.5">
+              {enabled
+                ? 'Notifications are LIVE — users receive key points every 2 hours'
+                : 'Notifications are OFF — no key points are being sent'}
+            </p>
+          </div>
+          <button
+            onClick={handleToggle}
+            className={`relative w-14 h-7 rounded-full shrink-0 transition-colors ${
+              enabled ? 'bg-green-500' : 'bg-[#DDD]'
+            }`}
+          >
+            <div
+              className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${
+                enabled ? 'translate-x-7' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Status Details */}
+        {enabled && (
+          <div className="bg-green-50 border border-green-100 rounded-xl p-4 mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+              <p className="text-sm font-bold text-green-800 font-display">Service Active</p>
+            </div>
+            <div className="space-y-1 text-xs text-green-700 font-label">
+              <p>• Enabled since: {enabledSince ? new Date(enabledSince).toLocaleString() : 'Unknown'}</p>
+              <p>• Last modified by: {lastModifiedBy || 'Unknown'}</p>
+              <p>• Interval: Every 2 hours</p>
+              <p>• Max views per point: 3 times</p>
+              <p>• Points cycle: Yes (resets when all seen 3×)</p>
+              <p>• Week-based: Content auto-updates each week</p>
+            </div>
+          </div>
+        )}
+
+        {!enabled && (
+          <div className="bg-yellow-50 border border-yellow-100 rounded-xl p-4">
+            <p className="text-sm text-yellow-800 font-label">
+              ⚠️ Notifications are currently disabled. Users will not receive key point deliveries.
+              Enable this when you're ready to start engaging users.
+            </p>
+          </div>
+        )}
+
+        {/* Test Button */}
+        <button
+          onClick={handleTestNotification}
+          className="w-full bg-[#111] text-white rounded-xl py-3 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display mt-4"
+        >
+          {testStatus || 'Send Test Notification'}
+        </button>
+      </div>
+
+      {/* How It Works */}
+      <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
+        <h3 className="text-sm font-bold text-[#111] font-display mb-4">How It Works</h3>
+        <div className="space-y-4">
+          {[
+            {
+              emoji: '1️⃣',
+              title: 'Scheduled Delivery',
+              desc: 'Key points for the current week\'s topics are delivered every 2 hours via push notification to students\' devices.',
+            },
+            {
+              emoji: '2️⃣',
+              title: 'Smart Cycling',
+              desc: 'Each point is shown up to 3 times before cycling to the next. After all points have been seen, the cycle resets. Repetition reinforces learning.',
+            },
+            {
+              emoji: '3️⃣',
+              title: 'Patches Mode',
+              desc: 'When users activate Patches on Feb 14, notifications switch to only show key points from subjects where they scored below 50%. Laser-focused on weak areas.',
+            },
+            {
+              emoji: '4️⃣',
+              title: 'Week-Based Content',
+              desc: 'Content automatically updates when the week changes. No manual intervention needed — old notifications stop, new ones begin for the new week.',
+            },
+            {
+              emoji: '5️⃣',
+              title: 'In-App + Push',
+              desc: 'When the app is open, a pop-in card appears. When closed, a native push notification delivers the key point. Both work together.',
+            },
+          ].map((item) => (
+            <div key={item.title} className="flex gap-3">
+              <span className="text-lg shrink-0">{item.emoji}</span>
+              <div>
+                <p className="text-xs font-bold text-[#111] font-label">{item.title}</p>
+                <p className="text-[11px] text-[#888] font-label leading-relaxed">{item.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Danger Zone */}
+      <div className="bg-red-50 border border-red-100 rounded-2xl p-5">
+        <h3 className="text-sm font-bold text-red-800 font-display mb-2">Danger Zone</h3>
+        <p className="text-xs text-red-600 font-label mb-4">
+          Disabling notifications will stop ALL scheduled deliveries immediately. Users will not
+          receive any more key points until re-enabled.
+        </p>
+        {enabled && (
+          <button
+            onClick={() => {
+              if (confirm('Are you sure? This stops all notifications for all users.')) {
+                disable(adminName)
+              }
+            }}
+            className="w-full bg-red-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-red-700 active:scale-[0.99] transition-all font-display"
+          >
+            ⚠️ Emergency Stop — Disable All Notifications
+          </button>
+        )}
       </div>
     </div>
   )
