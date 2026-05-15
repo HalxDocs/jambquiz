@@ -1,5 +1,19 @@
+// src/pages/Dashboard.jsx
 import { useState, useEffect, useRef } from 'react'
-import { listenActiveWeek, listenScores, getTopics, normalizeTopic, getAccessStatus, getConsistencyRank, listenQuizDates, WEEKS } from '../store/useStore'
+import {
+  listenActiveWeek,
+  listenScores,
+  getTopics,
+  normalizeTopic,
+  getAccessStatus,
+  getConsistencyRank,
+  listenQuizDates,
+  WEEKS,
+} from '../store/useStore'
+import { notificationScheduler } from '../services/notificationScheduler'
+import { registerPushNotifications, sendLocalNotification } from '../services/pushNotifications'
+import { useUserNotificationStore } from '../store/notificationStore'
+import KeyPointNotification from '../components/KeyPointNotification'
 
 function isQuizTime(quizDates) {
   const now = Date.now()
@@ -69,10 +83,17 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const [patchesActive, setPatchesActive] = useState(() => localStorage.getItem('patches_active') === '1')
   const [currentPatchIdx, setCurrentPatchIdx] = useState(0)
 
-  // Key points notification (auto-cycling)
+  // Key points notification (auto-cycling embedded card)
   const [keyPointIdx, setKeyPointIdx] = useState(0)
   const [kpDismissed, setKpDismissed] = useState(false)
 
+  // Push notification pop-in state
+  const [notificationPoint, setNotificationPoint] = useState(null)
+  const notificationActiveRef = useRef(false)
+
+  // ──────────────────────────────────────────────
+  // Core data subscriptions
+  // ──────────────────────────────────────────────
   useEffect(() => {
     const unsubDates = listenQuizDates((dates) => {
       setQuizDates(dates)
@@ -102,7 +123,12 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         setTimeout(() => setRankUpToast(null), 5000)
       }
     })
-    return () => { clearInterval(t); unsubWeek(); unsubScores(); unsubDates() }
+    return () => {
+      clearInterval(t)
+      unsubWeek()
+      unsubScores()
+      unsubDates()
+    }
   }, [student])
 
   useEffect(() => {
@@ -111,10 +137,57 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     setKeyPointIdx(0)
   }, [currentWeek])
 
+  // ──────────────────────────────────────────────
+  // Notification scheduler — push + in-app pop-in
+  // ──────────────────────────────────────────────
+  useEffect(() => {
+    const access = getAccessStatus(student)
+    if (access.status === 'expired') {
+      notificationScheduler.stop()
+      return
+    }
+
+    // Register push notifications on mount
+    registerPushNotifications().then((sub) => {
+      if (sub) {
+        useUserNotificationStore.getState().setPushSubscription(sub)
+        useUserNotificationStore.getState().setPushPermission('granted')
+      }
+    })
+
+    // Start the 2-hour notification cycle
+    notificationScheduler.start(currentWeek, student.subjects, scores)
+
+    // Listen for notification events from the scheduler
+    const unsub = notificationScheduler.onNotification((point) => {
+      // If app is in foreground, show the animated pop-in
+      if (document.visibilityState === 'visible') {
+        setNotificationPoint(point)
+        notificationActiveRef.current = true
+      }
+      // Always attempt local notification (service worker handles background)
+      sendLocalNotification(point)
+    })
+
+    return () => {
+      notificationScheduler.stop()
+      unsub()
+    }
+  }, [currentWeek, student.subjects, scores])
+
+  // Sync patches state with notification store
+  useEffect(() => {
+    useUserNotificationStore.getState().setPatchesActive(patchesActive)
+  }, [patchesActive])
+
+  // ──────────────────────────────────────────────
+  // Derived data
+  // ──────────────────────────────────────────────
   const todaySubjectsAttempted = scores
     .filter(
-      (s) => s.week === currentWeek &&
-      new Date(s.date).toDateString() === new Date().toDateString()
+      (s) =>
+        s.week === currentWeek &&
+        new Date(s.date).toDateString() === new Date().toDateString()
     )
     .map((s) => s.subject)
 
@@ -155,7 +228,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     .map((sub) => ({ subject: sub, topic: normalizeTopic(weekTopics[sub]) }))
     .filter((t) => t.topic && t.topic.name)
 
-  // All key points for current week topics (for notification card)
+  // All key points for current week topics (for embedded notification card)
   const allKeyPoints = student.subjects.flatMap((sub) => {
     const topic = normalizeTopic(weekTopics[sub])
     if (!topic?.keyPoints) return []
@@ -179,7 +252,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
       .map((kp) => ({ subject: sub, point: kp }))
   })
 
-  // Auto-cycle key points notification
+  // Auto-cycle embedded key points notification card
   useEffect(() => {
     if (!allKeyPoints.length || kpDismissed) return
     const t = setInterval(() => setKeyPointIdx((i) => (i + 1) % allKeyPoints.length), 5000)
@@ -209,12 +282,16 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     ? { bg: 'bg-red-700', hoverBg: 'hover:bg-red-800', textColor: 'text-red-700' }
     : { bg: 'bg-[#111]', hoverBg: 'hover:bg-[#222]', textColor: 'text-[#111]' }
 
-  const isValentine = (() => { const d = new Date(); return d.getMonth() === 1 && d.getDate() === 14 })()
+  const isValentine = (() => {
+    const d = new Date()
+    return d.getMonth() === 1 && d.getDate() === 14
+  })()
 
   return (
     <div className="min-h-screen bg-[#F8F8F7]">
-
-      {/* Rank-up toast */}
+      {/* ──────────────────────────────────────── */}
+      {/* Rank-up toast                             */}
+      {/* ──────────────────────────────────────── */}
       {rankUpToast && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm">
           <div className="bg-[#111] text-white rounded-2xl shadow-xl px-5 py-4 flex items-center gap-3">
@@ -222,7 +299,8 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
             <div className="flex-1">
               <p className="text-sm font-bold font-display">Rank Up!</p>
               <p className="text-xs text-[#888] font-label mt-0.5">
-                Consistency Rank: <span className="text-white font-semibold">{rankUpToast}</span>
+                Consistency Rank:{' '}
+                <span className="text-white font-semibold">{rankUpToast}</span>
               </p>
             </div>
             <button
@@ -235,7 +313,23 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         </div>
       )}
 
-      {/* Patches overlay */}
+      {/* ──────────────────────────────────────── */}
+      {/* Push notification pop-in (from scheduler) */}
+      {/* ──────────────────────────────────────── */}
+      {notificationPoint && notificationActiveRef.current && (
+        <KeyPointNotification
+          point={notificationPoint}
+          patchesActive={patchesActive}
+          onDismiss={() => {
+            notificationActiveRef.current = false
+            setNotificationPoint(null)
+          }}
+        />
+      )}
+
+      {/* ──────────────────────────────────────── */}
+      {/* Patches overlay                           */}
+      {/* ──────────────────────────────────────── */}
       {patchesActive && patchKeyPoints.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 p-4 pointer-events-none">
           <div className="max-w-md mx-auto bg-red-700 text-white rounded-2xl p-5 shadow-2xl pointer-events-auto">
@@ -269,8 +363,9 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
       )}
 
       <div className="max-w-md mx-auto px-4 pb-10">
-
-        {/* Top bar */}
+        {/* ────────────────────────────────────── */}
+        {/* Top bar                                 */}
+        {/* ────────────────────────────────────── */}
         <div className="flex justify-between items-start pt-8 pb-5">
           <div>
             <p className="text-[11px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-0.5">
@@ -282,19 +377,21 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
             {(() => {
               const r = getConsistencyRank(scores)
               const badge = {
-                gray:   'bg-[#1C1C1C] text-[#AAA] border-[#333]',
+                gray: 'bg-[#1C1C1C] text-[#AAA] border-[#333]',
                 yellow: 'bg-yellow-950 text-yellow-300 border-yellow-800',
-                blue:   'bg-blue-950 text-blue-300 border-blue-800',
+                blue: 'bg-blue-950 text-blue-300 border-blue-800',
                 purple: 'bg-purple-950 text-purple-300 border-purple-800',
-                green:  'bg-green-950 text-green-300 border-green-800',
+                green: 'bg-green-950 text-green-300 border-green-800',
               }
-              // 26-week medal track
               const currentWeekIdx = WEEKS.indexOf(currentWeek)
               const weeklyMedals = WEEKS.map((week) => {
                 const ws = scores.filter((s) => s.week === week)
                 if (!ws.length) return null
                 const bySubject = {}
-                ws.forEach((s) => { if (!bySubject[s.subject] || s.score > bySubject[s.subject]) bySubject[s.subject] = s.score })
+                ws.forEach((s) => {
+                  if (!bySubject[s.subject] || s.score > bySubject[s.subject])
+                    bySubject[s.subject] = s.score
+                })
                 const total = Object.values(bySubject).reduce((a, b) => a + b, 0)
                 return total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
               })
@@ -303,13 +400,18 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                   <div className="flex items-center gap-1.5 mb-1.5">
                     <span className="text-[10px] text-[#888] font-label">Consistency Rank</span>
                     <span
-                      title={r.nextRank ? `${r.toNext} session${r.toNext !== 1 ? 's' : ''} to ${r.nextRank}` : 'Max rank!'}
+                      title={
+                        r.nextRank
+                          ? `${r.toNext} session${r.toNext !== 1 ? 's' : ''} to ${r.nextRank}`
+                          : 'Max rank!'
+                      }
                       className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full font-label tracking-widest border ${badge[r.color]}`}
                     >
-                      <span className="text-[9px]">⚡</span>{r.rank}
+                      <span className="text-[9px]">⚡</span>
+                      {r.rank}
                     </span>
                   </div>
-                  {/* 26-week medal track — 2 rows of 13 */}
+                  {/* 26-week medal track */}
                   <div className="space-y-2 mt-2">
                     {[WEEKS.slice(0, 9), WEEKS.slice(9, 18), WEEKS.slice(18)].map((row, rowIdx) => (
                       <div key={rowIdx} className="flex gap-0.5 sm:gap-1">
@@ -318,42 +420,55 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                           const medal = weeklyMedals[idx]
                           const isPast = idx < currentWeekIdx
                           const isCurrent = idx === currentWeekIdx
-                          
+
                           return (
-                            <div // test
+                            <div
                               key={week}
                               title={`${week}${medal ? ` — ${medal}` : isPast ? ' — Missed' : ''}`}
                               className={`flex-1 flex flex-col items-center min-w-0 ${
                                 medal || isCurrent ? '' : isPast ? 'opacity-40' : 'opacity-15'
                               }`}
                             >
-                              {/* Week number - hidden on very small screens */}
                               <span className="text-[7px] text-[#666] font-label mb-0.5 hidden sm:block">
                                 {week.replace('Week ', '')}
                               </span>
-                              
-                              {/* Medal circle */}
-                              <div className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-sm sm:text-base ${
-                                medal ? 'border-2 border-opacity-50' :
-                                isCurrent ? 'bg-[#2A2A2A] border border-[#555]' :
-                                'bg-[#222] border border-[#333]'
-                              } ${
-                                medal === '🥇' ? 'bg-yellow-400/30 border-yellow-400' :
-                                medal === '🥈' ? 'bg-gray-300/30 border-gray-400' :
-                                medal === '🥉' ? 'bg-amber-600/30 border-amber-500' :
-                                ''
-                              }`}>
+
+                              <div
+                                className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-sm sm:text-base ${
+                                  medal
+                                    ? 'border-2 border-opacity-50'
+                                    : isCurrent
+                                    ? 'bg-[#2A2A2A] border border-[#555]'
+                                    : 'bg-[#222] border border-[#333]'
+                                } ${
+                                  medal === '🥇'
+                                    ? 'bg-yellow-400/30 border-yellow-400'
+                                    : medal === '🥈'
+                                    ? 'bg-gray-300/30 border-gray-400'
+                                    : medal === '🥉'
+                                    ? 'bg-amber-600/30 border-amber-500'
+                                    : ''
+                                }`}
+                              >
                                 {medal && <span>{medal}</span>}
-                                {!medal && isPast && <span className="text-[8px] text-[#555]">●</span>}
+                                {!medal && isPast && (
+                                  <span className="text-[8px] text-[#555]">●</span>
+                                )}
                               </div>
-                              
-                              {/* Progress bar */}
-                              <div className={`w-full max-w-[24px] sm:max-w-[28px] h-1 rounded-sm mt-0.5 ${
-                                medal === '🥇' ? 'bg-yellow-500' :
-                                medal === '🥈' ? 'bg-gray-400' :
-                                medal === '🥉' ? 'bg-amber-700' :
-                                isCurrent ? 'bg-[#555]' : 'bg-[#333]'
-                              }`} />
+
+                              <div
+                                className={`w-full max-w-[24px] sm:max-w-[28px] h-1 rounded-sm mt-0.5 ${
+                                  medal === '🥇'
+                                    ? 'bg-yellow-500'
+                                    : medal === '🥈'
+                                    ? 'bg-gray-400'
+                                    : medal === '🥉'
+                                    ? 'bg-amber-700'
+                                    : isCurrent
+                                    ? 'bg-[#555]'
+                                    : 'bg-[#333]'
+                                }`}
+                              />
                             </div>
                           )
                         })}
@@ -365,21 +480,41 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
             })()}
           </div>
           <button
-            onClick={() => { if (setStudent) setStudent(null); setView('home') }}
+            onClick={() => {
+              if (setStudent) setStudent(null)
+              setView('home')
+            }}
             className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors"
           >
             Log out
           </button>
         </div>
 
-        {/* Subscription banner */}
+        {/* ────────────────────────────────────── */}
+        {/* Subscription banner                     */}
+        {/* ────────────────────────────────────── */}
         {(() => {
           const access = getAccessStatus(student)
           if (access.status === 'active' && access.daysLeft > 7) return null
           const styles = {
-            trial: { bg: 'bg-yellow-50', border: 'border-yellow-100', text: 'text-yellow-800', label: `Free trial · ${access.daysLeft} day${access.daysLeft !== 1 ? 's' : ''} left` },
-            active: { bg: 'bg-blue-50', border: 'border-blue-100', text: 'text-blue-800', label: `Subscription expires in ${access.daysLeft} day${access.daysLeft !== 1 ? 's' : ''}` },
-            expired: { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-700', label: 'Access expired — renew to continue' },
+            trial: {
+              bg: 'bg-yellow-50',
+              border: 'border-yellow-100',
+              text: 'text-yellow-800',
+              label: `Free trial · ${access.daysLeft} day${access.daysLeft !== 1 ? 's' : ''} left`,
+            },
+            active: {
+              bg: 'bg-blue-50',
+              border: 'border-blue-100',
+              text: 'text-blue-800',
+              label: `Subscription expires in ${access.daysLeft} day${access.daysLeft !== 1 ? 's' : ''}`,
+            },
+            expired: {
+              bg: 'bg-red-50',
+              border: 'border-red-100',
+              text: 'text-red-700',
+              label: 'Access expired — renew to continue',
+            },
           }[access.status]
           return (
             <button
@@ -389,7 +524,9 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               <div>
                 <p className={`text-xs font-bold ${styles.text} font-display`}>{styles.label}</p>
                 <p className="text-[10px] text-[#888] font-label mt-0.5">
-                  {access.status === 'expired' ? 'Tap to subscribe (₦800/month)' : 'Tap to manage subscription'}
+                  {access.status === 'expired'
+                    ? 'Tap to subscribe (₦800/month)'
+                    : 'Tap to manage subscription'}
                 </p>
               </div>
               <span className={`text-xs font-bold ${styles.text} font-label`}>→</span>
@@ -397,7 +534,9 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           )
         })()}
 
-        {/* Key points notification card */}
+        {/* ────────────────────────────────────── */}
+        {/* Key points notification card (embedded) */}
+        {/* ────────────────────────────────────── */}
         {allKeyPoints.length > 0 && !kpDismissed && !patchesActive && (
           <div className={`${P.bg} text-white rounded-2xl p-4 mb-4 flex items-start gap-3`}>
             <div className="flex-1 min-w-0">
@@ -408,14 +547,23 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                 {allKeyPoints[keyPointIdx]?.point}
               </p>
               {allKeyPoints.length > 1 && (
-                <p className="text-[10px] text-white/40 font-label mt-1">{keyPointIdx + 1} / {allKeyPoints.length}</p>
+                <p className="text-[10px] text-white/40 font-label mt-1">
+                  {keyPointIdx + 1} / {allKeyPoints.length}
+                </p>
               )}
             </div>
-            <button onClick={() => setKpDismissed(true)} className="text-white/40 hover:text-white text-lg leading-none shrink-0 transition-colors">×</button>
+            <button
+              onClick={() => setKpDismissed(true)}
+              className="text-white/40 hover:text-white text-lg leading-none shrink-0 transition-colors"
+            >
+              ×
+            </button>
           </div>
         )}
 
-        {/* Total Score */}
+        {/* ────────────────────────────────────── */}
+        {/* Total Score                             */}
+        {/* ────────────────────────────────────── */}
         {totalScore !== null && (
           <div className={`${P.bg} text-white rounded-2xl p-5 mb-4`}>
             <div className="flex justify-between items-start">
@@ -425,7 +573,9 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                 </p>
                 <div className="flex items-end gap-1.5">
                   <span className="text-4xl font-bold font-display">{totalScore.total}</span>
-                  <span className="text-white/40 text-sm mb-1 font-label">/ {totalScore.totalOut}</span>
+                  <span className="text-white/40 text-sm mb-1 font-label">
+                    / {totalScore.totalOut}
+                  </span>
                 </div>
               </div>
               <button
@@ -438,41 +588,63 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
             <div className="w-full bg-white/10 rounded-full h-1.5 mt-4">
               <div
                 className="bg-white h-1.5 rounded-full transition-all"
-                style={{ width: `${Math.min((totalScore.total / totalScore.totalOut) * 100, 100)}%` }}
+                style={{
+                  width: `${Math.min((totalScore.total / totalScore.totalOut) * 100, 100)}%`,
+                }}
               />
             </div>
             <div className="flex justify-between mt-1.5">
               <p className="text-[10px] text-white/30 font-label">
                 {Math.round((totalScore.total / totalScore.totalOut) * 100)}%
               </p>
-              <p className={`text-[10px] font-semibold font-label ${
-                totalScore.total >= 250 ? 'text-green-400' :
-                totalScore.total >= 180 ? 'text-yellow-400' : 'text-red-400'
-              }`}>
-                {totalScore.total >= 250 ? 'Strong' : totalScore.total >= 180 ? 'Average' : 'Needs work'}
+              <p
+                className={`text-[10px] font-semibold font-label ${
+                  totalScore.total >= 250
+                    ? 'text-green-400'
+                    : totalScore.total >= 180
+                    ? 'text-yellow-400'
+                    : 'text-red-400'
+                }`}
+              >
+                {totalScore.total >= 250
+                  ? 'Strong'
+                  : totalScore.total >= 180
+                  ? 'Average'
+                  : 'Needs work'}
               </p>
             </div>
           </div>
         )}
 
-        {/* This week's topics */}
+        {/* ────────────────────────────────────── */}
+        {/* This week's topics                      */}
+        {/* ────────────────────────────────────── */}
         {thisWeekTopics.length > 0 && (
           <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
             <div className="flex justify-between items-center mb-3">
               <div>
                 <p className="text-sm font-bold text-[#111] font-display">Topics to Study</p>
-                <p className="text-[11px] text-[#AAA] font-label mt-0.5">{currentWeek} · Prepare before the quiz</p>
+                <p className="text-[11px] text-[#AAA] font-label mt-0.5">
+                  {currentWeek} · Prepare before the quiz
+                </p>
               </div>
-              <span className={`text-[10px] font-bold ${P.bg} text-white px-2.5 py-1 rounded-full font-label`}>
+              <span
+                className={`text-[10px] font-bold ${P.bg} text-white px-2.5 py-1 rounded-full font-label`}
+              >
                 {currentWeek}
               </span>
             </div>
             <div className="space-y-2">
               {thisWeekTopics.map(({ subject, topic }) => (
-                <div key={subject} className="flex items-center gap-3 py-2 border-b border-[#F3F3F2] last:border-0">
+                <div
+                  key={subject}
+                  className="flex items-center gap-3 py-2 border-b border-[#F3F3F2] last:border-0"
+                >
                   <div className={`w-1.5 h-1.5 ${P.bg} rounded-full shrink-0`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-bold text-[#888] uppercase tracking-wide font-label leading-none mb-0.5">{subject}</p>
+                    <p className="text-[11px] font-bold text-[#888] uppercase tracking-wide font-label leading-none mb-0.5">
+                      {subject}
+                    </p>
                     <p className="text-sm font-semibold text-[#111] font-body">{topic.name}</p>
                   </div>
                   {topic.video && (
@@ -491,7 +663,9 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           </div>
         )}
 
-        {/* My Subjects */}
+        {/* ────────────────────────────────────── */}
+        {/* My Subjects                             */}
+        {/* ────────────────────────────────────── */}
         <div className="mb-4">
           <div className="flex justify-between items-center mb-2">
             <p className="text-sm font-bold text-[#111] font-display">My Subjects</p>
@@ -504,24 +678,47 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               return (
                 <button
                   key={sub}
-                  onClick={() => { setSelectedSubjectDetail(sub); setView('subject-detail') }}
+                  onClick={() => {
+                    setSelectedSubjectDetail(sub)
+                    setView('subject-detail')
+                  }}
                   className={`bg-white border rounded-xl p-3.5 text-left hover:shadow-sm active:scale-[0.98] transition-all group ${
-                    patchesActive && isWeak ? 'border-red-200' : 'border-[#EBEBEB] hover:border-[#111]'
+                    patchesActive && isWeak
+                      ? 'border-red-200'
+                      : 'border-[#EBEBEB] hover:border-[#111]'
                   }`}
                 >
-                  <p className="text-[10px] font-semibold text-[#AAA] uppercase tracking-wide font-label mb-1">Subject</p>
+                  <p className="text-[10px] font-semibold text-[#AAA] uppercase tracking-wide font-label mb-1">
+                    Subject
+                  </p>
                   <p className="text-xs font-bold text-[#111] leading-snug font-body mb-2">{sub}</p>
                   {pct !== null ? (
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <p className={`text-xs font-bold font-label ${
-                          pct >= 70 ? 'text-green-600' : pct >= 50 ? 'text-yellow-600' : 'text-red-500'
-                        }`}>{pct}%</p>
-                        <p className="text-[10px] text-[#CCC] font-label group-hover:text-[#111] transition-colors">→</p>
+                        <p
+                          className={`text-xs font-bold font-label ${
+                            pct >= 70
+                              ? 'text-green-600'
+                              : pct >= 50
+                              ? 'text-yellow-600'
+                              : 'text-red-500'
+                          }`}
+                        >
+                          {pct}%
+                        </p>
+                        <p className="text-[10px] text-[#CCC] font-label group-hover:text-[#111] transition-colors">
+                          →
+                        </p>
                       </div>
                       <div className="w-full bg-[#F3F3F2] rounded-full h-1">
                         <div
-                          className={`h-1 rounded-full ${pct >= 70 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-400'}`}
+                          className={`h-1 rounded-full ${
+                            pct >= 70
+                              ? 'bg-green-500'
+                              : pct >= 50
+                              ? 'bg-yellow-500'
+                              : 'bg-red-400'
+                          }`}
                           style={{ width: `${Math.min(pct, 100)}%` }}
                         />
                       </div>
@@ -535,7 +732,9 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           </div>
         </div>
 
-        {/* Quiz status */}
+        {/* ────────────────────────────────────── */}
+        {/* Quiz status                             */}
+        {/* ────────────────────────────────────── */}
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mb-4">
           <div className="flex justify-between items-center mb-4">
             <p className="text-sm font-bold text-[#111] font-display">This Week's Quiz</p>
@@ -556,14 +755,19 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               {hasAttemptedAllSubjects ? (
                 <div className="bg-[#F3F3F2] rounded-xl p-3 text-center">
                   <p className="text-sm font-bold text-[#111] font-display mb-0.5">All done!</p>
-                  <p className="text-xs text-[#888] font-label">You've completed all subjects this week</p>
+                  <p className="text-xs text-[#888] font-label">
+                    You've completed all subjects this week
+                  </p>
                 </div>
               ) : (
                 <>
                   {todaySubjectsAttempted.length > 0 && (
                     <div className="mb-3 flex flex-wrap gap-1.5">
                       {todaySubjectsAttempted.map((s) => (
-                        <span key={s} className={`text-[10px] font-semibold ${P.bg} text-white px-2 py-0.5 rounded-full font-label`}>
+                        <span
+                          key={s}
+                          className={`text-[10px] font-semibold ${P.bg} text-white px-2 py-0.5 rounded-full font-label`}
+                        >
                           ✓ {s}
                         </span>
                       ))}
@@ -572,7 +776,10 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                   <button
                     onClick={() => {
                       const access = getAccessStatus(student)
-                      if (access.status === 'expired') { setView('subscribe'); return }
+                      if (access.status === 'expired') {
+                        setView('subscribe')
+                        return
+                      }
                       setView('quiz')
                     }}
                     className={`w-full ${P.bg} text-white rounded-xl py-3.5 text-sm font-bold ${P.hoverBg} active:scale-[0.99] transition-all font-display`}
@@ -590,31 +797,48 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               <div className="flex gap-3 mb-3">
                 {timeLeft.days > 0 && (
                   <div>
-                    <span className="text-2xl font-bold text-[#111] font-display">{timeLeft.days}</span>
+                    <span className="text-2xl font-bold text-[#111] font-display">
+                      {timeLeft.days}
+                    </span>
                     <span className="text-xs text-[#AAA] ml-1 font-label">d</span>
                   </div>
                 )}
                 <div>
-                  <span className="text-2xl font-bold text-[#111] font-display">{timeLeft.hours}</span>
+                  <span className="text-2xl font-bold text-[#111] font-display">
+                    {timeLeft.hours}
+                  </span>
                   <span className="text-xs text-[#AAA] ml-1 font-label">hr</span>
                 </div>
                 <div>
-                  <span className="text-2xl font-bold text-[#111] font-display">{timeLeft.mins}</span>
+                  <span className="text-2xl font-bold text-[#111] font-display">
+                    {timeLeft.mins}
+                  </span>
                   <span className="text-xs text-[#AAA] ml-1 font-label">min</span>
                 </div>
               </div>
               <p className="text-[11px] text-[#CCC] font-label">
                 {quizDates?.date1 || quizDates?.date2
-                  ? [quizDates.date1, quizDates.date2].filter(Boolean).map((d) =>
-                      new Date(d).toLocaleString('en-NG', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-                    ).join(' & ')
+                  ? [quizDates.date1, quizDates.date2]
+                      .filter(Boolean)
+                      .map((d) =>
+                        new Date(d).toLocaleString('en-NG', {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      )
+                      .join(' & ')
                   : 'Fri & Sat · 5:00 pm – 6:00 pm login window'}
               </p>
             </div>
           )}
         </div>
 
-        {/* ACTIVATE MY PATCHES */}
+        {/* ────────────────────────────────────── */}
+        {/* ACTIVATE MY PATCHES                     */}
+        {/* ────────────────────────────────────── */}
         <div className="mb-4">
           {patchesActive ? (
             <button
@@ -659,7 +883,6 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
             🏆 Leaderboard
           </button>
         </div>
-
       </div>
     </div>
   )
