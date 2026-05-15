@@ -10,7 +10,7 @@ import {
   listenQuizDates,
   WEEKS,
 } from '../store/useStore'
-import { notificationScheduler } from '../services/notificationScheduler'
+import { notificationScheduler } from '../services/notificationSchedular'
 import { registerPushNotifications, sendLocalNotification } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
 import KeyPointNotification from '../components/KeyPointNotification'
