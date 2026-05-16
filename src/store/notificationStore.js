@@ -2,7 +2,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-// Admin store - master switch for all users
+// Admin store
 export const useAdminNotificationStore = create(
   persist(
     (set) => ({
@@ -36,11 +36,11 @@ export const useAdminNotificationStore = create(
 // User notification tracking
 export const useUserNotificationStore = create(
   persist(
-    (set, get) => ({
+    (set) => ({
       seenPoints: {},
       lastNotifiedAt: null,
       currentCycleIndex: 0,
-      patchesActive: localStorage.getItem('patches_active') === '1',
+      patchesActive: false,
       pushPermission: 'default',
       pushSubscription: null,
 
@@ -70,6 +70,14 @@ export const useUserNotificationStore = create(
 
       setPushSubscription: (sub) => set({ pushSubscription: sub }),
     }),
-    { name: 'user-notification-state' }
+    { 
+      name: 'user-notification-state',
+      // Don't access localStorage during SSR
+      storage: typeof window !== 'undefined' ? undefined : {
+        getItem: () => null,
+        setItem: () => {},
+        removeItem: () => {},
+      },
+    }
   )
 )
