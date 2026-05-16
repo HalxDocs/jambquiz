@@ -397,7 +397,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               })
               return (
                 <div className="mt-1.5">
-                  <div className="flex items-center gap-1.5 mb-1.5">
+                  <div className="flex items-center gap-1.5 mb-3">
                     <span className="text-[10px] text-[#888] font-label">Consistency Rank</span>
                     <span
                       title={
@@ -411,16 +411,16 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                       {r.rank}
                     </span>
                   </div>
-                  {/* 26-week medal track */}
+                  {/* 26-week medal track - SPACED EVENLY ACROSS WIDTH */}
                   <div className="space-y-2 mt-2">
                     {[WEEKS.slice(0, 9), WEEKS.slice(9, 18), WEEKS.slice(18)].map((row, rowIdx) => (
-                      <div key={rowIdx} className="flex gap-0.5 sm:gap-1">
+                      <div key={rowIdx} className="flex justify-between gap-0.5 sm:gap-1">
                         {row.map((week, i) => {
                           const idx = rowIdx * 9 + i
                           const medal = weeklyMedals[idx]
                           const isPast = idx < currentWeekIdx
                           const isCurrent = idx === currentWeekIdx
-
+                          
                           return (
                             <div
                               key={week}
@@ -428,11 +428,12 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                               className={`flex-1 flex flex-col items-center min-w-0 ${
                                 medal || isCurrent ? '' : isPast ? 'opacity-40' : 'opacity-15'
                               }`}
+                              style={{ flex: '1 1 0%' }}
                             >
-                              <span className="text-[7px] text-[#666] font-label mb-0.5 hidden sm:block">
+                              <span className="text-[7px] text-[#666] font-label mb-0.5 hidden sm:block truncate w-full text-center">
                                 {week.replace('Week ', '')}
                               </span>
-
+                              
                               <div
                                 className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-sm sm:text-base ${
                                   medal
@@ -455,7 +456,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                                   <span className="text-[8px] text-[#555]">●</span>
                                 )}
                               </div>
-
+                              
                               <div
                                 className={`w-full max-w-[24px] sm:max-w-[28px] h-1 rounded-sm mt-0.5 ${
                                   medal === '🥇'
@@ -484,7 +485,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               if (setStudent) setStudent(null)
               setView('home')
             }}
-            className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors"
+            className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0 ml-2"
           >
             Log out
           </button>
