@@ -11,7 +11,7 @@ import {
   WEEKS,
 } from '../store/useStore'
 import { notificationScheduler } from '../services/notificationSchedular'
-import { registerPushNotifications, sendLocalNotification } from '../services/pushNotifications'
+import { registerPushNotifications, sendLocalNotification, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
 import KeyPointNotification from '../components/KeyPointNotification'
 
@@ -82,6 +82,8 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   // Patches (ACTIVATE MY PATCHES)
   const [patchesActive, setPatchesActive] = useState(() => localStorage.getItem('patches_active') === '1')
   const [currentPatchIdx, setCurrentPatchIdx] = useState(0)
+  const [showPatchesModal, setShowPatchesModal] = useState(false)
+  const [selectedPatchSubjects, setSelectedPatchSubjectsLocal] = useState([])
 
   // Key points notification (auto-cycling embedded card)
   const [keyPointIdx, setKeyPointIdx] = useState(0)
@@ -155,7 +157,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
       }
     })
 
-    // Start the 2-hour notification cycle
+    // Start the notification cycle (2-hour or daily for patches)
     notificationScheduler.start(currentWeek, student.subjects, scores)
 
     // Listen for notification events from the scheduler
@@ -173,7 +175,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
       notificationScheduler.stop()
       unsub()
     }
-  }, [currentWeek, student.subjects, scores])
+  }, [currentWeek, student.subjects, scores, patchesActive])
 
   // Sync patches state with notification store
   useEffect(() => {
@@ -183,6 +185,20 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   // ──────────────────────────────────────────────
   // Derived data
   // ──────────────────────────────────────────────
+  const currentWeekIdx = WEEKS.indexOf(currentWeek)
+  const rankData = getConsistencyRank(scores)
+  const weeklyMedals = WEEKS.map((week) => {
+    const ws = scores.filter((s) => s.week === week)
+    if (!ws.length) return null
+    const bySubject = {}
+    ws.forEach((s) => {
+      if (!bySubject[s.subject] || s.score > bySubject[s.subject])
+        bySubject[s.subject] = s.score
+    })
+    const total = Object.values(bySubject).reduce((a, b) => a + b, 0)
+    return total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
+  })
+
   const todaySubjectsAttempted = scores
     .filter(
       (s) =>
@@ -266,15 +282,53 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     return () => clearInterval(t)
   }, [patchesActive, patchKeyPoints.length])
 
-  const handleActivatePatches = () => {
+  // Initialize selectedPatchSubjects from existing patches active state
+  useEffect(() => {
+    if (patchesActive) {
+      const saved = localStorage.getItem('patches_selected_subjects')
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved)
+          setSelectedPatchSubjectsLocal(parsed)
+          useUserNotificationStore.getState().setSelectedPatchSubjects(parsed)
+        } catch {}
+      }
+    }
+  }, [])
+
+  const handleOpenPatchesModal = () => {
+    setSelectedPatchSubjectsLocal(weakSubjects.length > 0 ? [...weakSubjects] : [...student.subjects])
+    setShowPatchesModal(true)
+  }
+
+  const handleConfirmPatches = () => {
+    const subjects = selectedPatchSubjects.length > 0 ? selectedPatchSubjects : (weakSubjects.length > 0 ? weakSubjects : student.subjects)
     setPatchesActive(true)
     localStorage.setItem('patches_active', '1')
+    localStorage.setItem('patches_selected_subjects', JSON.stringify(subjects))
+    setSelectedPatchSubjectsLocal(subjects)
+    useUserNotificationStore.getState().setSelectedPatchSubjects(subjects)
+    useUserNotificationStore.getState().setPatchesActive(true)
     setCurrentPatchIdx(0)
+    setShowPatchesModal(false)
+    // Restart scheduler with daily interval
+    notificationScheduler.start(currentWeek, student.subjects, scores)
+  }
+
+  const handleTogglePatchSubject = (subject) => {
+    setSelectedPatchSubjectsLocal((prev) =>
+      prev.includes(subject) ? prev.filter((s) => s !== subject) : [...prev, subject]
+    )
   }
 
   const handleDeactivatePatches = () => {
     setPatchesActive(false)
     localStorage.removeItem('patches_active')
+    localStorage.removeItem('patches_selected_subjects')
+    useUserNotificationStore.getState().setPatchesActive(false)
+    useUserNotificationStore.getState().setSelectedPatchSubjects([])
+    // Restart scheduler with 2-hour interval
+    notificationScheduler.start(currentWeek, student.subjects, scores)
   }
 
   // Theme based on patches mode
@@ -362,133 +416,172 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         </div>
       )}
 
+      {/* ──────────────────────────────────────── */}
+      {/* Patches topic selection modal             */}
+      {/* ──────────────────────────────────────── */}
+      {showPatchesModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl">
+            <h3 className="text-base font-bold font-display text-[#111] mb-1">Activate My Patches</h3>
+            <p className="text-xs text-[#888] font-label mb-4">
+              Select weak topics to receive daily key point notifications:
+            </p>
+            <div className="space-y-2 mb-5">
+              {(weakSubjects.length > 0 ? weakSubjects : student.subjects).map((sub) => (
+                <label
+                  key={sub}
+                  className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                    selectedPatchSubjects.includes(sub)
+                      ? 'border-red-200 bg-red-50'
+                      : 'border-[#EBEBEB] hover:border-[#CCC]'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedPatchSubjects.includes(sub)}
+                    onChange={() => handleTogglePatchSubject(sub)}
+                    className="w-4 h-4 accent-red-600"
+                  />
+                  <span className="text-sm font-semibold text-[#111] font-body">{sub}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowPatchesModal(false)}
+                className="flex-1 bg-[#F3F3F2] text-[#888] rounded-xl py-3 text-sm font-bold font-label hover:bg-[#E5E5E5] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmPatches}
+                disabled={selectedPatchSubjects.length === 0}
+                className={`flex-1 rounded-xl py-3 text-sm font-bold font-display transition-colors ${
+                  selectedPatchSubjects.length === 0
+                    ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
+                    : 'bg-red-700 text-white hover:bg-red-800'
+                }`}
+              >
+                Activate →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-md mx-auto px-4 pb-10">
         {/* ────────────────────────────────────── */}
         {/* Top bar                                 */}
         {/* ────────────────────────────────────── */}
-        <div className="flex justify-between items-start pt-8 pb-5">
-          <div>
-            <p className="text-[11px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-0.5">
-              Welcome back
-            </p>
-            <h2 className={`text-xl font-bold font-display leading-tight ${P.textColor}`}>
-              {student.name}
-            </h2>
-            {(() => {
-              const r = getConsistencyRank(scores)
-              const badge = {
-                gray: 'bg-[#1C1C1C] text-[#AAA] border-[#333]',
-                yellow: 'bg-yellow-950 text-yellow-300 border-yellow-800',
-                blue: 'bg-blue-950 text-blue-300 border-blue-800',
-                purple: 'bg-purple-950 text-purple-300 border-purple-800',
-                green: 'bg-green-950 text-green-300 border-green-800',
-              }
-              const currentWeekIdx = WEEKS.indexOf(currentWeek)
-              const weeklyMedals = WEEKS.map((week) => {
-                const ws = scores.filter((s) => s.week === week)
-                if (!ws.length) return null
-                const bySubject = {}
-                ws.forEach((s) => {
-                  if (!bySubject[s.subject] || s.score > bySubject[s.subject])
-                    bySubject[s.subject] = s.score
-                })
-                const total = Object.values(bySubject).reduce((a, b) => a + b, 0)
-                return total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
-              })
-              return (
-                <div className="mt-1.5">
-                  <div className="flex items-center gap-1.5 mb-3">
-                    <span className="text-[10px] text-[#888] font-label">Consistency Rank</span>
+        <div className="pt-8 pb-5">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-[11px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-0.5">
+                Welcome back
+              </p>
+              <h2 className={`text-xl font-bold font-display leading-tight ${P.textColor}`}>
+                {student.name}
+              </h2>
+              <div className="flex items-center gap-1.5 mt-1.5 mb-3">
+                <span className="text-[10px] text-[#888] font-label">Consistency Rank</span>
+                {(() => {
+                  const badge = {
+                    gray: 'bg-[#1C1C1C] text-[#AAA] border-[#333]',
+                    yellow: 'bg-yellow-950 text-yellow-300 border-yellow-800',
+                    blue: 'bg-blue-950 text-blue-300 border-blue-800',
+                    purple: 'bg-purple-950 text-purple-300 border-purple-800',
+                    green: 'bg-green-950 text-green-300 border-green-800',
+                  }
+                  return (
                     <span
                       title={
-                        r.nextRank
-                          ? `${r.toNext} session${r.toNext !== 1 ? 's' : ''} to ${r.nextRank}`
+                        rankData.nextRank
+                          ? `${rankData.toNext} session${rankData.toNext !== 1 ? 's' : ''} to ${rankData.nextRank}`
                           : 'Max rank!'
                       }
-                      className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full font-label tracking-widest border ${badge[r.color]}`}
+                      className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full font-label tracking-widest border ${badge[rankData.color]}`}
                     >
                       <span className="text-[9px]">⚡</span>
-                      {r.rank}
+                      {rankData.rank}
                     </span>
-                  </div>
-                  {/* 26-week medal track - SPACED EVENLY ACROSS WIDTH */}
-                  <div className="space-y-2 mt-2">
-                    {[WEEKS.slice(0, 9), WEEKS.slice(9, 18), WEEKS.slice(18)].map((row, rowIdx) => (
-                      <div key={rowIdx} className="flex justify-between gap-0.5 sm:gap-1">
-                        {row.map((week, i) => {
-                          const idx = rowIdx * 9 + i
-                          const medal = weeklyMedals[idx]
-                          const isPast = idx < currentWeekIdx
-                          const isCurrent = idx === currentWeekIdx
-                          
-                          return (
-                            <div
-                              key={week}
-                              title={`${week}${medal ? ` — ${medal}` : isPast ? ' — Missed' : ''}`}
-                              className={`flex-1 flex flex-col items-center min-w-0 ${
-                                medal || isCurrent ? '' : isPast ? 'opacity-40' : 'opacity-15'
-                              }`}
-                              style={{ flex: '1 1 0%' }}
-                            >
-                              <span className="text-[7px] text-[#666] font-label mb-0.5 hidden sm:block truncate w-full text-center">
-                                {week.replace('Week ', '')}
-                              </span>
-                              
-                              <div
-                                className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-sm sm:text-base ${
-                                  medal
-                                    ? 'border-2 border-opacity-50'
-                                    : isCurrent
-                                    ? 'bg-[#2A2A2A] border border-[#555]'
-                                    : 'bg-[#222] border border-[#333]'
-                                } ${
-                                  medal === '🥇'
-                                    ? 'bg-yellow-400/30 border-yellow-400'
-                                    : medal === '🥈'
-                                    ? 'bg-gray-300/30 border-gray-400'
-                                    : medal === '🥉'
-                                    ? 'bg-amber-600/30 border-amber-500'
-                                    : ''
-                                }`}
-                              >
-                                {medal && <span>{medal}</span>}
-                                {!medal && isPast && (
-                                  <span className="text-[8px] text-[#555]">●</span>
-                                )}
-                              </div>
-                              
-                              <div
-                                className={`w-full max-w-[24px] sm:max-w-[28px] h-1 rounded-sm mt-0.5 ${
-                                  medal === '🥇'
-                                    ? 'bg-yellow-500'
-                                    : medal === '🥈'
-                                    ? 'bg-gray-400'
-                                    : medal === '🥉'
-                                    ? 'bg-amber-700'
-                                    : isCurrent
-                                    ? 'bg-[#555]'
-                                    : 'bg-[#333]'
-                                }`}
-                              />
-                            </div>
-                          )
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })()}
+                  )
+                })()}
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                if (setStudent) setStudent(null)
+                setView('home')
+              }}
+              className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0 ml-2"
+            >
+              Log out
+            </button>
           </div>
-          <button
-            onClick={() => {
-              if (setStudent) setStudent(null)
-              setView('home')
-            }}
-            className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0 ml-2"
-          >
-            Log out
-          </button>
+          {/* 26-week medal track — full width */}
+          <div className="space-y-2">
+            {[WEEKS.slice(0, 9), WEEKS.slice(9, 18), WEEKS.slice(18)].map((row, rowIdx) => (
+              <div key={rowIdx} className="flex justify-between">
+                {row.map((week, i) => {
+                  const idx = rowIdx * 9 + i
+                  const medal = weeklyMedals[idx]
+                  const isPast = idx < currentWeekIdx
+                  const isCurrent = idx === currentWeekIdx
+                  
+                  return (
+                    <div
+                      key={week}
+                      title={`${week}${medal ? ` — ${medal}` : isPast ? ' — Missed' : ''}`}
+                      className={`flex flex-col items-center flex-1 max-w-[10%] ${
+                        medal || isCurrent ? '' : isPast ? 'opacity-40' : 'opacity-15'
+                      }`}
+                    >
+                      <span className="text-[7px] text-[#666] font-label mb-0.5 hidden sm:block truncate w-full text-center">
+                        {week.replace('Week ', '')}
+                      </span>
+                      
+                      <div
+                        className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-xs sm:text-sm ${
+                          medal
+                            ? 'border-2 border-opacity-50'
+                            : isCurrent
+                            ? 'bg-[#2A2A2A] border border-[#555]'
+                            : 'bg-[#222] border border-[#333]'
+                        } ${
+                          medal === '🥇'
+                            ? 'bg-yellow-400/30 border-yellow-400'
+                            : medal === '🥈'
+                            ? 'bg-gray-300/30 border-gray-400'
+                            : medal === '🥉'
+                            ? 'bg-amber-600/30 border-amber-500'
+                            : ''
+                        }`}
+                      >
+                        {medal && <span>{medal}</span>}
+                        {!medal && isPast && (
+                          <span className="text-[7px] text-[#555]">●</span>
+                        )}
+                      </div>
+                      
+                      <div
+                        className={`w-full max-w-[18px] sm:max-w-[22px] h-0.5 rounded-sm mt-0.5 ${
+                          medal === '🥇'
+                            ? 'bg-yellow-500'
+                            : medal === '🥈'
+                            ? 'bg-gray-400'
+                            : medal === '🥉'
+                            ? 'bg-amber-700'
+                            : isCurrent
+                            ? 'bg-[#555]'
+                            : 'bg-[#333]'
+                        }`}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* ────────────────────────────────────── */}
@@ -851,7 +944,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           ) : (
             <>
               <button
-                onClick={isValentine ? handleActivatePatches : undefined}
+                onClick={isValentine ? handleOpenPatchesModal : undefined}
                 disabled={!isValentine}
                 className={`w-full rounded-xl py-3.5 text-sm font-bold transition-all font-display ${
                   isValentine

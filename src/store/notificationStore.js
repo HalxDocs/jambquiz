@@ -41,6 +41,7 @@ export const useUserNotificationStore = create(
       lastNotifiedAt: null,
       currentCycleIndex: 0,
       patchesActive: false,
+      selectedPatchSubjects: [],
       pushPermission: 'default',
       pushSubscription: null,
 
@@ -65,6 +66,8 @@ export const useUserNotificationStore = create(
       },
 
       setPatchesActive: (active) => set({ patchesActive: active }),
+
+      setSelectedPatchSubjects: (subjects) => set({ selectedPatchSubjects: subjects }),
 
       setPushPermission: (perm) => set({ pushPermission: perm }),
 

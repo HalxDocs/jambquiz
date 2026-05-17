@@ -3,6 +3,7 @@ import { getTopics, normalizeTopic } from '../store/useStore'
 import { useAdminNotificationStore, useUserNotificationStore } from '../store/notificationStore'
 
 const NOTIFICATION_INTERVAL_MS = 2 * 60 * 60 * 1000 // 2 hours
+const DAILY_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours (daily)
 const MAX_TIMES_PER_POINT = 3
 const MIN_INTERVAL_BETWEEN_NOTIFICATIONS = 30 * 60 * 1000 // 30 min
 
@@ -23,10 +24,13 @@ class NotificationScheduler {
     // Do initial check immediately
     this.evaluateAndNotify(week, studentSubjects, scores)
 
-    // Schedule recurring checks every 2 hours
+    // Determine interval: daily if patches active, 2-hour otherwise
+    const userState = useUserNotificationStore.getState()
+    const interval = userState.patchesActive ? DAILY_INTERVAL_MS : NOTIFICATION_INTERVAL_MS
+
     this.intervalId = setInterval(() => {
       this.evaluateAndNotify(week, studentSubjects, scores)
-    }, NOTIFICATION_INTERVAL_MS)
+    }, interval)
   }
 
   stop() {
@@ -75,13 +79,15 @@ class NotificationScheduler {
       return
     }
 
-    // 4. Filter for patches mode (weak subjects only, < 50%)
+    // 4. Filter for patches mode (selected weak subjects only)
     let eligiblePoints
     if (userState.patchesActive) {
-      const weakSubjects = this.getWeakSubjects(studentSubjects, scores)
-      eligiblePoints = allPoints.filter((p) => weakSubjects.includes(p.subject))
+      const selectedSubjects = userState.selectedPatchSubjects.length > 0
+        ? userState.selectedPatchSubjects
+        : this.getWeakSubjects(studentSubjects, scores)
+      eligiblePoints = allPoints.filter((p) => selectedSubjects.includes(p.subject))
 
-      // Fallback: if no weak subjects, use all points
+      // Fallback: if no matching points, use all points
       if (!eligiblePoints.length) {
         eligiblePoints = allPoints
       }

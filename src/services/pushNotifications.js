@@ -1,4 +1,5 @@
 // src/services/pushNotifications.js
+import { db, doc, setDoc, getDoc, collection, addDoc, getDocs, updateDoc } from '../firebase'
 
 const VAPID_PUBLIC_KEY = 'BDjWG8ZcgvC2OmcHjvxRUak4DVafBt-RFjMQLqRNobFvnfKZGETpOpu6XrhLuJ5i9690jgPnO3HvAdcdD-Shruw'
 
@@ -20,10 +21,7 @@ export async function registerPushNotifications() {
       return null
     }
 
-    // Wait for the service worker to be ready (registered by vite-plugin-pwa)
     const registration = await navigator.serviceWorker.ready
-
-    // Check if already subscribed
     let subscription = await registration.pushManager.getSubscription()
     
     if (!subscription) {
@@ -40,6 +38,54 @@ export async function registerPushNotifications() {
   } catch (err) {
     console.error('[Push] Registration failed:', err)
     return null
+  }
+}
+
+/**
+ * Save push subscription to Firestore for server-side push delivery
+ */
+export async function savePushSubscriptionToFirestore(studentId, subscription) {
+  if (!studentId || !subscription) return
+  try {
+    await setDoc(doc(db, 'push_subscriptions', studentId), {
+      endpoint: subscription.endpoint,
+      keys: subscription.toJSON().keys,
+      updatedAt: new Date().toISOString(),
+      studentId,
+    })
+    console.log('[Push] Subscription saved to Firestore')
+  } catch (err) {
+    console.error('[Push] Failed to save subscription to Firestore:', err)
+  }
+}
+
+/**
+ * Save notification cycle state to Firestore for server-side push
+ */
+export async function saveNotificationStateToFirestore(studentId, state) {
+  if (!studentId) return
+  try {
+    await setDoc(doc(db, 'notification_state', studentId), {
+      ...state,
+      updatedAt: new Date().toISOString(),
+      studentId,
+    })
+  } catch (err) {
+    console.error('[Push] Failed to save notification state:', err)
+  }
+}
+
+/**
+ * Save admin notification master switch to Firestore
+ */
+export async function saveAdminNotificationStateToFirestore(enabled) {
+  try {
+    await setDoc(doc(db, 'admin_settings', 'notifications'), {
+      enabled,
+      updatedAt: new Date().toISOString(),
+    })
+  } catch (err) {
+    console.error('[Push] Failed to save admin state:', err)
   }
 }
 

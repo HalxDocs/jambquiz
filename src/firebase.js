@@ -10,6 +10,8 @@ import {
   doc,
   onSnapshot,
   updateDoc,
+  setDoc,
+  getDoc,
 } from 'firebase/firestore'
 
 const firebaseConfig = {
@@ -30,4 +32,4 @@ const db = initializeFirestore(app, {
   })
 })
 
-export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc }
+export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc, setDoc, getDoc }
