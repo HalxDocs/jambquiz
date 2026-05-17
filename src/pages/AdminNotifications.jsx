@@ -1,7 +1,7 @@
 // src/pages/AdminNotifications.jsx
 import { useState } from 'react'
 import { useAdminNotificationStore } from '../store/notificationStore'
-import { WEEKS } from '../store/useStore'
+import { saveAdminNotificationStateToFirestore } from '../services/pushNotifications'
 
 export default function AdminNotifications() {
   const { enabled, enabledSince, lastModifiedBy, toggle, enable, disable } =
@@ -18,6 +18,7 @@ export default function AdminNotifications() {
         )
       ) {
         disable(adminName)
+        saveAdminNotificationStateToFirestore(false)
       }
     } else {
       if (
@@ -26,6 +27,7 @@ export default function AdminNotifications() {
         )
       ) {
         enable(adminName)
+        saveAdminNotificationStateToFirestore(true)
       }
     }
   }
@@ -183,6 +185,7 @@ export default function AdminNotifications() {
               onClick={() => {
                 if (confirm('Are you sure? This stops all notifications for all users.')) {
                   disable(adminName)
+                  saveAdminNotificationStateToFirestore(false)
                 }
               }}
               className="w-full bg-red-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-red-700 active:scale-[0.99] transition-all font-display"

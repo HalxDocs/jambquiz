@@ -154,11 +154,12 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
       if (sub) {
         useUserNotificationStore.getState().setPushSubscription(sub)
         useUserNotificationStore.getState().setPushPermission('granted')
+        savePushSubscriptionToFirestore(student.id, sub)
       }
     })
 
     // Start the notification cycle (2-hour or daily for patches)
-    notificationScheduler.start(currentWeek, student.subjects, scores)
+    notificationScheduler.start(currentWeek, student.subjects, scores, student.id)
 
     // Listen for notification events from the scheduler
     const unsub = notificationScheduler.onNotification((point) => {
@@ -311,8 +312,16 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     useUserNotificationStore.getState().setPatchesActive(true)
     setCurrentPatchIdx(0)
     setShowPatchesModal(false)
+    // Save patches state to Firestore
+    saveNotificationStateToFirestore(student.id, {
+      patchesActive: true,
+      selectedPatchSubjects: subjects,
+      seenPoints: useUserNotificationStore.getState().seenPoints,
+      currentCycleIndex: useUserNotificationStore.getState().currentCycleIndex,
+      lastNotifiedAt: useUserNotificationStore.getState().lastNotifiedAt,
+    })
     // Restart scheduler with daily interval
-    notificationScheduler.start(currentWeek, student.subjects, scores)
+    notificationScheduler.start(currentWeek, student.subjects, scores, student.id)
   }
 
   const handleTogglePatchSubject = (subject) => {
@@ -327,8 +336,16 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     localStorage.removeItem('patches_selected_subjects')
     useUserNotificationStore.getState().setPatchesActive(false)
     useUserNotificationStore.getState().setSelectedPatchSubjects([])
+    // Save patches state to Firestore
+    saveNotificationStateToFirestore(student.id, {
+      patchesActive: false,
+      selectedPatchSubjects: [],
+      seenPoints: useUserNotificationStore.getState().seenPoints,
+      currentCycleIndex: useUserNotificationStore.getState().currentCycleIndex,
+      lastNotifiedAt: useUserNotificationStore.getState().lastNotifiedAt,
+    })
     // Restart scheduler with 2-hour interval
-    notificationScheduler.start(currentWeek, student.subjects, scores)
+    notificationScheduler.start(currentWeek, student.subjects, scores, student.id)
   }
 
   // Theme based on patches mode

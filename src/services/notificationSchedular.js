@@ -1,6 +1,7 @@
 // src/services/notificationScheduler.js
 import { getTopics, normalizeTopic } from '../store/useStore'
 import { useAdminNotificationStore, useUserNotificationStore } from '../store/notificationStore'
+import { saveNotificationStateToFirestore } from './pushNotifications'
 
 const NOTIFICATION_INTERVAL_MS = 2 * 60 * 60 * 1000 // 2 hours
 const DAILY_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours (daily)
@@ -11,15 +12,17 @@ class NotificationScheduler {
   constructor() {
     this.intervalId = null
     this.currentWeek = null
+    this.studentId = null
     this.subscribers = []
   }
 
   /**
    * Start the notification scheduler
    */
-  start(week, studentSubjects, scores) {
+  start(week, studentSubjects, scores, studentId) {
     this.stop()
     this.currentWeek = week
+    this.studentId = studentId
 
     // Do initial check immediately
     this.evaluateAndNotify(week, studentSubjects, scores)
@@ -112,7 +115,19 @@ class NotificationScheduler {
     useUserNotificationStore.getState().markSeen(nextPoint.id)
     useUserNotificationStore.getState().advanceCycle(eligiblePoints.length)
 
-    // 7. Notify all subscribers (in-app + push)
+    // 7. Save updated notification state to Firestore for server-side push
+    if (this.studentId) {
+      const ns = useUserNotificationStore.getState()
+      saveNotificationStateToFirestore(this.studentId, {
+        seenPoints: ns.seenPoints,
+        currentCycleIndex: ns.currentCycleIndex,
+        patchesActive: ns.patchesActive,
+        selectedPatchSubjects: ns.selectedPatchSubjects,
+        lastNotifiedAt: ns.lastNotifiedAt,
+      })
+    }
+
+    // 8. Notify all subscribers (in-app + push)
     this.subscribers.forEach((cb) => cb(nextPoint))
   }
 
