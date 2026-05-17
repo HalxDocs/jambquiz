@@ -553,12 +553,12 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                         medal || isCurrent ? '' : isPast ? 'opacity-40' : 'opacity-15'
                       }`}
                     >
-                      <span className="text-[7px] text-[#666] font-label mb-0.5 hidden sm:block truncate w-full text-center">
+                      <span className="text-[8px] text-[#666] font-label mb-0.5 hidden sm:block truncate w-full text-center">
                         {week.replace('Week ', '')}
                       </span>
                       
                       <div
-                        className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-xs sm:text-sm ${
+                        className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-sm sm:text-base ${
                           medal
                             ? 'border-2 border-opacity-50'
                             : isCurrent
@@ -576,12 +576,12 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                       >
                         {medal && <span>{medal}</span>}
                         {!medal && isPast && (
-                          <span className="text-[7px] text-[#555]">●</span>
+                          <span className="text-[8px] text-[#555]">●</span>
                         )}
                       </div>
                       
                       <div
-                        className={`w-full max-w-[18px] sm:max-w-[22px] h-0.5 rounded-sm mt-0.5 ${
+                        className={`w-full max-w-[20px] sm:max-w-[26px] h-1 rounded-sm mt-0.5 ${
                           medal === '🥇'
                             ? 'bg-yellow-500'
                             : medal === '🥈'
