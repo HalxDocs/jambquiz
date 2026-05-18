@@ -104,8 +104,7 @@ export function sendLocalNotification(point) {
 
   const notification = new Notification(title, {
     body: point.point,
-    icon: '/icon-192.png',
-    badge: '/badge-72.png',
+    icon: '/pwa-192x192.png',
     tag: `keypoint-${point.id}`,
     renotify: true,
     requireInteraction: true,

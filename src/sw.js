@@ -22,8 +22,7 @@ self.addEventListener('push', (event) => {
   if (type === 'broadcast') {
     const options = {
       body: message,
-      icon: '/icon-192.png',
-      badge: '/badge-72.png',
+      icon: '/pwa-192x192.png',
       tag: `broadcast-${broadcastId}`,
       renotify: true,
       requireInteraction: true,
@@ -40,8 +39,7 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: point,
-    icon: '/icon-192.png',
-    badge: '/badge-72.png',
+    icon: '/pwa-192x192.png',
     tag: `keypoint-${id}`,
     renotify: true,
     requireInteraction: true,
