@@ -1,19 +1,30 @@
-// src/pages/Dashboard.jsx
 import { useState, useEffect, useRef } from 'react'
 import {
-  listenActiveWeek,
-  listenScores,
-  getTopics,
-  normalizeTopic,
-  getAccessStatus,
-  getConsistencyRank,
-  listenQuizDates,
-  WEEKS,
+  listenActiveWeek, listenScores, getTopics, normalizeTopic,
+  getAccessStatus, getConsistencyRank, listenQuizDates, WEEKS,
 } from '../store/useStore'
 import { notificationScheduler } from '../services/notificationSchedular'
 import { registerPushNotifications, sendLocalNotification, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
 import KeyPointNotification from '../components/KeyPointNotification'
+import RankToast from '../components/RankToast'
+import PatchesOverlay from '../components/PatchesOverlay'
+import PatchesModal from '../components/PatchesModal'
+import MedalTrack from '../components/MedalTrack'
+import SubscriptionBanner from '../components/SubscriptionBanner'
+import KeyPointsCard from '../components/KeyPointsCard'
+import ScoreHero from '../components/ScoreHero'
+import TopicsList from '../components/TopicsList'
+import SubjectCard from '../components/SubjectCard'
+import QuizCard from '../components/QuizCard'
+
+const RANK_BADGES = {
+  gray: 'bg-[#1C1C1C] text-[#AAA] border-[#333]',
+  yellow: 'bg-yellow-950 text-yellow-300 border-yellow-800',
+  blue: 'bg-blue-950 text-blue-300 border-blue-800',
+  purple: 'bg-purple-950 text-purple-300 border-purple-800',
+  green: 'bg-green-950 text-green-300 border-green-800',
+}
 
 function isQuizTime(quizDates) {
   const now = Date.now()
@@ -29,7 +40,6 @@ function isQuizTime(quizDates) {
   const nowD = new Date()
   const day = nowD.getDay()
   const h = nowD.getHours()
-  const m = nowD.getMinutes()
   const mins = h * 60 + m
   return (day === 5 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
 }
@@ -37,11 +47,7 @@ function isQuizTime(quizDates) {
 function getTimeUntilQuiz(quizDates) {
   const now = Date.now()
   if (quizDates && (quizDates.date1 || quizDates.date2)) {
-    const upcoming = [quizDates.date1, quizDates.date2]
-      .filter(Boolean)
-      .map((d) => new Date(d).getTime())
-      .filter((t) => t > now)
-      .sort((a, b) => a - b)
+    const upcoming = [quizDates.date1, quizDates.date2].filter(Boolean).map((d) => new Date(d).getTime()).filter((t) => t > now).sort((a, b) => a - b)
     if (!upcoming.length) return { days: 0, hours: 0, mins: 0 }
     const diff = upcoming[0] - now
     return {
@@ -79,704 +85,155 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const prevRankRef = useRef(null)
   const firstLoadRef = useRef(true)
 
-  // Patches (ACTIVATE MY PATCHES)
   const [patchesActive, setPatchesActive] = useState(() => localStorage.getItem('patches_active') === '1')
   const [currentPatchIdx, setCurrentPatchIdx] = useState(0)
   const [showPatchesModal, setShowPatchesModal] = useState(false)
   const [selectedPatchSubjects, setSelectedPatchSubjectsLocal] = useState([])
 
-  // Key points notification (auto-cycling embedded card)
   const [keyPointIdx, setKeyPointIdx] = useState(0)
   const [kpDismissed, setKpDismissed] = useState(false)
 
-  // Push notification pop-in state
   const [notificationPoint, setNotificationPoint] = useState(null)
   const notificationActiveRef = useRef(false)
 
-  // ──────────────────────────────────────────────
-  // Core data subscriptions
-  // ──────────────────────────────────────────────
   useEffect(() => {
-    const unsubDates = listenQuizDates((dates) => {
-      setQuizDates(dates)
-      setQuizTime(isQuizTime(dates))
-      setTimeLeft(getTimeUntilQuiz(dates))
-    })
-    const t = setInterval(() => {
-      setQuizDates((prev) => {
-        setQuizTime(isQuizTime(prev))
-        setTimeLeft(getTimeUntilQuiz(prev))
-        return prev
-      })
-    }, 10000)
+    const unsubDates = listenQuizDates((dates) => { setQuizDates(dates); setQuizTime(isQuizTime(dates)); setTimeLeft(getTimeUntilQuiz(dates)) })
+    const t = setInterval(() => { setQuizDates((prev) => { setQuizTime(isQuizTime(prev)); setTimeLeft(getTimeUntilQuiz(prev)); return prev }) }, 10000)
     const unsubWeek = listenActiveWeek((week) => setCurrentWeek(week))
     const unsubScores = listenScores((allScores) => {
-      const mine = allScores
-        .filter((s) => s.studentId === student.id)
-        .sort((a, b) => new Date(b.date) - new Date(a.date))
+      const mine = allScores.filter((s) => s.studentId === student.id).sort((a, b) => new Date(b.date) - new Date(a.date))
       setScores(mine)
       const { rank } = getConsistencyRank(mine)
-      if (firstLoadRef.current) {
-        prevRankRef.current = rank
-        firstLoadRef.current = false
-      } else if (prevRankRef.current && rank !== prevRankRef.current) {
-        setRankUpToast(rank)
-        prevRankRef.current = rank
-        setTimeout(() => setRankUpToast(null), 5000)
-      }
+      if (firstLoadRef.current) { prevRankRef.current = rank; firstLoadRef.current = false }
+      else if (prevRankRef.current && rank !== prevRankRef.current) { setRankUpToast(rank); prevRankRef.current = rank; setTimeout(() => setRankUpToast(null), 5000) }
     })
-    return () => {
-      clearInterval(t)
-      unsubWeek()
-      unsubScores()
-      unsubDates()
-    }
+    return () => { clearInterval(t); unsubWeek(); unsubScores(); unsubDates() }
   }, [student])
 
-  useEffect(() => {
-    getTopics(currentWeek).then((t) => setWeekTopics(t || {}))
-    setKpDismissed(false)
-    setKeyPointIdx(0)
-  }, [currentWeek])
+  useEffect(() => { getTopics(currentWeek).then((t) => setWeekTopics(t || {})); setKpDismissed(false); setKeyPointIdx(0) }, [currentWeek])
 
-  // ──────────────────────────────────────────────
-  // Notification scheduler — push + in-app pop-in
-  // ──────────────────────────────────────────────
   useEffect(() => {
     const access = getAccessStatus(student)
-    if (access.status === 'expired') {
-      notificationScheduler.stop()
-      return
-    }
-
-    // Register push notifications on mount
-    registerPushNotifications().then((sub) => {
-      if (sub) {
-        useUserNotificationStore.getState().setPushSubscription(sub)
-        useUserNotificationStore.getState().setPushPermission('granted')
-        savePushSubscriptionToFirestore(student.id, sub)
-      }
-    })
-
-    // Start the notification cycle (2-hour or daily for patches)
+    if (access.status === 'expired') { notificationScheduler.stop(); return }
+    registerPushNotifications().then((sub) => { if (sub) { useUserNotificationStore.getState().setPushSubscription(sub); useUserNotificationStore.getState().setPushPermission('granted'); savePushSubscriptionToFirestore(student.id, sub) } })
     notificationScheduler.start(currentWeek, student.subjects, scores, student.id)
-
-    // Listen for notification events from the scheduler
-    const unsub = notificationScheduler.onNotification((point) => {
-      // If app is in foreground, show the animated pop-in
-      if (document.visibilityState === 'visible') {
-        setNotificationPoint(point)
-        notificationActiveRef.current = true
-      }
-      // Always attempt local notification (service worker handles background)
-      sendLocalNotification(point)
-    })
-
-    return () => {
-      notificationScheduler.stop()
-      unsub()
-    }
+    const unsub = notificationScheduler.onNotification((point) => { if (document.visibilityState === 'visible') { setNotificationPoint(point); notificationActiveRef.current = true }; sendLocalNotification(point) })
+    return () => { notificationScheduler.stop(); unsub() }
   }, [currentWeek, student.subjects, scores, patchesActive])
 
-  // Sync patches state with notification store
-  useEffect(() => {
-    useUserNotificationStore.getState().setPatchesActive(patchesActive)
-  }, [patchesActive])
+  useEffect(() => { useUserNotificationStore.getState().setPatchesActive(patchesActive) }, [patchesActive])
 
-  // ──────────────────────────────────────────────
-  // Derived data
-  // ──────────────────────────────────────────────
   const currentWeekIdx = WEEKS.indexOf(currentWeek)
   const rankData = getConsistencyRank(scores)
   const weeklyMedals = WEEKS.map((week) => {
     const ws = scores.filter((s) => s.week === week)
     if (!ws.length) return null
     const bySubject = {}
-    ws.forEach((s) => {
-      if (!bySubject[s.subject] || s.score > bySubject[s.subject])
-        bySubject[s.subject] = s.score
-    })
+    ws.forEach((s) => { if (!bySubject[s.subject] || s.score > bySubject[s.subject]) bySubject[s.subject] = s.score })
     const total = Object.values(bySubject).reduce((a, b) => a + b, 0)
     return total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
   })
 
-  const todaySubjectsAttempted = scores
-    .filter(
-      (s) =>
-        s.week === currentWeek &&
-        new Date(s.date).toDateString() === new Date().toDateString()
-    )
-    .map((s) => s.subject)
+  const todaySubjectsAttempted = scores.filter((s) => s.week === currentWeek && new Date(s.date).toDateString() === new Date().toDateString()).map((s) => s.subject)
+  const hasAttemptedAllSubjects = student.subjects.length > 0 && student.subjects.every((sub) => todaySubjectsAttempted.includes(sub))
 
-  const hasAttemptedAllSubjects =
-    student.subjects.length > 0 &&
-    student.subjects.every((sub) => todaySubjectsAttempted.includes(sub))
-
-  const getBestBySubject = () => {
-    const best = {}
-    scores.forEach((s) => {
-      if (!best[s.subject] || s.score > best[s.subject].score) best[s.subject] = s
-    })
-    return best
-  }
-
-  const getTotalScore = () => {
-    const best = getBestBySubject()
-    const subjects = Object.values(best)
-    if (subjects.length < 4) return null
-    const top4 = subjects.slice(0, 4)
-    return {
-      total: top4.reduce((a, s) => a + s.score, 0),
-      totalOut: top4.reduce((a, s) => a + (s.outOf || 100), 0),
-    }
-  }
-
+  const getBestBySubject = () => { const best = {}; scores.forEach((s) => { if (!best[s.subject] || s.score > best[s.subject].score) best[s.subject] = s }); return best }
+  const getTotalScore = () => { const best = getBestBySubject(); const subjects = Object.values(best); if (subjects.length < 4) return null; const top4 = subjects.slice(0, 4); return { total: top4.reduce((a, s) => a + s.score, 0), totalOut: top4.reduce((a, s) => a + (s.outOf || 100), 0) } }
   const getSubjectScore = (sub) => getBestBySubject()[sub] || null
-
-  const getSubjectPct = (sub) => {
-    const sc = getSubjectScore(sub)
-    if (!sc) return null
-    return Math.round((sc.score / (sc.outOf || 100)) * 100)
-  }
+  const getSubjectPct = (sub) => { const sc = getSubjectScore(sub); if (!sc) return null; return Math.round((sc.score / (sc.outOf || 100)) * 100) }
 
   const totalScore = getTotalScore()
+  const thisWeekTopics = student.subjects.map((sub) => ({ subject: sub, topic: normalizeTopic(weekTopics[sub]) })).filter((t) => t.topic && t.topic.name)
 
-  const thisWeekTopics = student.subjects
-    .map((sub) => ({ subject: sub, topic: normalizeTopic(weekTopics[sub]) }))
-    .filter((t) => t.topic && t.topic.name)
+  const allKeyPoints = student.subjects.flatMap((sub) => { const topic = normalizeTopic(weekTopics[sub]); if (!topic?.keyPoints) return []; return topic.keyPoints.filter((kp) => kp?.trim()).map((kp) => ({ subject: sub, point: kp })) })
+  const weakSubjects = student.subjects.filter((sub) => { const pct = getSubjectPct(sub); return pct === null || pct < 50 })
+  const patchKeyPoints = weakSubjects.flatMap((sub) => { const topic = normalizeTopic(weekTopics[sub]); if (!topic?.keyPoints) return []; return topic.keyPoints.filter((kp) => kp?.trim()).map((kp) => ({ subject: sub, point: kp })) })
 
-  // All key points for current week topics (for embedded notification card)
-  const allKeyPoints = student.subjects.flatMap((sub) => {
-    const topic = normalizeTopic(weekTopics[sub])
-    if (!topic?.keyPoints) return []
-    return topic.keyPoints
-      .filter((kp) => kp?.trim())
-      .map((kp) => ({ subject: sub, point: kp }))
-  })
+  useEffect(() => { if (!allKeyPoints.length || kpDismissed) return; const t = setInterval(() => setKeyPointIdx((i) => (i + 1) % allKeyPoints.length), 5000); return () => clearInterval(t) }, [allKeyPoints.length, kpDismissed])
+  useEffect(() => { if (!patchesActive || !patchKeyPoints.length) return; const t = setInterval(() => setCurrentPatchIdx((i) => (i + 1) % patchKeyPoints.length), 6000); return () => clearInterval(t) }, [patchesActive, patchKeyPoints.length])
 
-  // Weak subjects: no score or < 50%
-  const weakSubjects = student.subjects.filter((sub) => {
-    const pct = getSubjectPct(sub)
-    return pct === null || pct < 50
-  })
+  useEffect(() => { if (patchesActive) { const saved = localStorage.getItem('patches_selected_subjects'); if (saved) { try { const parsed = JSON.parse(saved); setSelectedPatchSubjectsLocal(parsed); useUserNotificationStore.getState().setSelectedPatchSubjects(parsed) } catch {} } } }, [])
 
-  // Key points for weak subjects (patches mode)
-  const patchKeyPoints = weakSubjects.flatMap((sub) => {
-    const topic = normalizeTopic(weekTopics[sub])
-    if (!topic?.keyPoints) return []
-    return topic.keyPoints
-      .filter((kp) => kp?.trim())
-      .map((kp) => ({ subject: sub, point: kp }))
-  })
-
-  // Auto-cycle embedded key points notification card
-  useEffect(() => {
-    if (!allKeyPoints.length || kpDismissed) return
-    const t = setInterval(() => setKeyPointIdx((i) => (i + 1) % allKeyPoints.length), 5000)
-    return () => clearInterval(t)
-  }, [allKeyPoints.length, kpDismissed])
-
-  // Auto-cycle patches overlay
-  useEffect(() => {
-    if (!patchesActive || !patchKeyPoints.length) return
-    const t = setInterval(() => setCurrentPatchIdx((i) => (i + 1) % patchKeyPoints.length), 6000)
-    return () => clearInterval(t)
-  }, [patchesActive, patchKeyPoints.length])
-
-  // Initialize selectedPatchSubjects from existing patches active state
-  useEffect(() => {
-    if (patchesActive) {
-      const saved = localStorage.getItem('patches_selected_subjects')
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved)
-          setSelectedPatchSubjectsLocal(parsed)
-          useUserNotificationStore.getState().setSelectedPatchSubjects(parsed)
-        } catch {}
-      }
-    }
-  }, [])
-
-  const handleOpenPatchesModal = () => {
-    setSelectedPatchSubjectsLocal(weakSubjects.length > 0 ? [...weakSubjects] : [...student.subjects])
-    setShowPatchesModal(true)
-  }
-
+  const handleOpenPatchesModal = () => { setSelectedPatchSubjectsLocal(weakSubjects.length > 0 ? [...weakSubjects] : [...student.subjects]); setShowPatchesModal(true) }
   const handleConfirmPatches = () => {
     const subjects = selectedPatchSubjects.length > 0 ? selectedPatchSubjects : (weakSubjects.length > 0 ? weakSubjects : student.subjects)
-    setPatchesActive(true)
-    localStorage.setItem('patches_active', '1')
-    localStorage.setItem('patches_selected_subjects', JSON.stringify(subjects))
-    setSelectedPatchSubjectsLocal(subjects)
-    useUserNotificationStore.getState().setSelectedPatchSubjects(subjects)
-    useUserNotificationStore.getState().setPatchesActive(true)
-    setCurrentPatchIdx(0)
-    setShowPatchesModal(false)
-    // Save patches state to Firestore
-    saveNotificationStateToFirestore(student.id, {
-      patchesActive: true,
-      selectedPatchSubjects: subjects,
-      seenPoints: useUserNotificationStore.getState().seenPoints,
-      currentCycleIndex: useUserNotificationStore.getState().currentCycleIndex,
-      lastNotifiedAt: useUserNotificationStore.getState().lastNotifiedAt,
-    })
-    // Restart scheduler with daily interval
+    setPatchesActive(true); localStorage.setItem('patches_active', '1'); localStorage.setItem('patches_selected_subjects', JSON.stringify(subjects))
+    setSelectedPatchSubjectsLocal(subjects); useUserNotificationStore.getState().setSelectedPatchSubjects(subjects); useUserNotificationStore.getState().setPatchesActive(true)
+    setCurrentPatchIdx(0); setShowPatchesModal(false)
+    saveNotificationStateToFirestore(student.id, { patchesActive: true, selectedPatchSubjects: subjects, seenPoints: useUserNotificationStore.getState().seenPoints, currentCycleIndex: useUserNotificationStore.getState().currentCycleIndex, lastNotifiedAt: useUserNotificationStore.getState().lastNotifiedAt })
     notificationScheduler.start(currentWeek, student.subjects, scores, student.id)
   }
-
-  const handleTogglePatchSubject = (subject) => {
-    setSelectedPatchSubjectsLocal((prev) =>
-      prev.includes(subject) ? prev.filter((s) => s !== subject) : [...prev, subject]
-    )
-  }
-
+  const handleTogglePatchSubject = (sub) => setSelectedPatchSubjectsLocal((prev) => prev.includes(sub) ? prev.filter((s) => s !== sub) : [...prev, sub])
   const handleDeactivatePatches = () => {
-    setPatchesActive(false)
-    localStorage.removeItem('patches_active')
-    localStorage.removeItem('patches_selected_subjects')
-    useUserNotificationStore.getState().setPatchesActive(false)
-    useUserNotificationStore.getState().setSelectedPatchSubjects([])
-    // Save patches state to Firestore
-    saveNotificationStateToFirestore(student.id, {
-      patchesActive: false,
-      selectedPatchSubjects: [],
-      seenPoints: useUserNotificationStore.getState().seenPoints,
-      currentCycleIndex: useUserNotificationStore.getState().currentCycleIndex,
-      lastNotifiedAt: useUserNotificationStore.getState().lastNotifiedAt,
-    })
-    // Restart scheduler with 2-hour interval
+    setPatchesActive(false); localStorage.removeItem('patches_active'); localStorage.removeItem('patches_selected_subjects')
+    useUserNotificationStore.getState().setPatchesActive(false); useUserNotificationStore.getState().setSelectedPatchSubjects([])
+    saveNotificationStateToFirestore(student.id, { patchesActive: false, selectedPatchSubjects: [], seenPoints: useUserNotificationStore.getState().seenPoints, currentCycleIndex: useUserNotificationStore.getState().currentCycleIndex, lastNotifiedAt: useUserNotificationStore.getState().lastNotifiedAt })
     notificationScheduler.start(currentWeek, student.subjects, scores, student.id)
   }
 
-  // Theme based on patches mode
-  const P = patchesActive
-    ? { bg: 'bg-red-700', hoverBg: 'hover:bg-red-800', textColor: 'text-red-700' }
-    : { bg: 'bg-[#111]', hoverBg: 'hover:bg-[#222]', textColor: 'text-[#111]' }
-
-  const isValentine = (() => {
-    const d = new Date()
-    return d.getMonth() === 1 && d.getDate() === 14
-  })()
+  const P = patchesActive ? { bg: 'bg-red-700', hoverBg: 'hover:bg-red-800', textColor: 'text-red-700' } : { bg: 'bg-[#111]', hoverBg: 'hover:bg-[#222]', textColor: 'text-[#111]' }
+  const isValentine = (() => { const d = new Date(); return d.getMonth() === 1 && d.getDate() === 14 })()
 
   return (
     <div className="min-h-screen bg-[#F8F8F7]">
-      {/* ──────────────────────────────────────── */}
-      {/* Rank-up toast                             */}
-      {/* ──────────────────────────────────────── */}
-      {rankUpToast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm">
-          <div className="bg-[#111] text-white rounded-2xl shadow-xl px-5 py-4 flex items-center gap-3">
-            <span className="text-2xl">⚡</span>
-            <div className="flex-1">
-              <p className="text-sm font-bold font-display">Rank Up!</p>
-              <p className="text-xs text-[#888] font-label mt-0.5">
-                Consistency Rank:{' '}
-                <span className="text-white font-semibold">{rankUpToast}</span>
-              </p>
-            </div>
-            <button
-              onClick={() => setRankUpToast(null)}
-              className="text-[#666] hover:text-white text-lg leading-none transition-colors"
-            >
-              ×
-            </button>
-          </div>
-        </div>
+      <RankToast rank={rankUpToast} onDismiss={() => setRankUpToast(null)} />
+
+      {notificationPoint && notificationActiveRef.current && (
+        <KeyPointNotification point={notificationPoint} patchesActive={patchesActive} onDismiss={() => { notificationActiveRef.current = false; setNotificationPoint(null) }} />
       )}
 
-      {/* ──────────────────────────────────────── */}
-      {/* Push notification pop-in (from scheduler) */}
-      {/* ──────────────────────────────────────── */}
-      {notificationPoint && notificationActiveRef.current && (
-        <KeyPointNotification
-          point={notificationPoint}
-          patchesActive={patchesActive}
-          onDismiss={() => {
-            notificationActiveRef.current = false
-            setNotificationPoint(null)
-          }}
+      {patchesActive && patchKeyPoints.length > 0 && (
+        <PatchesOverlay
+          currentIdx={currentPatchIdx} total={patchKeyPoints.length}
+          subject={patchKeyPoints[currentPatchIdx]?.subject}
+          point={patchKeyPoints[currentPatchIdx]?.point}
+          onNext={() => setCurrentPatchIdx((i) => (i + 1) % patchKeyPoints.length)}
+          onDeactivate={handleDeactivatePatches}
         />
       )}
 
-      {/* ──────────────────────────────────────── */}
-      {/* Patches overlay                           */}
-      {/* ──────────────────────────────────────── */}
-      {patchesActive && patchKeyPoints.length > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-40 p-4 pointer-events-none">
-          <div className="max-w-md mx-auto bg-red-700 text-white rounded-2xl p-5 shadow-2xl pointer-events-auto">
-            <div className="flex justify-between items-start mb-2">
-              <div>
-                <p className="text-[10px] font-bold text-red-300 uppercase tracking-widest font-label">
-                  Key Point {currentPatchIdx + 1}/{patchKeyPoints.length}
-                </p>
-                <p className="text-[11px] font-semibold text-red-200 font-label mt-0.5">
-                  {patchKeyPoints[currentPatchIdx]?.subject}
-                </p>
-              </div>
-              <button
-                onClick={() => setCurrentPatchIdx((i) => (i + 1) % patchKeyPoints.length)}
-                className="text-red-300 hover:text-white text-xs font-bold font-label transition-colors"
-              >
-                Next →
-              </button>
-            </div>
-            <p className="text-sm font-semibold leading-relaxed font-body mb-4">
-              {patchKeyPoints[currentPatchIdx]?.point}
-            </p>
-            <button
-              onClick={handleDeactivatePatches}
-              className="w-full bg-red-900 text-red-300 rounded-xl py-2.5 text-xs font-bold font-label hover:bg-red-950 transition-colors"
-            >
-              Deactivate Patches
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ──────────────────────────────────────── */}
-      {/* Patches topic selection modal             */}
-      {/* ──────────────────────────────────────── */}
       {showPatchesModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl">
-            <h3 className="text-base font-bold font-display text-[#111] mb-1">Activate My Patches</h3>
-            <p className="text-xs text-[#888] font-label mb-4">
-              Select weak topics to receive daily key point notifications:
-            </p>
-            <div className="space-y-2 mb-5">
-              {(weakSubjects.length > 0 ? weakSubjects : student.subjects).map((sub) => (
-                <label
-                  key={sub}
-                  className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
-                    selectedPatchSubjects.includes(sub)
-                      ? 'border-red-200 bg-red-50'
-                      : 'border-[#EBEBEB] hover:border-[#CCC]'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedPatchSubjects.includes(sub)}
-                    onChange={() => handleTogglePatchSubject(sub)}
-                    className="w-4 h-4 accent-red-600"
-                  />
-                  <span className="text-sm font-semibold text-[#111] font-body">{sub}</span>
-                </label>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowPatchesModal(false)}
-                className="flex-1 bg-[#F3F3F2] text-[#888] rounded-xl py-3 text-sm font-bold font-label hover:bg-[#E5E5E5] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmPatches}
-                disabled={selectedPatchSubjects.length === 0}
-                className={`flex-1 rounded-xl py-3 text-sm font-bold font-display transition-colors ${
-                  selectedPatchSubjects.length === 0
-                    ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
-                    : 'bg-red-700 text-white hover:bg-red-800'
-                }`}
-              >
-                Activate →
-              </button>
-            </div>
-          </div>
-        </div>
+        <PatchesModal
+          subjects={weakSubjects.length > 0 ? weakSubjects : student.subjects}
+          selected={selectedPatchSubjects}
+          onToggle={handleTogglePatchSubject}
+          onConfirm={handleConfirmPatches}
+          onCancel={() => setShowPatchesModal(false)}
+        />
       )}
 
       <div className="max-w-md mx-auto px-4 pb-10">
-        {/* ────────────────────────────────────── */}
-        {/* Top bar                                 */}
-        {/* ────────────────────────────────────── */}
         <div className="pt-8 pb-5">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-[11px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-0.5">
-                Welcome back
-              </p>
-              <h2 className={`text-xl font-bold font-display leading-tight ${P.textColor}`}>
-                {student.name}
-              </h2>
+              <p className="text-[11px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-0.5">Welcome back</p>
+              <h2 className={`text-xl font-bold font-display leading-tight ${P.textColor}`}>{student.name}</h2>
               <div className="flex items-center gap-1.5 mt-1.5 mb-3">
                 <span className="text-[10px] text-[#888] font-label">Consistency Rank</span>
-                {(() => {
-                  const badge = {
-                    gray: 'bg-[#1C1C1C] text-[#AAA] border-[#333]',
-                    yellow: 'bg-yellow-950 text-yellow-300 border-yellow-800',
-                    blue: 'bg-blue-950 text-blue-300 border-blue-800',
-                    purple: 'bg-purple-950 text-purple-300 border-purple-800',
-                    green: 'bg-green-950 text-green-300 border-green-800',
-                  }
-                  return (
-                    <span
-                      title={
-                        rankData.nextRank
-                          ? `${rankData.toNext} session${rankData.toNext !== 1 ? 's' : ''} to ${rankData.nextRank}`
-                          : 'Max rank!'
-                      }
-                      className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full font-label tracking-widest border ${badge[rankData.color]}`}
-                    >
-                      <span className="text-[9px]">⚡</span>
-                      {rankData.rank}
-                    </span>
-                  )
-                })()}
+                <span
+                  title={rankData.nextRank ? `${rankData.toNext} session${rankData.toNext !== 1 ? 's' : ''} to ${rankData.nextRank}` : 'Max rank!'}
+                  className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full font-label tracking-widest border ${RANK_BADGES[rankData.color]}`}
+                >
+                  <span className="text-[9px]">⚡</span>{rankData.rank}
+                </span>
               </div>
             </div>
-            <button
-              onClick={() => {
-                if (setStudent) setStudent(null)
-                setView('home')
-              }}
-              className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0 ml-2"
-            >
-              Log out
-            </button>
+            <button onClick={() => { if (setStudent) setStudent(null); setView('home') }}
+              className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0 ml-2">Log out</button>
           </div>
-          {/* 26-week medal track — full width */}
-          <div className="space-y-2">
-            {[WEEKS.slice(0, 9), WEEKS.slice(9, 18), WEEKS.slice(18)].map((row, rowIdx) => (
-              <div key={rowIdx} className="flex justify-between">
-                {row.map((week, i) => {
-                  const idx = rowIdx * 9 + i
-                  const medal = weeklyMedals[idx]
-                  const isPast = idx < currentWeekIdx
-                  const isCurrent = idx === currentWeekIdx
-                  
-                  return (
-                    <div
-                      key={week}
-                      title={`${week}${medal ? ` — ${medal}` : isPast ? ' — Missed' : ''}`}
-                      className={`flex flex-col items-center flex-1 max-w-[10%] ${
-                        medal || isCurrent ? '' : isPast ? 'opacity-40' : 'opacity-15'
-                      }`}
-                    >
-                      <span className="text-[8px] text-[#666] font-label mb-0.5 hidden sm:block truncate w-full text-center">
-                        {week.replace('Week ', '')}
-                      </span>
-                      
-                      <div
-                        className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-sm sm:text-base ${
-                          medal
-                            ? 'border-2 border-opacity-50'
-                            : isCurrent
-                            ? 'bg-[#2A2A2A] border border-[#555]'
-                            : 'bg-[#222] border border-[#333]'
-                        } ${
-                          medal === '🥇'
-                            ? 'bg-yellow-400/30 border-yellow-400'
-                            : medal === '🥈'
-                            ? 'bg-gray-300/30 border-gray-400'
-                            : medal === '🥉'
-                            ? 'bg-amber-600/30 border-amber-500'
-                            : ''
-                        }`}
-                      >
-                        {medal && <span>{medal}</span>}
-                        {!medal && isPast && (
-                          <span className="text-[8px] text-[#555]">●</span>
-                        )}
-                      </div>
-                      
-                      <div
-                        className={`w-full max-w-[20px] sm:max-w-[26px] h-1 rounded-sm mt-0.5 ${
-                          medal === '🥇'
-                            ? 'bg-yellow-500'
-                            : medal === '🥈'
-                            ? 'bg-gray-400'
-                            : medal === '🥉'
-                            ? 'bg-amber-700'
-                            : isCurrent
-                            ? 'bg-[#555]'
-                            : 'bg-[#333]'
-                        }`}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-            ))}
-          </div>
+          <MedalTrack weeklyMedals={weeklyMedals} currentWeekIdx={currentWeekIdx} />
         </div>
 
-        {/* ────────────────────────────────────── */}
-        {/* Subscription banner                     */}
-        {/* ────────────────────────────────────── */}
-        {(() => {
-          const access = getAccessStatus(student)
-          if (access.status === 'active' && access.daysLeft > 7) return null
-          const styles = {
-            trial: {
-              bg: 'bg-yellow-50',
-              border: 'border-yellow-100',
-              text: 'text-yellow-800',
-              label: `Free trial · ${access.daysLeft} day${access.daysLeft !== 1 ? 's' : ''} left`,
-            },
-            active: {
-              bg: 'bg-blue-50',
-              border: 'border-blue-100',
-              text: 'text-blue-800',
-              label: `Subscription expires in ${access.daysLeft} day${access.daysLeft !== 1 ? 's' : ''}`,
-            },
-            expired: {
-              bg: 'bg-red-50',
-              border: 'border-red-100',
-              text: 'text-red-700',
-              label: 'Access expired — renew to continue',
-            },
-          }[access.status]
-          return (
-            <button
-              onClick={() => setView('subscribe')}
-              className={`w-full text-left ${styles.bg} ${styles.border} border rounded-xl px-4 py-3 mb-4 flex items-center justify-between hover:opacity-90 transition-opacity`}
-            >
-              <div>
-                <p className={`text-xs font-bold ${styles.text} font-display`}>{styles.label}</p>
-                <p className="text-[10px] text-[#888] font-label mt-0.5">
-                  {access.status === 'expired'
-                    ? 'Tap to subscribe (₦800/month)'
-                    : 'Tap to manage subscription'}
-                </p>
-              </div>
-              <span className={`text-xs font-bold ${styles.text} font-label`}>→</span>
-            </button>
-          )
-        })()}
+        <SubscriptionBanner student={student} onSubscribe={() => setView('subscribe')} />
 
-        {/* ────────────────────────────────────── */}
-        {/* Key points notification card (embedded) */}
-        {/* ────────────────────────────────────── */}
         {allKeyPoints.length > 0 && !kpDismissed && !patchesActive && (
-          <div className={`${P.bg} text-white rounded-2xl p-4 mb-4 flex items-start gap-3`}>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest font-label mb-0.5">
-                Study Point · {allKeyPoints[keyPointIdx]?.subject}
-              </p>
-              <p className="text-sm font-semibold font-body leading-snug">
-                {allKeyPoints[keyPointIdx]?.point}
-              </p>
-              {allKeyPoints.length > 1 && (
-                <p className="text-[10px] text-white/40 font-label mt-1">
-                  {keyPointIdx + 1} / {allKeyPoints.length}
-                </p>
-              )}
-            </div>
-            <button
-              onClick={() => setKpDismissed(true)}
-              className="text-white/40 hover:text-white text-lg leading-none shrink-0 transition-colors"
-            >
-              ×
-            </button>
-          </div>
+          <KeyPointsCard point={allKeyPoints[keyPointIdx]} current={keyPointIdx} total={allKeyPoints.length} theme={P} onDismiss={() => setKpDismissed(true)} />
         )}
 
-        {/* ────────────────────────────────────── */}
-        {/* Total Score                             */}
-        {/* ────────────────────────────────────── */}
-        {totalScore !== null && (
-          <div className={`${P.bg} text-white rounded-2xl p-5 mb-4`}>
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-[10px] font-semibold text-white/40 uppercase tracking-[0.2em] font-label mb-1">
-                  Total Score
-                </p>
-                <div className="flex items-end gap-1.5">
-                  <span className="text-4xl font-bold font-display">{totalScore.total}</span>
-                  <span className="text-white/40 text-sm mb-1 font-label">
-                    / {totalScore.totalOut}
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setView('results')}
-                className="text-[11px] font-semibold text-white/40 hover:text-white transition-colors font-label mt-1"
-              >
-                View →
-              </button>
-            </div>
-            <div className="w-full bg-white/10 rounded-full h-1.5 mt-4">
-              <div
-                className="bg-white h-1.5 rounded-full transition-all"
-                style={{
-                  width: `${Math.min((totalScore.total / totalScore.totalOut) * 100, 100)}%`,
-                }}
-              />
-            </div>
-            <div className="flex justify-between mt-1.5">
-              <p className="text-[10px] text-white/30 font-label">
-                {Math.round((totalScore.total / totalScore.totalOut) * 100)}%
-              </p>
-              <p
-                className={`text-[10px] font-semibold font-label ${
-                  totalScore.total >= 250
-                    ? 'text-green-400'
-                    : totalScore.total >= 180
-                    ? 'text-yellow-400'
-                    : 'text-red-400'
-                }`}
-              >
-                {totalScore.total >= 250
-                  ? 'Strong'
-                  : totalScore.total >= 180
-                  ? 'Average'
-                  : 'Needs work'}
-              </p>
-            </div>
-          </div>
-        )}
+        <ScoreHero total={totalScore?.total} totalOut={totalScore?.totalOut} theme={P} onViewResults={() => setView('results')} />
 
-        {/* ────────────────────────────────────── */}
-        {/* This week's topics                      */}
-        {/* ────────────────────────────────────── */}
-        {thisWeekTopics.length > 0 && (
-          <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
-            <div className="flex justify-between items-center mb-3">
-              <div>
-                <p className="text-sm font-bold text-[#111] font-display">Topics to Study</p>
-                <p className="text-[11px] text-[#AAA] font-label mt-0.5">
-                  {currentWeek} · Prepare before the quiz
-                </p>
-              </div>
-              <span
-                className={`text-[10px] font-bold ${P.bg} text-white px-2.5 py-1 rounded-full font-label`}
-              >
-                {currentWeek}
-              </span>
-            </div>
-            <div className="space-y-2">
-              {thisWeekTopics.map(({ subject, topic }) => (
-                <div
-                  key={subject}
-                  className="flex items-center gap-3 py-2 border-b border-[#F3F3F2] last:border-0"
-                >
-                  <div className={`w-1.5 h-1.5 ${P.bg} rounded-full shrink-0`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-bold text-[#888] uppercase tracking-wide font-label leading-none mb-0.5">
-                      {subject}
-                    </p>
-                    <p className="text-sm font-semibold text-[#111] font-body">{topic.name}</p>
-                  </div>
-                  {topic.video && (
-                    <a
-                      href={topic.video}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label hover:bg-red-100 transition-colors"
-                    >
-                      ▶ Watch
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <TopicsList topics={thisWeekTopics} currentWeek={currentWeek} theme={P} />
 
-        {/* ────────────────────────────────────── */}
-        {/* My Subjects                             */}
-        {/* ────────────────────────────────────── */}
         <div className="mb-4">
           <div className="flex justify-between items-center mb-2">
             <p className="text-sm font-bold text-[#111] font-display">My Subjects</p>
@@ -785,214 +242,40 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           <div className="grid grid-cols-2 gap-2">
             {student.subjects.map((sub) => {
               const pct = getSubjectPct(sub)
-              const isWeak = pct === null || pct < 50
               return (
-                <button
-                  key={sub}
-                  onClick={() => {
-                    setSelectedSubjectDetail(sub)
-                    setView('subject-detail')
-                  }}
-                  className={`bg-white border rounded-xl p-3.5 text-left hover:shadow-sm active:scale-[0.98] transition-all group ${
-                    patchesActive && isWeak
-                      ? 'border-red-200'
-                      : 'border-[#EBEBEB] hover:border-[#111]'
-                  }`}
-                >
-                  <p className="text-[10px] font-semibold text-[#AAA] uppercase tracking-wide font-label mb-1">
-                    Subject
-                  </p>
-                  <p className="text-xs font-bold text-[#111] leading-snug font-body mb-2">{sub}</p>
-                  {pct !== null ? (
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <p
-                          className={`text-xs font-bold font-label ${
-                            pct >= 70
-                              ? 'text-green-600'
-                              : pct >= 50
-                              ? 'text-yellow-600'
-                              : 'text-red-500'
-                          }`}
-                        >
-                          {pct}%
-                        </p>
-                        <p className="text-[10px] text-[#CCC] font-label group-hover:text-[#111] transition-colors">
-                          →
-                        </p>
-                      </div>
-                      <div className="w-full bg-[#F3F3F2] rounded-full h-1">
-                        <div
-                          className={`h-1 rounded-full ${
-                            pct >= 70
-                              ? 'bg-green-500'
-                              : pct >= 50
-                              ? 'bg-yellow-500'
-                              : 'bg-red-400'
-                          }`}
-                          style={{ width: `${Math.min(pct, 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-[10px] text-[#CCC] font-label">No test yet → </p>
-                  )}
-                </button>
+                <SubjectCard key={sub} subject={sub} pct={pct} isWeak={pct === null || pct < 50} patchesActive={patchesActive}
+                  onClick={() => { setSelectedSubjectDetail(sub); setView('subject-detail') }} />
               )
             })}
           </div>
         </div>
 
-        {/* ────────────────────────────────────── */}
-        {/* Quiz status                             */}
-        {/* ────────────────────────────────────── */}
-        <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mb-4">
-          <div className="flex justify-between items-center mb-4">
-            <p className="text-sm font-bold text-[#111] font-display">This Week's Quiz</p>
-            <span className="text-[11px] font-semibold text-[#888] bg-[#F3F3F2] px-2.5 py-1 rounded-lg font-label">
-              {currentWeek}
-            </span>
-          </div>
+        <QuizCard
+          currentWeek={currentWeek} quizTime={quizTime} quizDates={quizDates} timeLeft={timeLeft} theme={P}
+          hasAttemptedAllSubjects={hasAttemptedAllSubjects} todaySubjectsAttempted={todaySubjectsAttempted}
+          onStartQuiz={() => { const access = getAccessStatus(student); if (access.status === 'expired') setView('subscribe'); else setView('quiz') }}
+          onSubscribe={() => setView('subscribe')}
+        />
 
-          {quizTime ? (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                <p className="text-sm font-bold text-green-700 font-display">Quiz is LIVE now</p>
-              </div>
-              <p className="text-xs text-[#888] mb-4 font-label">
-                Login closes at end of window · 1 hour once started
-              </p>
-              {hasAttemptedAllSubjects ? (
-                <div className="bg-[#F3F3F2] rounded-xl p-3 text-center">
-                  <p className="text-sm font-bold text-[#111] font-display mb-0.5">All done!</p>
-                  <p className="text-xs text-[#888] font-label">
-                    You've completed all subjects this week
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {todaySubjectsAttempted.length > 0 && (
-                    <div className="mb-3 flex flex-wrap gap-1.5">
-                      {todaySubjectsAttempted.map((s) => (
-                        <span
-                          key={s}
-                          className={`text-[10px] font-semibold ${P.bg} text-white px-2 py-0.5 rounded-full font-label`}
-                        >
-                          ✓ {s}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => {
-                      const access = getAccessStatus(student)
-                      if (access.status === 'expired') {
-                        setView('subscribe')
-                        return
-                      }
-                      setView('quiz')
-                    }}
-                    className={`w-full ${P.bg} text-white rounded-xl py-3.5 text-sm font-bold ${P.hoverBg} active:scale-[0.99] transition-all font-display`}
-                  >
-                    {todaySubjectsAttempted.length > 0
-                      ? `Continue Quiz (${4 - todaySubjectsAttempted.length} left) →`
-                      : 'Start Quiz →'}
-                  </button>
-                </>
-              )}
-            </div>
-          ) : (
-            <div>
-              <p className="text-xs text-[#888] mb-2 font-label">Next quiz in</p>
-              <div className="flex gap-3 mb-3">
-                {timeLeft.days > 0 && (
-                  <div>
-                    <span className="text-2xl font-bold text-[#111] font-display">
-                      {timeLeft.days}
-                    </span>
-                    <span className="text-xs text-[#AAA] ml-1 font-label">d</span>
-                  </div>
-                )}
-                <div>
-                  <span className="text-2xl font-bold text-[#111] font-display">
-                    {timeLeft.hours}
-                  </span>
-                  <span className="text-xs text-[#AAA] ml-1 font-label">hr</span>
-                </div>
-                <div>
-                  <span className="text-2xl font-bold text-[#111] font-display">
-                    {timeLeft.mins}
-                  </span>
-                  <span className="text-xs text-[#AAA] ml-1 font-label">min</span>
-                </div>
-              </div>
-              <p className="text-[11px] text-[#CCC] font-label">
-                {quizDates?.date1 || quizDates?.date2
-                  ? [quizDates.date1, quizDates.date2]
-                      .filter(Boolean)
-                      .map((d) =>
-                        new Date(d).toLocaleString('en-NG', {
-                          weekday: 'short',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
-                      )
-                      .join(' & ')
-                  : 'Fri & Sat · 5:00 pm – 6:00 pm login window'}
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* ────────────────────────────────────── */}
-        {/* ACTIVATE MY PATCHES                     */}
-        {/* ────────────────────────────────────── */}
         <div className="mb-4">
           {patchesActive ? (
-            <button
-              onClick={handleDeactivatePatches}
-              className="w-full bg-red-700 text-white rounded-xl py-3.5 text-sm font-bold hover:bg-red-800 active:scale-[0.99] transition-all font-display"
-            >
+            <button onClick={handleDeactivatePatches} className="w-full bg-red-700 text-white rounded-xl py-3.5 text-sm font-bold hover:bg-red-800 active:scale-[0.99] transition-all font-display">
               🔴 Deactivate Patches
             </button>
           ) : (
             <>
-              <button
-                onClick={isValentine ? handleOpenPatchesModal : undefined}
-                disabled={!isValentine}
-                className={`w-full rounded-xl py-3.5 text-sm font-bold transition-all font-display ${
-                  isValentine
-                    ? 'bg-[#111] text-white hover:bg-[#222] active:scale-[0.99]'
-                    : 'bg-[#F3F3F2] text-[#CCC] cursor-not-allowed'
-                }`}
-              >
+              <button onClick={isValentine ? handleOpenPatchesModal : undefined} disabled={!isValentine}
+                className={`w-full rounded-xl py-3.5 text-sm font-bold transition-all font-display ${isValentine ? 'bg-[#111] text-white hover:bg-[#222] active:scale-[0.99]' : 'bg-[#F3F3F2] text-[#CCC] cursor-not-allowed'}`}>
                 ❤️ ACTIVATE MY PATCHES
               </button>
-              {!isValentine && (
-                <p className="text-center text-[10px] text-[#CCC] font-label mt-1.5">
-                  Unlocks on February 14 only
-                </p>
-              )}
+              {!isValentine && <p className="text-center text-[10px] text-[#CCC] font-label mt-1.5">Unlocks on February 14 only</p>}
             </>
           )}
         </div>
 
         <div className="flex gap-2">
-          <button
-            onClick={() => setView('results')}
-            className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label"
-          >
-            My Results
-          </button>
-          <button
-            onClick={() => setView('leaderboard')}
-            className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label"
-          >
-            🏆 Leaderboard
-          </button>
+          <button onClick={() => setView('results')} className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label">My Results</button>
+          <button onClick={() => setView('leaderboard')} className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label">🏆 Leaderboard</button>
         </div>
       </div>
     </div>
