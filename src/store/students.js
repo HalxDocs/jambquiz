@@ -67,14 +67,9 @@ function stripSensitive(student) {
 
 async function registerStudent(student) {
   const nameLower = student.name.toLowerCase().trim()
-  // Check via indexed query first
   const q = query(collection(db, 'students'), where('nameLower', '==', nameLower))
-  let snapshot = await getDocs(q)
+  const snapshot = await getDocs(q)
   if (!snapshot.empty) return null
-  // Fallback: check legacy users without nameLower
-  const allSnap = await getDocs(collection(db, 'students'))
-  const legacy = allSnap.docs.find((d) => !d.data().nameLower && d.data().name?.toLowerCase().trim() === nameLower)
-  if (legacy) return null
   const nowIso = new Date().toISOString()
   const passwordHash = await hashPassword(student.password)
   const payload = {

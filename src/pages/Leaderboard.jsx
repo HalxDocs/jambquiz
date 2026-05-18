@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { listenScores, listenStudents, getConsistencyRank, SUBJECTS, WEEKS } from '../store/useStore'
-import { db, collection, doc, onSnapshot, getDoc } from '../firebase'
+import { SUBJECTS } from '../store/useStore'
+import { db, collection, doc, onSnapshot, getDoc, getDocs, query, where } from '../firebase'
 
 const RANK_COLOR = {
   gray:   { badge: 'bg-[#F3F3F2] text-[#555] border-[#E5E5E5]' },
@@ -13,29 +13,33 @@ const RANK_COLOR = {
 const MEDAL = ['🥇', '🥈', '🥉']
 
 export default function Leaderboard({ student, setView }) {
-  const [students, setStudents] = useState([])
   const [scores, setScores] = useState([])
   const [activeTab, setActiveTab] = useState('overall')
   const [friendSearch, setFriendSearch] = useState('')
+  const [friendResults, setFriendResults] = useState([])
   const [overallBoard, setOverallBoard] = useState([])
   const [myRank, setMyRank] = useState(null)
 
   const [subjectBoards, setSubjectBoards] = useState([])
 
   useEffect(() => {
-    let unsubStudents, unsubScores, unsubLeaderboard
+    let unsubLeaderboard
 
-    // Try aggregated leaderboard first
+    // Load aggregated leaderboard overview
     const overallRef = doc(db, 'leaderboard', 'overall')
     getDoc(overallRef).then((snap) => {
-      if (snap.exists()) {
-        const data = snap.data()
-        if (data.top?.length) {
-          setOverallBoard(data.top.map((s) => ({ ...s, id: s.id })))
-        }
+      if (snap.exists() && snap.data().top?.length) {
+        setOverallBoard(snap.data().top.map((s) => ({ ...s, id: s.id })))
+      } else {
+        // Fallback: load from raw scores (small user count)
+        import('../store/useStore').then(({ listenScores, listenStudents }) => {
+          listenStudents((all) => setStudents(all))
+          listenScores((all) => setScores(all))
+        })
       }
     })
 
+    // Listen for leaderboard updates (overall + per-subject)
     unsubLeaderboard = onSnapshot(
       collection(db, 'leaderboard'),
       (snap) => {
@@ -52,62 +56,18 @@ export default function Leaderboard({ student, setView }) {
       }
     )
 
-    // Also load students for search + fallback
-    unsubStudents = listenStudents((all) => setStudents(all))
-
-    // Load scores for consistency rank + fallback
-    unsubScores = listenScores((all) => setScores(all))
-
     // Load user's own rank
     getDoc(doc(db, 'leaderboard_student_ranks', student.id)).then((snap) => {
       if (snap.exists()) setMyRank(snap.data())
     })
 
-    return () => { unsubStudents?.(); unsubScores?.(); unsubLeaderboard?.() }
+    return () => { unsubLeaderboard?.() }
   }, [student])
 
-  // Fallback: compute from raw data if aggregated isn't ready yet
-  const getTotal = (studentId) => {
-    const mine = scores.filter((s) => s.studentId === studentId)
-    const best = {}
-    mine.forEach((sc) => {
-      if (!best[sc.subject] || sc.score > best[sc.subject].score) best[sc.subject] = sc
-    })
-    const top = Object.values(best)
-    if (top.length < 4) return null
-    return top.slice(0, 4).reduce((a, sc) => a + sc.score, 0)
-  }
+  // Use aggregated board if available
+  const finalBoard = overallBoard
 
-  const getSubjectBest = (studentId, subject) => {
-    const mine = scores.filter((s) => s.studentId === studentId && s.subject === subject)
-    if (!mine.length) return null
-    return mine.reduce((best, sc) => sc.score > best.score ? sc : best, mine[0])
-  }
-
-  // Use aggregated board if available, else compute fallback
-  const finalBoard = overallBoard.length > 0
-    ? overallBoard
-    : students
-        .map((s) => ({ id: s.id, name: s.name, total: getTotal(s.id) }))
-        .filter((s) => s.total !== null)
-        .sort((a, b) => b.total - a.total)
-        .map((s, i) => ({ ...s, rankNum: i + 1 }))
-
-  // Fallback per-subject board (used when aggregated not ready)
-  const fallbackSubjectBoards = subjectBoards.length > 0 ? subjectBoards : SUBJECTS.map((subject) => {
-    const ranked = students
-      .map((s) => {
-        const best = getSubjectBest(s.id, subject)
-        return best ? { name: s.name, id: s.id, score: best.score, outOf: best.outOf || 100 } : null
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10)
-    return { subject, ranked }
-  }).filter((sb) => sb.ranked.length > 0)
-
-  // Use aggregated subject boards if available, else fallback
-  const activeSubjectBoards = subjectBoards.length > 0 ? subjectBoards : fallbackSubjectBoards
+  const activeSubjectBoards = subjectBoards
 
   const myRow = finalBoard.findIndex((s) => s.id === student.id)
 
@@ -124,9 +84,23 @@ export default function Leaderboard({ student, setView }) {
     }).filter(Boolean)
   }
 
-  const friendResults = friendSearch.trim().length >= 2
-    ? students.filter((s) => s.name.toLowerCase().includes(friendSearch.trim().toLowerCase()))
-    : []
+  useEffect(() => {
+    const q = friendSearch.trim()
+    if (q.length < 2) { setFriendResults([]); return }
+    let cancelled = false
+    const searchTerm = q.toLowerCase().trim()
+    const searchQuery = query(
+      collection(db, 'students'),
+      where('nameLower', '>=', searchTerm),
+      where('nameLower', '<', searchTerm + '~')
+    )
+    getDocs(searchQuery).then((snap) => {
+      if (!cancelled) {
+        setFriendResults(snap.docs.map((d) => ({ id: d.id, ...d.data() })).slice(0, 20))
+      }
+    })
+    return () => { cancelled = true }
+  }, [friendSearch])
 
   const TABS = [
     { key: 'overall', label: 'Overall' },
