@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAdminNotificationStore } from '../../store/notificationStore'
 import { saveAdminNotificationStateToFirestore } from '../../services/pushNotifications'
-import { functions, httpsCallable } from '../../firebase'
+import { db, collection, addDoc } from '../../firebase'
 
 export default function AdminNotifications() {
   const { enabled, enabledSince, lastModifiedBy, enable, disable } = useAdminNotificationStore()
@@ -58,13 +58,12 @@ export default function AdminNotifications() {
 
     setBroadcastStatus('Sending...')
     try {
-      const sendBroadcast = httpsCallable(functions, 'sendAdminBroadcast')
-      const result = await sendBroadcast({ title, message })
-      setBroadcastStatus(`Sent to ${result.data.sent} user(s)!`)
+      await addDoc(collection(db, 'admin_broadcasts'), { title, message, createdAt: new Date().toISOString() })
+      setBroadcastStatus('Broadcast sent!')
       setBroadcastTitle('')
       setBroadcastMessage('')
     } catch (err) {
-      setBroadcastStatus('Failed to send: ' + (err.message || 'Unknown error'))
+      setBroadcastStatus('Failed: ' + (err.message || 'Unknown error'))
     }
     setTimeout(() => setBroadcastStatus(null), 5000)
   }

@@ -1,5 +1,5 @@
 const { onSchedule } = require('firebase-functions/v2/scheduler');
-const { onCall } = require('firebase-functions/v2/https');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
 const webpush = require('web-push');
 
@@ -192,40 +192,40 @@ exports.sendKeyPointNotifications = onSchedule(
   }
 );
 
-exports.sendAdminBroadcast = onCall(
+exports.sendBroadcastPush = onDocumentCreated(
   {
+    document: 'admin_broadcasts/{broadcastId}',
     secrets: ['VAPID_PRIVATE_KEY'],
   },
-  async (request) => {
-    const { title, message } = request.data;
-    if (!title || !message) {
-      throw new Error('Title and message are required');
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log('[Broadcast] No data');
+      return;
     }
+
+    const { title, message } = snapshot.data();
+    if (!title || !message) return;
 
     const vapidPrivateKeyValue = process.env.VAPID_PRIVATE_KEY;
     if (!vapidPrivateKeyValue) {
-      throw new Error('VAPID_PRIVATE_KEY not set');
+      console.error('[Broadcast] VAPID_PRIVATE_KEY not set');
+      return;
     }
 
     webpush.setVapidDetails('mailto:admin@274lab.com', VAPID_PUBLIC_KEY, vapidPrivateKeyValue);
 
-    // Save broadcast to Firestore for in-app display
-    const broadcastRef = await db.collection('admin_broadcasts').add({
-      title,
-      message,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    // Send push to all subscribers
+    const broadcastId = event.params.broadcastId;
     const subsSnap = await db.collection('push_subscriptions').get();
     let sent = 0;
+
     for (const subDoc of subsSnap.docs) {
       const subscription = subDoc.data();
       const pushPayload = JSON.stringify({
         type: 'broadcast',
         title,
         message,
-        broadcastId: broadcastRef.id,
+        broadcastId,
       });
 
       try {
@@ -242,6 +242,5 @@ exports.sendAdminBroadcast = onCall(
     }
 
     console.log(`[Broadcast] Sent "${title}" to ${sent} subscribers`);
-    return { sent, broadcastId: broadcastRef.id };
   }
 );

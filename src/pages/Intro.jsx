@@ -30,7 +30,7 @@ export default function Intro({ onContinue }) {
             <span className="text-[9px] font-bold text-white/50 font-display leading-none tracking-widest uppercase mt-0.5">Lab</span>
           </div>
           <p className="text-[11px] font-semibold text-[#888] font-label tracking-[0.25em] uppercase">
-            Diagnose • Discipline • Patch
+            274days to identify weaknesses and fix them to ace JAMB
           </p>
           <p className="text-[13px] text-[#555] mt-3 font-body leading-snug max-w-[18rem] mx-auto">
             Hi there! Welcome to the Lab.

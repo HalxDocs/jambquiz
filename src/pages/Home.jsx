@@ -78,7 +78,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
             <span className="text-[9px] font-bold text-white/50 font-display leading-none tracking-widest uppercase mt-0.5">Lab</span>
           </div>
           <p className="text-[10px] font-semibold text-[#888] font-label tracking-[0.2em] uppercase mb-2">
-            {mode === 'register' ? '274days to identify weaknesses and fix them to ace JAMB' : 'Diagnose • Discipline • Patch'}
+            '274days to identify weaknesses and fix them to ace JAMB'
           </p>
           {mode !== 'register' && (
             <p className="text-xs text-[#AAA] font-label">

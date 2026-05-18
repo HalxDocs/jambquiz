@@ -207,7 +207,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     if (total >= 280) lines.push(`💪 Outstanding! ${firstName} is excelling this week. Keep it up!`)
     else if (total >= 200) lines.push(`📈 Good effort! ${firstName} is on track. Consistent practice will push scores higher.`)
     else lines.push(`🔁 Tough week, but every mock is a lesson. Encourage ${firstName} to review corrections and come back stronger.`)
-    lines.push('', '_274Lab · Diagnose · Discipline · Patch_')
+    lines.push('', '_274Days to identify weaknesses and fix them to ace JAMB_')
     return `https://wa.me/${phone}?text=${encodeURIComponent(lines.join('\n'))}`
   }
 
