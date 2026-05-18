@@ -1,4 +1,4 @@
-const functions = require('firebase-functions/v2/scheduler');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
 const webpush = require('web-push');
 
@@ -6,7 +6,6 @@ admin.initializeApp();
 const db = admin.firestore();
 
 const VAPID_PUBLIC_KEY = 'BDjWG8ZcgvC2OmcHjvxRUak4DVafBt-RFjMQLqRNobFvnfKZGETpOpu6XrhLuJ5i9690jgPnO3HvAdcdD-Shruw';
-const VAPID_PRIVATE_KEY = functions.definedSecret('VAPID_PRIVATE_KEY');
 
 const MAX_TIMES_PER_POINT = 3;
 const MIN_INTERVAL_BETWEEN_NOTIFICATIONS = 30 * 60 * 1000;
@@ -76,30 +75,28 @@ function selectNextPoint(points, seenPoints, currentCycleIndex) {
   return available[currentCycleIndex % available.length];
 }
 
-exports.sendKeyPointNotifications = functions.onSchedule(
+exports.sendKeyPointNotifications = onSchedule(
   {
     schedule: 'every 2 hours',
     timeZone: 'Africa/Lagos',
     secrets: ['VAPID_PRIVATE_KEY'],
   },
   async (event) => {
-    // Check admin master switch
     const adminSnap = await db.collection('admin_settings').doc('notifications').get();
     if (adminSnap.exists && adminSnap.data().enabled === false) {
       console.log('[CloudFn] Notifications disabled by admin');
       return;
     }
 
-    // Get current week and VAPID key
-    const week = await getActiveWeek();
-    const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
-    if (!vapidPrivateKey) {
+    const vapidPrivateKeyValue = process.env.VAPID_PRIVATE_KEY;
+    if (!vapidPrivateKeyValue) {
       console.error('[CloudFn] VAPID_PRIVATE_KEY not set');
       return;
     }
-    webpush.setVapidDetails('mailto:admin@274lab.com', VAPID_PUBLIC_KEY, vapidPrivateKey);
 
-    // Get all push subscriptions
+    const week = await getActiveWeek();
+    webpush.setVapidDetails('mailto:admin@274lab.com', VAPID_PUBLIC_KEY, vapidPrivateKeyValue);
+
     const subsSnap = await db.collection('push_subscriptions').get();
     if (subsSnap.empty) {
       console.log('[CloudFn] No push subscriptions found');
@@ -111,11 +108,9 @@ exports.sendKeyPointNotifications = functions.onSchedule(
       const studentId = subDoc.id;
       const subscription = subDoc.data();
 
-      // Get student's subjects
       const subjects = await getStudentSubjects(studentId);
       if (!subjects.length) continue;
 
-      // Get notification state
       const stateSnap = await db.collection('notification_state').doc(studentId).get();
       const state = stateSnap.exists ? stateSnap.data() : {};
       const seenPoints = state.seenPoints || {};
@@ -124,17 +119,15 @@ exports.sendKeyPointNotifications = functions.onSchedule(
       const selectedPatchSubjects = state.selectedPatchSubjects || [];
       const lastNotifiedAt = state.lastNotifiedAt || null;
 
-      // Check minimum interval
       if (lastNotifiedAt) {
-        const elapsed = Date.now() - new Date(lastNotifiedAt).getTime();
+        const ts = lastNotifiedAt.seconds ? lastNotifiedAt.toDate() : new Date(lastNotifiedAt);
+        const elapsed = Date.now() - ts.getTime();
         if (elapsed < MIN_INTERVAL_BETWEEN_NOTIFICATIONS) continue;
       }
 
-      // Get all key points for this week
       const allPoints = await getAllKeyPoints(week, subjects);
       if (!allPoints.length) continue;
 
-      // Filter for patches or selected subjects
       let eligiblePoints = allPoints;
       if (patchesActive && selectedPatchSubjects.length > 0) {
         eligiblePoints = allPoints.filter((p) => selectedPatchSubjects.includes(p.subject));
@@ -145,10 +138,8 @@ exports.sendKeyPointNotifications = functions.onSchedule(
         if (!eligiblePoints.length) eligiblePoints = allPoints;
       }
 
-      // Select next point
       const nextPoint = selectNextPoint(eligiblePoints, seenPoints, currentCycleIndex);
       if (!nextPoint) {
-        // Reset cycle
         const reset = {};
         eligiblePoints.forEach((p) => { reset[p.id] = 0; });
         await db.collection('notification_state').doc(studentId).update({
@@ -159,7 +150,6 @@ exports.sendKeyPointNotifications = functions.onSchedule(
         continue;
       }
 
-      // Send push notification
       const pushPayload = JSON.stringify({
         point: nextPoint.point,
         subject: nextPoint.subject,
@@ -170,15 +160,11 @@ exports.sendKeyPointNotifications = functions.onSchedule(
 
       try {
         await webpush.sendNotification(
-          {
-            endpoint: subscription.endpoint,
-            keys: subscription.keys,
-          },
+          { endpoint: subscription.endpoint, keys: subscription.keys },
           pushPayload
         );
         sent++;
 
-        // Update state
         const updatedSeen = { ...seenPoints, [nextPoint.id]: (seenPoints[nextPoint.id] || 0) + 1 };
         const updatedCycle = (currentCycleIndex + 1) % eligiblePoints.length;
 
@@ -193,7 +179,6 @@ exports.sendKeyPointNotifications = functions.onSchedule(
         });
       } catch (err) {
         if (err.statusCode === 410 || err.statusCode === 404) {
-          // Subscription expired or gone — remove it
           console.log(`[CloudFn] Removing expired subscription for ${studentId}`);
           await db.collection('push_subscriptions').doc(studentId).delete();
         } else {
