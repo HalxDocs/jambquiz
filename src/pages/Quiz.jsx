@@ -268,170 +268,11 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
 
   // ── DONE ───────────────────────────────────────────────────────────────────
   if (step === 'done') {
-    const total = allResults.reduce((a, r) => a + r.score, 0)
-    const maxTotal = allResults.length * 100
-    const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
-    const pct = Math.round((total / maxTotal) * 100)
     const parentPhone = student.parentPhone?.replace(/\D/g, '')
     const teacherPhone = student.teacherPhone?.replace(/\D/g, '')
 
     return (
-      <div className="min-h-screen bg-[#F8F8F7] pb-10">
-
-        {/* Medal toast overlay */}
-        {medalToast && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setMedalToast(null)}>
-            <div className="bg-white rounded-3xl p-8 text-center max-w-xs w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
-              <p className="text-7xl mb-3">{medalToast.medal}</p>
-              <p className="text-xl font-bold text-[#111] font-display mb-1">
-                {medalToast.medal === '🥇' ? 'Gold Medal!' : medalToast.medal === '🥈' ? 'Silver Medal!' : 'Bronze Medal!'}
-              </p>
-              <p className="text-sm text-[#888] font-label mb-1">{weekLabel}</p>
-              <p className="text-2xl font-bold text-[#111] font-display mb-4">{medalToast.total} / {medalToast.max}</p>
-              <button onClick={() => setMedalToast(null)} className="bg-[#111] text-white px-8 py-2.5 rounded-xl text-sm font-bold font-display">
-                Continue →
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="max-w-md mx-auto px-4">
-          <div className="flex items-center gap-3 pt-8 pb-4">
-            <button onClick={() => setView('dashboard')} className="text-[#888] hover:text-[#111] text-sm font-label transition-colors">← Dashboard</button>
-          </div>
-
-          {/* Total score hero */}
-          <div className="bg-[#111] text-white rounded-2xl p-6 mb-4">
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <p className="text-[10px] font-semibold text-[#666] uppercase tracking-[0.2em] font-label">{weekLabel} · All Subjects</p>
-                <div className="flex items-end gap-2 mt-1">
-                  <span className="text-5xl font-bold font-display">{total}</span>
-                  <span className="text-[#555] text-lg mb-1 font-label">/{maxTotal}</span>
-                </div>
-                <p className={`text-sm font-bold font-display mt-1 ${pct >= 70 ? 'text-green-400' : pct >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>
-                  {pct >= 70 ? 'Excellent work!' : pct >= 50 ? 'Good effort!' : 'Keep practising!'}
-                </p>
-              </div>
-              <span className="text-5xl">{medal}</span>
-            </div>
-            <div className="w-full bg-white/10 rounded-full h-1">
-              <div className="bg-white h-1 rounded-full" style={{ width: `${Math.min(pct, 100)}%` }} />
-            </div>
-          </div>
-
-          {/* Per-subject breakdown with collapsible corrections */}
-          <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
-            <p className="text-[11px] font-bold text-[#888] uppercase tracking-[0.15em] font-label mb-3">Subject Breakdown</p>
-            <div className="divide-y divide-[#F3F3F2]">
-              {allResults.map((r) => {
-                const sp = r.score
-                const isExp = expandedSubject === r.subject
-                return (
-                  <div key={r.subject}>
-                    <button onClick={() => setExpandedSubject(isExp ? null : r.subject)} className="flex items-center gap-2.5 w-full py-3 text-left">
-                      <p className="flex-1 text-sm font-semibold text-[#111] font-body">{r.subject}</p>
-                      <div className="w-14 bg-[#F3F3F2] rounded-full h-1.5 shrink-0">
-                        <div className={`h-1.5 rounded-full ${sp >= 70 ? 'bg-green-500' : sp >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${sp}%` }} />
-                      </div>
-                      <span className="text-sm font-bold font-display text-[#111] w-14 text-right shrink-0">{r.score}/100</span>
-                      <span className={`text-[10px] font-bold font-label w-8 text-right shrink-0 ${sp >= 70 ? 'text-green-600' : sp >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>{sp}%</span>
-                      <span className="text-[#CCC] text-xs shrink-0 w-3">{isExp ? '▲' : '▼'}</span>
-                    </button>
-                    {isExp && (
-                      <div className="mb-3 space-y-2">
-                        {r.questions.map((q, i) => {
-                          const sa = r.answers[i]
-                          const isOk = sa === q.answer
-                          const isSkip = sa === null
-                          return (
-                            <div key={i} className={`rounded-xl p-3 border text-xs ${isOk ? 'bg-green-50 border-green-100' : isSkip ? 'bg-[#F8F8F7] border-[#EBEBEB]' : 'bg-red-50 border-red-100'}`}>
-                              <p className="font-semibold text-[#111] mb-1.5 font-body leading-snug">{i + 1}. {q.question}</p>
-                              {q.image && <img src={q.image} alt="Q" className="mb-2 max-h-40 w-full object-contain rounded-lg border border-[#EBEBEB] bg-white" />}
-                              <div className="space-y-0.5 mb-1.5">
-                                {q.options.map((opt, oi) => (
-                                  <div key={oi} className={`px-2.5 py-1.5 rounded-lg font-label ${oi === q.answer ? 'bg-green-200 text-green-800 font-semibold' : oi === sa && !isOk ? 'bg-red-200 text-red-800' : 'text-[#888]'}`}>
-                                    {String.fromCharCode(65 + oi)}. {opt}{oi === q.answer && ' ✓'}{oi === sa && !isOk && ' ✗'}
-                                    {q.optionImages?.[oi] && <img src={q.optionImages[oi]} alt="" className="mt-1 max-h-20 rounded" />}
-                                  </div>
-                                ))}
-                              </div>
-                              {isSkip && <p className="text-[#AAA] font-label">Skipped</p>}
-                              {q.explanation && (
-                                <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 mt-1.5">
-                                  <p className="text-[10px] font-bold text-blue-700 font-label mb-0.5">Explanation</p>
-                                  <p className="text-blue-600 font-label leading-relaxed whitespace-pre-line">{q.explanation}</p>
-                                  {q.explanationImage && <img src={q.explanationImage} alt="" className="mt-1.5 max-h-40 w-full object-contain rounded-lg border border-blue-100" />}
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* WhatsApp report */}
-          {(parentPhone || teacherPhone) && (
-            <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
-              <p className="text-[11px] font-bold text-[#888] uppercase tracking-[0.15em] font-label mb-0.5">Send Report via WhatsApp</p>
-              <p className="text-[10px] text-[#AAA] font-label mb-3">Includes scores, next week topics & encouragement</p>
-              <div className="space-y-2">
-                {parentPhone && (
-                  <a href={buildWAMsg(parentPhone, allResults)} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-3 w-full bg-green-600 hover:bg-green-700 text-white rounded-xl px-4 py-3 transition-colors">
-                    <WaIcon />
-                    <div className="text-left">
-                      <p className="text-sm font-bold font-display">Send to Parent</p>
-                      <p className="text-[11px] text-green-200 font-label">{student.parentPhone}</p>
-                    </div>
-                  </a>
-                )}
-                {teacherPhone && (
-                  <a href={buildWAMsg(teacherPhone, allResults)} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-3 w-full bg-[#111] hover:bg-[#222] text-white rounded-xl px-4 py-3 transition-colors">
-                    <WaIcon />
-                    <div className="text-left">
-                      <p className="text-sm font-bold font-display">Send to Teacher</p>
-                      <p className="text-[11px] text-[#666] font-label">{student.teacherPhone}</p>
-                    </div>
-                  </a>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Next week topics */}
-          {Object.keys(nextWeekTopics).some((k) => normalizeTopic(nextWeekTopics[k])?.name) && (
-            <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
-              <p className="text-[11px] font-bold text-[#888] uppercase tracking-[0.15em] font-label mb-3">Next Week — Topics to Revise</p>
-              <div className="space-y-2">
-                {Object.entries(nextWeekTopics).map(([subj, raw]) => {
-                  const t = normalizeTopic(raw)
-                  if (!t?.name) return null
-                  return (
-                    <div key={subj} className="flex justify-between items-center py-1 gap-2">
-                      <p className="text-xs text-[#555] font-body shrink-0">{subj}</p>
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <p className="text-xs text-[#111] font-semibold bg-[#F3F3F2] px-2.5 py-1 rounded-lg font-label truncate">{t.name}</p>
-                        {t.video && <a href={t.video} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label shrink-0">▶</a>}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          <button onClick={() => setView('results')} className="w-full bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm font-semibold text-[#555] hover:border-[#CCC] font-label transition-colors">
-            View All Results →
-          </button>
-        </div>
-      </div>
+      <QuizResults allResults={allResults} weekLabel={weekLabel} medalToast={medalToast} setMedalToast={setMedalToast} nextWeekTopics={nextWeekTopics} parentPhone={parentPhone} teacherPhone={teacherPhone} buildWAMsg={buildWAMsg} student={student} onBackToDashboard={() => setView('dashboard')} onViewResults={() => setView('results')} />
     )
   }
 
@@ -462,9 +303,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
                 <span className="text-[#AAA] font-normal text-xs ml-1.5">{totalAnswered}/{totalQs} answered</span>
               </p>
             </div>
-            <div className={`text-sm font-bold px-3 py-1.5 rounded-xl font-display ${timeLeft < 300 ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-[#F3F3F2] text-[#111]'}`}>
-              ⏱ {fmt(timeLeft)}
-            </div>
+            <QuizTimer timeLeft={timeLeft} />
           </div>
 
           {/* Subject tabs */}
@@ -496,31 +335,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       </div>
 
       <div className="max-w-md mx-auto px-4 pb-6">
-        {/* Question card */}
-        <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mt-4 mb-4">
-          <p className="text-[#111] font-semibold text-base leading-relaxed font-body">{q.question}</p>
-          {q.image && <img src={q.image} alt="Question" className="mt-3 max-h-72 w-full object-contain rounded-xl border border-[#EBEBEB] bg-[#F8F8F7]" />}
-        </div>
-
-        {/* Options */}
-        <div className="space-y-2.5 mb-5">
-          {q.options.map((option, i) => (
-            <button key={i} onClick={() => setAnswer(activeSubject, currentQ, i)}
-              className={`w-full p-4 rounded-xl border text-left text-sm transition-all active:scale-[0.99] ${
-                answers[currentQ] === i ? 'bg-[#111] text-white border-[#111]' : 'bg-white text-[#333] border-[#E5E5E5] hover:border-[#999]'
-              }`}>
-              <div className="flex items-start">
-                <span className={`inline-flex w-6 h-6 rounded-full border items-center justify-center text-[11px] font-bold mr-3 shrink-0 ${
-                  answers[currentQ] === i ? 'border-white/40 text-white' : 'border-[#CCC] text-[#888]'
-                }`}>
-                  {String.fromCharCode(65 + i)}
-                </span>
-                <span className="font-body flex-1">{option}</span>
-              </div>
-              {q.optionImages?.[i] && <img src={q.optionImages[i]} alt={`Option ${i + 1}`} className="mt-2.5 max-h-40 w-full object-contain rounded-lg" />}
-            </button>
-          ))}
-        </div>
+        <QuestionCard question={q} selectedAnswer={answers[currentQ]} onSelectAnswer={(i) => setAnswer(activeSubject, currentQ, i)} disabled={submitting} />
 
         {/* Navigation */}
         <div className="flex gap-2.5 mb-4">
@@ -549,19 +364,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
           )}
         </div>
 
-        {/* Question dots */}
-        <div className="flex gap-1 flex-wrap mb-5">
-          {questions.map((_, i) => (
-            <button key={i} onClick={() => setCurrentQ(activeSubject, i)}
-              className={`w-8 h-8 rounded-lg text-xs font-bold font-label transition-colors ${
-                i === currentQ ? 'bg-[#111] text-white' :
-                answers[i] !== null ? 'bg-[#333] text-white' :
-                'bg-white border border-[#E5E5E5] text-[#AAA]'
-              }`}>
-              {i + 1}
-            </button>
-          ))}
-        </div>
+        <QuestionNav total={questions.length} currentIndex={currentQ} answers={answers} onJump={(i) => setCurrentQ(activeSubject, i)} />
 
         {/* Always-visible submit all */}
         <button onClick={handleSubmitAll} disabled={submitting}
