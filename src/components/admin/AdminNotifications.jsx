@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAdminNotificationStore } from '../../store/notificationStore'
+import { saveAdminNotificationStateToFirestore } from '../../services/pushNotifications'
 
 export default function AdminNotifications() {
   const { enabled, enabledSince, lastModifiedBy, enable, disable } = useAdminNotificationStore()
@@ -11,10 +12,12 @@ export default function AdminNotifications() {
     if (enabled) {
       if (confirm('Disable notifications for ALL users? This will stop all scheduled key point deliveries immediately.')) {
         disable(adminName)
+        saveAdminNotificationStateToFirestore(false)
       }
     } else {
       if (confirm('Enable notifications for ALL users? This will start delivering key points every 2 hours.')) {
         enable(adminName)
+        saveAdminNotificationStateToFirestore(true)
       }
     }
   }
@@ -156,6 +159,7 @@ export default function AdminNotifications() {
             onClick={() => {
               if (confirm('Are you sure? This stops all notifications for all users.')) {
                 disable(adminName)
+                saveAdminNotificationStateToFirestore(false)
               }
             }}
             className="w-full bg-red-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-red-700 active:scale-[0.99] transition-all font-display"
