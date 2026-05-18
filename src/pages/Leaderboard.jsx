@@ -209,6 +209,7 @@ export default function Leaderboard({ student, setView }) {
                 <div className="divide-y divide-[#F3F3F2]">
                   {finalBoard.map((s, i) => {
                     const isMe = s.id === student.id
+                    const sRank = s.rank || getConsistencyRank(scores.filter((sc) => sc.studentId === s.id))
                     return (
                       <div key={s.id} className={`flex items-center gap-3 px-4 py-3 ${isMe ? 'bg-[#FAFAF9]' : ''}`}>
                         <span className={`w-6 text-center text-sm font-bold font-display shrink-0 ${i < 3 ? '' : 'text-[#CCC]'}`}>
@@ -220,8 +221,8 @@ export default function Leaderboard({ student, setView }) {
                               {s.name}{isMe && <span className="text-[10px] text-[#AAA] font-label ml-1">(you)</span>}
                             </p>
                           </div>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border font-label ${RANK_COLOR[s.rank.color]?.badge || RANK_COLOR.gray.badge}`}>
-                            ⚡ {s.rank.rank}
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border font-label ${RANK_COLOR[sRank.color]?.badge || RANK_COLOR.gray.badge}`}>
+                            ⚡ {sRank.rank}
                           </span>
                         </div>
                         <p className="text-sm font-bold text-[#111] font-display shrink-0">
@@ -247,11 +248,11 @@ export default function Leaderboard({ student, setView }) {
         {/* ── BY SUBJECT ── */}
         {activeTab === 'subject' && (
           <div className="space-y-4">
-            {subjectBoards.length === 0 ? (
+            {activeSubjectBoards.length === 0 ? (
               <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
                 <p className="text-[#CCC] text-sm font-label">No scores yet</p>
               </div>
-            ) : subjectBoards.filter((sb) => student.subjects.includes(sb.subject) || true).map(({ subject, ranked }) => (
+            ) : activeSubjectBoards.filter((sb) => student.subjects.includes(sb.subject) || true).map(({ subject, ranked }) => (
               <div key={subject} className="bg-white border border-[#EBEBEB] rounded-2xl p-4">
                 <p className="text-[11px] font-bold text-[#888] uppercase tracking-[0.15em] font-label mb-3">{subject}</p>
                 <div className="space-y-2">
