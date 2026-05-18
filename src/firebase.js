@@ -13,6 +13,7 @@ import {
   setDoc,
   getDoc,
 } from 'firebase/firestore'
+import { getFunctions, httpsCallable } from 'firebase/functions'
 
 const firebaseConfig = {
   apiKey: "AIzaSyBQA8XnuGt6ANrMe4zYvBzbHWnK-58Sf8U",
@@ -32,4 +33,6 @@ const db = initializeFirestore(app, {
   })
 })
 
-export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc, setDoc, getDoc }
+const functions = getFunctions(app)
+
+export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc, setDoc, getDoc, functions, httpsCallable }

@@ -1,4 +1,5 @@
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { onCall } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
 const webpush = require('web-push');
 
@@ -188,5 +189,59 @@ exports.sendKeyPointNotifications = onSchedule(
     }
 
     console.log(`[CloudFn] Sent ${sent} push notifications`);
+  }
+);
+
+exports.sendAdminBroadcast = onCall(
+  {
+    secrets: ['VAPID_PRIVATE_KEY'],
+  },
+  async (request) => {
+    const { title, message } = request.data;
+    if (!title || !message) {
+      throw new Error('Title and message are required');
+    }
+
+    const vapidPrivateKeyValue = process.env.VAPID_PRIVATE_KEY;
+    if (!vapidPrivateKeyValue) {
+      throw new Error('VAPID_PRIVATE_KEY not set');
+    }
+
+    webpush.setVapidDetails('mailto:admin@274lab.com', VAPID_PUBLIC_KEY, vapidPrivateKeyValue);
+
+    // Save broadcast to Firestore for in-app display
+    const broadcastRef = await db.collection('admin_broadcasts').add({
+      title,
+      message,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Send push to all subscribers
+    const subsSnap = await db.collection('push_subscriptions').get();
+    let sent = 0;
+    for (const subDoc of subsSnap.docs) {
+      const subscription = subDoc.data();
+      const pushPayload = JSON.stringify({
+        type: 'broadcast',
+        title,
+        message,
+        broadcastId: broadcastRef.id,
+      });
+
+      try {
+        await webpush.sendNotification(
+          { endpoint: subscription.endpoint, keys: subscription.keys },
+          pushPayload
+        );
+        sent++;
+      } catch (err) {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          await db.collection('push_subscriptions').doc(subDoc.id).delete();
+        }
+      }
+    }
+
+    console.log(`[Broadcast] Sent "${title}" to ${sent} subscribers`);
+    return { sent, broadcastId: broadcastRef.id };
   }
 );
