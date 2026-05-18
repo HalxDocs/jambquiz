@@ -17,7 +17,26 @@ self.addEventListener('push', (event) => {
     return
   }
 
-  const { point, subject, id, isQuestion } = data
+  const { point, subject, id, isQuestion, type, title: broadcastTitle, message, broadcastId } = data
+
+  if (type === 'broadcast') {
+    const options = {
+      body: message,
+      icon: '/icon-192.png',
+      badge: '/badge-72.png',
+      tag: `broadcast-${broadcastId}`,
+      renotify: true,
+      requireInteraction: true,
+      vibrate: [200, 100, 200],
+      data: { url: '/', broadcastId },
+      actions: [
+        { action: 'open', title: 'Open App' },
+        { action: 'dismiss', title: 'Dismiss' },
+      ],
+    }
+    event.waitUntil(self.registration.showNotification(broadcastTitle || '📢 Announcement', options))
+    return
+  }
 
   const options = {
     body: point,

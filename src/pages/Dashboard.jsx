@@ -201,6 +201,27 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         <KeyPointNotification point={notificationPoint} patchesActive={patchesActive} onDismiss={() => { notificationActiveRef.current = false; setNotificationPoint(null) }} />
       )}
 
+      {broadcast && (
+        <div className="fixed top-4 left-4 right-4 z-50 mx-auto max-w-md">
+          <div className="bg-[#111] border border-[#333] rounded-2xl p-4 shadow-2xl">
+            <div className="flex items-start justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">📢</span>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[#888] font-label">Announcement</p>
+              </div>
+              <button onClick={() => { localStorage.setItem('last_broadcast_id', broadcast.id); setBroadcast(null) }}
+                className="text-[#888] hover:text-white text-lg leading-none transition-colors">×</button>
+            </div>
+            <p className="text-sm font-bold text-white font-display mb-1">{broadcast.title}</p>
+            <p className="text-sm text-[#CCC] font-body leading-relaxed">{broadcast.message}</p>
+            <button onClick={() => { localStorage.setItem('last_broadcast_id', broadcast.id); setBroadcast(null) }}
+              className="w-full mt-3 bg-[#222] text-[#AAA] hover:bg-[#333] hover:text-white rounded-xl py-2 text-xs font-bold font-label transition-colors">
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
       {patchesActive && patchKeyPoints.length > 0 && (
         <PatchesOverlay
           currentIdx={currentPatchIdx} total={patchKeyPoints.length}
