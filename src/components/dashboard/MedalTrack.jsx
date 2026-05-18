@@ -12,7 +12,7 @@ function MedalCell({ week, medal, isPast, isCurrent }) {
         {week.replace('Week ', '')}
       </span>
       <div
-        className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-lg sm:text-xl ${
+        className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-sm sm:text-base ${
           medal ? 'border-2 border-opacity-50' : isCurrent ? 'bg-[#2A2A2A] border border-[#555]' : 'bg-[#222] border border-[#333]'
         } ${
           medal === '🥇' ? 'bg-yellow-400/30 border-yellow-400' : medal === '🥈' ? 'bg-gray-300/30 border-gray-400' : medal === '🥉' ? 'bg-amber-600/30 border-amber-500' : ''
@@ -22,7 +22,7 @@ function MedalCell({ week, medal, isPast, isCurrent }) {
         {!medal && isPast && <span className="text-[8px] text-[#555]">●</span>}
       </div>
       <div
-        className={`w-full max-w-[24px] sm:max-w-[30px] h-1 rounded-sm mt-0.5 ${
+        className={`w-full max-w-[20px] sm:max-w-[26px] h-1 rounded-sm mt-0.5 ${
           medal === '🥇' ? 'bg-yellow-500' : medal === '🥈' ? 'bg-gray-400' : medal === '🥉' ? 'bg-amber-700' : isCurrent ? 'bg-[#555]' : 'bg-[#333]'
         }`}
       />

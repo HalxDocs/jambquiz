@@ -108,6 +108,9 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           const lastSeen = localStorage.getItem('last_broadcast_id')
           if (data.message && data.title && change.doc.id !== lastSeen) {
             setBroadcast({ id: change.doc.id, title: data.title, message: data.message })
+            if ('Notification' in window && Notification.permission === 'granted') {
+              new Notification(data.title, { body: data.message, icon: '/icon-192.png', tag: `broadcast-${change.doc.id}`, requireInteraction: true })
+            }
           }
         }
       })

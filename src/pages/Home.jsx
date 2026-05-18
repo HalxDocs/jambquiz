@@ -12,6 +12,8 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [adminPw, setAdminPw] = useState('')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showForgot, setShowForgot] = useState(false)
+  const [recoveredPassword, setRecoveredPassword] = useState('')
 
   const years = Array.from({ length: 10 }, (_, i) => String(2027 + i))
 
@@ -65,6 +67,20 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const handleAdmin = () => {
     if (adminPw === 'jamb2024') { setAdminAuthed(true); setView('admin') }
     else setErr('Wrong password')
+  }
+
+  const handleForgotPassword = async () => {
+    const trimmed = name.trim()
+    if (trimmed.length < 3) { setErr('Enter your full name'); return }
+    setLoading(true); setErr(''); setRecoveredPassword('')
+    try {
+      const existing = await findStudent(trimmed)
+      if (!existing) { setErr('Name not found. Please register first.'); setLoading(false); return }
+      setRecoveredPassword(existing.password)
+    } catch {
+      setErr('Connection error. Check your internet.')
+    }
+    setLoading(false)
   }
 
   return (
@@ -184,6 +200,12 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                       placeholder={mode === 'register' ? 'Minimum 4 characters' : '••••••••'}
                       className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
                     />
+                    {mode === 'login' && (
+                      <button onClick={() => { setShowForgot(true); setErr(''); setRecoveredPassword('') }}
+                        className="text-[11px] text-[#888] hover:text-[#111] mt-1.5 font-label underline underline-offset-2 transition-colors">
+                        Forgot password?
+                      </button>
+                    )}
                   </div>
 
                   {mode === 'register' && (
@@ -203,23 +225,55 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                   )}
                 </div>
 
+                {showForgot && (
+                  <div className="bg-[#F8F8F7] border border-[#EBEBEB] rounded-xl p-4 mt-3 space-y-3">
+                    <p className="text-xs font-semibold text-[#111] font-label">Recover Password</p>
+                    <p className="text-[11px] text-[#888] font-label">Enter your full name to retrieve your password.</p>
+                    <input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleForgotPassword()}
+                      placeholder="Enter your full name"
+                      className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                    />
+                    {recoveredPassword && (
+                      <div className="bg-green-50 border border-green-100 rounded-xl px-3.5 py-3">
+                        <p className="text-xs text-green-800 font-label mb-1">Your password is:</p>
+                        <p className="text-sm font-bold text-green-900 font-display tracking-wider">{recoveredPassword}</p>
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button onClick={handleForgotPassword} disabled={loading}
+                        className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40">
+                        {loading ? 'Searching...' : 'Recover'}
+                      </button>
+                      <button onClick={() => { setShowForgot(false); setErr(''); setRecoveredPassword('') }}
+                        className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold hover:text-[#111] hover:border-[#CCC] transition-all font-label">
+                        Back
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {err && (
                   <div className="mt-3 px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
                     <p className="text-red-600 text-xs font-label">{err}</p>
                   </div>
                 )}
 
-                <button
-                  onClick={mode === 'login' ? handleLogin : handleRegister}
-                  disabled={loading}
-                  className={`w-full mt-4 rounded-xl py-3.5 text-sm font-bold tracking-wide transition-all active:scale-[0.99] font-display ${
-                    loading
-                      ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
-                      : 'bg-[#111] text-white hover:bg-[#222]'
-                  }`}
-                >
-                  {loading ? 'Please wait…' : mode === 'login' ? 'Lock In →' : 'Create Account →'}
-                </button>
+                {!showForgot && (
+                  <button
+                    onClick={mode === 'login' ? handleLogin : handleRegister}
+                    disabled={loading}
+                    className={`w-full mt-4 rounded-xl py-3.5 text-sm font-bold tracking-wide transition-all active:scale-[0.99] font-display ${
+                      loading
+                        ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
+                        : 'bg-[#111] text-white hover:bg-[#222]'
+                    }`}
+                  >
+                    {loading ? 'Please wait…' : mode === 'login' ? 'Lock In →' : 'Create Account →'}
+                  </button>
+                )}
 
                 <p className="text-xs text-[#AAA] text-center mt-3 font-label">
                   {mode === 'login' ? 'No account? ' : 'Already registered? '}
