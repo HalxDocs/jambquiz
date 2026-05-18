@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { load, save, addScore, getQuestions, getTopics, getQuestionLimit, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, WEEKS } from '../store/useStore'
-import QuizTimer from '../components/QuizTimer'
-import QuestionCard from '../components/QuestionCard'
-import QuestionNav from '../components/QuestionNav'
-import QuizResults from '../components/QuizResults'
+import QuizTimer from '../components/quiz/QuizTimer'
+import QuestionCard from '../components/quiz/QuestionCard'
+import QuestionNav from '../components/quiz/QuestionNav'
+import QuizResults from '../components/quiz/QuizResults'
 
 function isInQuizWindow(quizDates) {
   const now = new Date()

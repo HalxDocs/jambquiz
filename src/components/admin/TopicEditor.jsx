@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { SUBJECTS, WEEKS, setTopics, getTopics, normalizeTopic } from '../store/useStore'
+import { SUBJECTS, WEEKS, setTopics, getTopics, normalizeTopic } from '../../store/useStore'
 
 export default function TopicEditor({
   activeWeek,

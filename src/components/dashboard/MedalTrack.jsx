@@ -1,4 +1,4 @@
-import { WEEKS } from '../store/useStore'
+import { WEEKS } from '../../store/useStore'
 
 function MedalCell({ week, medal, isPast, isCurrent }) {
   return (

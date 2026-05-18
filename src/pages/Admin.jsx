@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon, Notification02Icon } from '@hugeicons/core-free-icons'
 import { SUBJECTS, WEEKS, listenQuestions, listenScores, listenStudents, getActiveWeek, getQuestionLimit, setActiveWeek, listenPayments, getQuizDates } from '../store/useStore'
-import StudentManager from '../components/StudentManager'
-import StatsPanel from '../components/StatsPanel'
-import PaymentsPanel from '../components/PaymentsPanel'
-import QuestionForm from '../components/QuestionForm'
-import TopicEditor from '../components/TopicEditor'
-import AdminNotifications from '../components/AdminNotifications'
+import StudentManager from '../components/admin/StudentManager'
+import StatsPanel from '../components/admin/StatsPanel'
+import PaymentsPanel from '../components/admin/PaymentsPanel'
+import QuestionForm from '../components/admin/QuestionForm'
+import TopicEditor from '../components/admin/TopicEditor'
+import AdminNotifications from '../components/admin/AdminNotifications'
 
 export default function Admin({ setView }) {
   const [tab, setTab] = useState('students')

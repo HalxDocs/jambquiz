@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { normalizeTopic } from '../store/useStore'
+import { normalizeTopic } from '../../store/useStore'
 import Corrections from './Corrections'
 
 const WaIcon = () => (

@@ -1,4 +1,4 @@
-import { getAccessStatus } from '../store/useStore'
+import { getAccessStatus } from '../../store/useStore'
 
 export default function SubscriptionBanner({ student, onSubscribe }) {
   const access = getAccessStatus(student)

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon } from '@hugeicons/core-free-icons'
-import { getAccessStatus, updateStudent, deleteStudent, extendSubscription, addPayment, SUBSCRIPTION_PRICE_NGN } from '../store/useStore'
+import { getAccessStatus, updateStudent, deleteStudent, extendSubscription, addPayment, SUBSCRIPTION_PRICE_NGN } from '../../store/useStore'
 
 export default function StudentManager({ students, scores }) {
   const [yearFilter, setYearFilter] = useState('all')

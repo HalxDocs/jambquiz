@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Cancel01Icon } from '@hugeicons/core-free-icons'
-import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, copyQuestionsToWeek, saveQuestionLimit, setQuizDates } from '../store/useStore'
+import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, copyQuestionsToWeek, saveQuestionLimit, setQuizDates } from '../../store/useStore'
 import { compressImage } from './ImageUpload'
 
 export default function QuestionForm({

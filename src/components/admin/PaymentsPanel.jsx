@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getAccessStatus } from '../store/useStore'
+import { getAccessStatus } from '../../store/useStore'
 
 export default function PaymentsPanel({ payments, students }) {
   const [paymentSearch, setPaymentSearch] = useState('')

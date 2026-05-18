@@ -1,5 +1,5 @@
-import ScorePill from './ScorePill'
-import ProgressBar from './ProgressBar'
+import ScorePill from '../ui/ScorePill'
+import ProgressBar from '../ui/ProgressBar'
 
 export default function SubjectCard({ subject, pct, patchesActive, isWeak, onClick }) {
   const borderColor = patchesActive && isWeak ? 'border-red-200' : 'border-[#EBEBEB] hover:border-[#111]'

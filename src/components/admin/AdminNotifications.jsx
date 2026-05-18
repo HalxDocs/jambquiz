@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useAdminNotificationStore } from '../store/notificationStore'
+import { useAdminNotificationStore } from '../../store/notificationStore'
 
 export default function AdminNotifications() {
   const { enabled, enabledSince, lastModifiedBy, enable, disable } = useAdminNotificationStore()

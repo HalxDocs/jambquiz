@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { SUBJECTS, getAccessStatus } from '../store/useStore'
+import { SUBJECTS, getAccessStatus } from '../../store/useStore'
 
 export default function StatsPanel({ students, scores, payments, onTabChange }) {
   const [statsYear, setStatsYear] = useState('all')
