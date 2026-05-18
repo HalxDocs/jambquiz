@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, doc, updateDoc, onSnapshot } from '../firebase'
+import { db, collection, addDoc, getDocs, doc, updateDoc, getDoc, onSnapshot } from '../firebase'
 
 async function addPayment(payment) {
   await addDoc(collection(db, 'payments'), {
@@ -15,17 +15,17 @@ function listenPayments(callback) {
 }
 
 async function extendSubscription(studentId, months = 1) {
-  const snap = await getDocs(collection(db, 'students'))
-  const found = snap.docs.find((d) => d.id === studentId)
-  if (!found) return null
-  const data = found.data()
+  const ref = doc(db, 'students', studentId)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return null
+  const data = snap.data()
   const now = Date.now()
   const current = data.subscriptionUntil ? new Date(data.subscriptionUntil).getTime() : 0
   const anchor = Math.max(now, current)
   const next = new Date(anchor)
   next.setMonth(next.getMonth() + months)
   const iso = next.toISOString()
-  await updateDoc(doc(db, 'students', studentId), { subscriptionUntil: iso })
+  await updateDoc(ref, { subscriptionUntil: iso })
   return iso
 }
 

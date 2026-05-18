@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, onSnapshot } from '../firebase'
+import { db, collection, addDoc, getDocs, onSnapshot, query, where } from '../firebase'
 
 async function addScore(result) {
   await addDoc(collection(db, 'scores'), {
@@ -7,18 +7,21 @@ async function addScore(result) {
   })
 }
 
-function listenScores(callback) {
-  return onSnapshot(collection(db, 'scores'), (snapshot) => {
+function listenScores(callback, studentId) {
+  const ref = studentId
+    ? query(collection(db, 'scores'), where('studentId', '==', studentId))
+    : collection(db, 'scores')
+  return onSnapshot(ref, (snapshot) => {
     const scores = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
     callback(scores)
   })
 }
 
 async function getStudentScores(studentId) {
-  const snapshot = await getDocs(collection(db, 'scores'))
+  const q = query(collection(db, 'scores'), where('studentId', '==', studentId))
+  const snapshot = await getDocs(q)
   return snapshot.docs
     .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((s) => s.studentId === studentId)
     .sort((a, b) => new Date(b.date) - new Date(a.date))
 }
 

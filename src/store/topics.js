@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from '../firebase'
+import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, query, where } from '../firebase'
 
 function normalizeTopic(t) {
   if (!t) return null
@@ -7,11 +7,9 @@ function normalizeTopic(t) {
 }
 
 async function setTopics(week, topics) {
-  const snapshot = await getDocs(collection(db, 'topics'))
-  const existing = snapshot.docs.find((d) => d.data().week === week)
-  if (existing) {
-    await deleteDoc(doc(db, 'topics', existing.id))
-  }
+  const q = query(collection(db, 'topics'), where('week', '==', week))
+  const snapshot = await getDocs(q)
+  if (!snapshot.empty) await deleteDoc(doc(db, 'topics', snapshot.docs[0].id))
   await addDoc(collection(db, 'topics'), {
     week,
     topics,
@@ -20,9 +18,10 @@ async function setTopics(week, topics) {
 }
 
 async function getTopics(week) {
-  const snapshot = await getDocs(collection(db, 'topics'))
-  const found = snapshot.docs.find((d) => d.data().week === week)
-  return found ? found.data().topics : {}
+  const q = query(collection(db, 'topics'), where('week', '==', week))
+  const snapshot = await getDocs(q)
+  if (snapshot.empty) return {}
+  return snapshot.docs[0].data().topics
 }
 
 function listenTopics(callback) {

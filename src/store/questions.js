@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot } from '../firebase'
+import { db, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, where } from '../firebase'
 
 async function addQuestion(subject, week, question) {
   const { id, firestoreId, ...cleanQuestion } = question
@@ -20,43 +20,37 @@ async function deleteQuestion(firestoreId) {
 }
 
 async function getQuestions(subject, week) {
-  const snapshot = await getDocs(collection(db, 'questions'))
-  return snapshot.docs
-    .map((d) => ({ firestoreId: d.id, ...d.data() }))
-    .filter((q) => q.subject === subject && q.week === week)
+  const q = query(collection(db, 'questions'), where('subject', '==', subject), where('week', '==', week))
+  const snapshot = await getDocs(q)
+  return snapshot.docs.map((d) => ({ firestoreId: d.id, ...d.data() }))
 }
 
 function listenQuestions(subject, week, callback) {
-  return onSnapshot(collection(db, 'questions'), (snapshot) => {
-    const qs = snapshot.docs
-      .map((d) => ({ firestoreId: d.id, ...d.data() }))
-      .filter((q) => q.subject === subject && q.week === week)
+  const q = query(collection(db, 'questions'), where('subject', '==', subject), where('week', '==', week))
+  return onSnapshot(q, (snapshot) => {
+    const qs = snapshot.docs.map((d) => ({ firestoreId: d.id, ...d.data() }))
     callback(qs)
   })
 }
 
 async function copyQuestionsToWeek(subject, fromWeek, toWeek) {
-  const snapshot = await getDocs(collection(db, 'questions'))
-  const toTransfer = snapshot.docs
-    .map((d) => ({ _id: d.id, ...d.data() }))
-    .filter((q) => q.subject === subject && q.week === fromWeek)
-  for (const q of toTransfer) {
-    const { _id, createdAt, ...cleanQ } = q
+  const q = query(collection(db, 'questions'), where('subject', '==', subject), where('week', '==', fromWeek))
+  const snapshot = await getDocs(q)
+  for (const doc of snapshot.docs) {
+    const { createdAt, ...cleanQ } = doc.data()
     await addDoc(collection(db, 'questions'), {
       ...cleanQ,
       week: toWeek,
       createdAt: new Date().toISOString(),
     })
   }
-  return toTransfer.length
+  return snapshot.size
 }
 
 async function saveQuestionLimit(subject, week, limit) {
-  const snapshot = await getDocs(collection(db, 'question_limits'))
-  const existing = snapshot.docs.find(
-    (d) => d.data().subject === subject && d.data().week === week
-  )
-  if (existing) await deleteDoc(doc(db, 'question_limits', existing.id))
+  const q = query(collection(db, 'question_limits'), where('subject', '==', subject), where('week', '==', week))
+  const snapshot = await getDocs(q)
+  if (!snapshot.empty) await deleteDoc(doc(db, 'question_limits', snapshot.docs[0].id))
   await addDoc(collection(db, 'question_limits'), { subject, week, limit })
 }
 
@@ -65,11 +59,10 @@ function defaultQuestionLimit(subject) {
 }
 
 async function getQuestionLimit(subject, week) {
-  const snapshot = await getDocs(collection(db, 'question_limits'))
-  const found = snapshot.docs.find(
-    (d) => d.data().subject === subject && d.data().week === week
-  )
-  return found ? found.data().limit : defaultQuestionLimit(subject)
+  const q = query(collection(db, 'question_limits'), where('subject', '==', subject), where('week', '==', week))
+  const snapshot = await getDocs(q)
+  if (snapshot.empty) return defaultQuestionLimit(subject)
+  return snapshot.docs[0].data().limit
 }
 
 export {

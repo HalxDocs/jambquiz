@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { registerStudent, findStudent } from '../store/useStore'
+import { registerStudent, findStudent, verifyPassword } from '../store/useStore'
 
 export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [tab, setTab] = useState('student')
@@ -25,7 +25,8 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
     try {
       const existing = await findStudent(trimmed)
       if (!existing) { setErr('Name not found. Please register first.'); setLoading(false); return }
-      if (existing.password !== password) { setErr('Wrong password. Try again.'); setLoading(false); return }
+      const valid = await verifyPassword(password, existing.password)
+      if (!valid) { setErr('Wrong password. Try again.'); setLoading(false); return }
       setStudent(existing)
       setView(existing.subjects?.length ? 'dashboard' : 'subjects')
     } catch {
@@ -76,7 +77,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
     try {
       const existing = await findStudent(trimmed)
       if (!existing) { setErr('Name not found. Please register first.'); setLoading(false); return }
-      setRecoveredPassword(existing.password)
+      setRecoveredPassword('reset')
     } catch {
       setErr('Connection error. Check your internet.')
     }
@@ -236,10 +237,9 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                       placeholder="Enter your full name"
                       className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
                     />
-                    {recoveredPassword && (
-                      <div className="bg-green-50 border border-green-100 rounded-xl px-3.5 py-3">
-                        <p className="text-xs text-green-800 font-label mb-1">Your password is:</p>
-                        <p className="text-sm font-bold text-green-900 font-display tracking-wider">{recoveredPassword}</p>
+                    {recoveredPassword === 'reset' && (
+                      <div className="bg-blue-50 border border-blue-100 rounded-xl px-3.5 py-3">
+                        <p className="text-xs text-blue-800 font-label mb-1">Contact your admin to reset your password</p>
                       </div>
                     )}
                     <div className="flex gap-2">

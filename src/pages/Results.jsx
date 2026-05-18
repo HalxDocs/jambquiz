@@ -8,8 +8,8 @@ export default function Results({ student, setView }) {
 
   useEffect(() => {
     const unsub = listenScores((all) => {
-      setScores(all.filter((s) => s.studentId === student.id))
-    })
+      setScores(all)
+    }, student.id)
     return () => unsub()
   }, [student])
 

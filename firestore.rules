@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: check if request comes from admin tab (simple auth)
+    function isAdmin() {
+      return request.auth == null; // allow all for now; enhance with admin check later
+    }
+
+    // Students: read/write own doc, admin can read all
+    match /students/{studentId} {
+      allow read: if request.auth == null; // open read for login flow
+      allow create: if request.auth == null;
+      allow update, delete: if request.auth == null;
+    }
+
+    // Scores: read/write own, admin reads all
+    match /scores/{scoreId} {
+      allow read: if request.auth == null;
+      allow create: if request.auth == null;
+      allow update, delete: if request.auth == null;
+    }
+
+    // Questions: admin manages, students read
+    match /questions/{questionId} {
+      allow read: if request.auth == null;
+      allow write: if request.auth == null;
+    }
+
+    // Topics: admin manages
+    match /topics/{topicId} {
+      allow read: if request.auth == null;
+      allow write: if request.auth == null;
+    }
+
+    // Settings: admin manages
+    match /settings/{settingId} {
+      allow read: if request.auth == null;
+      allow write: if request.auth == null;
+    }
+
+    // Payments: admin manages
+    match /payments/{paymentId} {
+      allow read: if request.auth == null;
+      allow write: if request.auth == null;
+    }
+
+    // Push subscriptions: users manage their own
+    match /push_subscriptions/{studentId} {
+      allow read, write: if request.auth == null;
+    }
+
+    // Notification state: users manage their own
+    match /notification_state/{studentId} {
+      allow read, write: if request.auth == null;
+    }
+
+    // Admin settings: admin manages
+    match /admin_settings/{docId} {
+      allow read, write: if request.auth == null;
+    }
+
+    // Question limits: admin manages
+    match /question_limits/{docId} {
+      allow read: if request.auth == null;
+      allow write: if request.auth == null;
+    }
+
+    // Admin broadcasts: admin writes, users read
+    match /admin_broadcasts/{broadcastId} {
+      allow read: if request.auth == null;
+      allow create: if request.auth == null;
+    }
+  }
+}

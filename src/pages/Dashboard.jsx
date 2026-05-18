@@ -123,12 +123,12 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     const t = setInterval(() => { setQuizDates((prev) => { setQuizTime(isQuizTime(prev)); setTimeLeft(getTimeUntilQuiz(prev)); return prev }) }, 10000)
     const unsubWeek = listenActiveWeek((week) => setCurrentWeek(week))
     const unsubScores = listenScores((allScores) => {
-      const mine = allScores.filter((s) => s.studentId === student.id).sort((a, b) => new Date(b.date) - new Date(a.date))
+      const mine = allScores.sort((a, b) => new Date(b.date) - new Date(a.date))
       setScores(mine)
       const { rank } = getConsistencyRank(mine)
       if (firstLoadRef.current) { prevRankRef.current = rank; firstLoadRef.current = false }
       else if (prevRankRef.current && rank !== prevRankRef.current) { setRankUpToast(rank); prevRankRef.current = rank; setTimeout(() => setRankUpToast(null), 5000) }
-    })
+    }, student.id)
     return () => { clearInterval(t); unsubWeek(); unsubScores(); unsubDates() }
   }, [student])
 

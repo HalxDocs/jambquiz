@@ -59,10 +59,10 @@ export default function SubjectDetail({ student, subject, setView, setRetakeData
   useEffect(() => {
     const unsubScores = listenScores((allScores) => {
       const mine = allScores
-        .filter((s) => s.studentId === student.id && s.subject === subject)
+        .filter((s) => s.subject === subject)
         .sort((a, b) => new Date(b.date) - new Date(a.date))
       setScores(mine)
-    })
+    }, student.id)
     const unsubTopics = listenTopics((topics) => setAllTopics(topics))
     return () => { unsubScores(); unsubTopics() }
   }, [student, subject])
