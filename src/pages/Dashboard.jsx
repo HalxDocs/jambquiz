@@ -3,11 +3,8 @@ import {
   listenActiveWeek, listenScores, getTopics, normalizeTopic,
   getAccessStatus, getConsistencyRank, listenQuizDates, WEEKS,
 } from '../store/useStore'
-import { notificationScheduler } from '../services/notificationSchedular'
-import { registerPushNotifications, sendLocalNotification, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
+import { registerPushNotifications, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
-import { db, collection, onSnapshot } from '../firebase'
-import KeyPointNotification from '../components/notifications/KeyPointNotification'
 import RankToast from '../components/dashboard/RankToast'
 import PatchesOverlay from '../components/dashboard/PatchesOverlay'
 import PatchesModal from '../components/dashboard/PatchesModal'
@@ -95,28 +92,6 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const [keyPointIdx, setKeyPointIdx] = useState(0)
   const [kpDismissed, setKpDismissed] = useState(false)
 
-  const [notificationPoint, setNotificationPoint] = useState(null)
-  const notificationActiveRef = useRef(false)
-
-  const [broadcast, setBroadcast] = useState(null)
-
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'admin_broadcasts'), (snap) => {
-      snap.docChanges().forEach((change) => {
-        if (change.type === 'added') {
-          const data = change.doc.data()
-          const lastSeen = localStorage.getItem('last_broadcast_id')
-          if (data.message && data.title && change.doc.id !== lastSeen) {
-            setBroadcast({ id: change.doc.id, title: data.title, message: data.message })
-            if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification(data.title, { body: data.message, icon: '/icon-192.png', tag: `broadcast-${change.doc.id}`, requireInteraction: true })
-            }
-          }
-        }
-      })
-    })
-    return () => unsub()
-  }, [])
 
   useEffect(() => {
     const unsubDates = listenQuizDates((dates) => { setQuizDates(dates); setQuizTime(isQuizTime(dates)); setTimeLeft(getTimeUntilQuiz(dates)) })
@@ -136,12 +111,9 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   useEffect(() => {
     const access = getAccessStatus(student)
-    if (access.status === 'expired') { notificationScheduler.stop(); return }
+    if (access.status === 'expired') return
     registerPushNotifications().then((sub) => { if (sub) { useUserNotificationStore.getState().setPushSubscription(sub); useUserNotificationStore.getState().setPushPermission('granted'); savePushSubscriptionToFirestore(student.id, sub) } })
-    notificationScheduler.start(currentWeek, student.subjects, scores, student.id)
-    const unsub = notificationScheduler.onNotification((point) => { if (document.visibilityState === 'visible') { setNotificationPoint(point); notificationActiveRef.current = true }; sendLocalNotification(point) })
-    return () => { notificationScheduler.stop(); unsub() }
-  }, [currentWeek, student.subjects, scores, patchesActive])
+  }, [student.id])
 
   useEffect(() => { useUserNotificationStore.getState().setPatchesActive(patchesActive) }, [patchesActive])
 
@@ -200,30 +172,6 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     <div className="min-h-screen bg-[#F8F8F7]">
       <RankToast rank={rankUpToast} onDismiss={() => setRankUpToast(null)} />
 
-      {notificationPoint && notificationActiveRef.current && (
-        <KeyPointNotification point={notificationPoint} patchesActive={patchesActive} onDismiss={() => { notificationActiveRef.current = false; setNotificationPoint(null) }} />
-      )}
-
-      {broadcast && (
-        <div className="fixed top-4 left-4 right-4 z-50 mx-auto max-w-md">
-          <div className="bg-[#111] border border-[#333] rounded-2xl p-4 shadow-2xl">
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">📢</span>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[#888] font-label">Announcement</p>
-              </div>
-              <button onClick={() => { localStorage.setItem('last_broadcast_id', broadcast.id); setBroadcast(null) }}
-                className="text-[#888] hover:text-white text-lg leading-none transition-colors">×</button>
-            </div>
-            <p className="text-sm font-bold text-white font-display mb-1">{broadcast.title}</p>
-            <p className="text-sm text-[#CCC] font-body leading-relaxed">{broadcast.message}</p>
-            <button onClick={() => { localStorage.setItem('last_broadcast_id', broadcast.id); setBroadcast(null) }}
-              className="w-full mt-3 bg-[#222] text-[#AAA] hover:bg-[#333] hover:text-white rounded-xl py-2 text-xs font-bold font-label transition-colors">
-              Got it
-            </button>
-          </div>
-        </div>
-      )}
 
       {patchesActive && patchKeyPoints.length > 0 && (
         <PatchesOverlay
