@@ -26,20 +26,43 @@ function getAccessStatus(student) {
   return { status: 'expired', daysLeft: 0, expiresAt: new Date(trialEnd).toISOString() }
 }
 
-async function hashPassword(password) {
+function generateSalt() {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function hashWithSalt(password, salt) {
   const encoder = new TextEncoder()
-  const data = encoder.encode(password)
+  const data = encoder.encode(salt + password)
   const hashBuffer = await crypto.subtle.digest('SHA-256', data)
   const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return 'sha256$' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function hashPassword(password) {
+  const salt = generateSalt()
+  const hash = await hashWithSalt(password, salt)
+  return 'sha256$' + salt + '$' + hash
 }
 
 async function verifyPassword(password, storedHash) {
   if (storedHash && storedHash.startsWith('sha256$')) {
-    const hash = await hashPassword(password)
-    return hash === storedHash
+    const parts = storedHash.split('$')
+    if (parts.length === 3) {
+      const salt = parts[1]
+      const hash = await hashWithSalt(password, salt)
+      return storedHash === 'sha256$' + salt + '$' + hash
+    }
+    return false
   }
   return password === storedHash
+}
+
+function stripSensitive(student) {
+  if (!student) return null
+  const { password, ...rest } = student
+  return rest
 }
 
 async function registerStudent(student) {
@@ -62,15 +85,20 @@ async function registerStudent(student) {
     joinedAt: nowIso,
   }
   const ref = await addDoc(collection(db, 'students'), payload)
-  return { id: ref.id, ...payload }
+  return { id: ref.id, ...stripSensitive(payload) }
 }
 
 async function findStudent(name) {
   const q = query(collection(db, 'students'), where('nameLower', '==', name.toLowerCase().trim()))
   const snapshot = await getDocs(q)
   if (snapshot.empty) return null
-  const doc = snapshot.docs[0]
-  return { id: doc.id, ...doc.data() }
+  const d = snapshot.docs[0]
+  return { id: d.id, ...d.data() }
+}
+
+async function findStudentSafe(name) {
+  const found = await findStudent(name)
+  return found ? stripSensitive(found) : null
 }
 
 async function updateStudent(id, data) {
@@ -88,4 +116,4 @@ function listenStudents(callback) {
   })
 }
 
-export { getAccessStatus, registerStudent, findStudent, updateStudent, deleteStudent, listenStudents, hashPassword, verifyPassword }
+export { getAccessStatus, registerStudent, findStudent, updateStudent, deleteStudent, listenStudents, hashPassword, verifyPassword, findStudentSafe, stripSensitive }

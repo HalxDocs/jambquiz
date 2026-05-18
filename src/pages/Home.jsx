@@ -1,5 +1,9 @@
-import { useState } from 'react'
-import { registerStudent, findStudent, verifyPassword } from '../store/useStore'
+import { useState, useRef } from 'react'
+import { registerStudent, findStudent, verifyPassword, stripSensitive } from '../store/useStore'
+import { doc, getDoc, db } from '../firebase'
+
+const LOGIN_COOLDOWN_MS = 30000
+const MAX_ATTEMPTS = 5
 
 export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [tab, setTab] = useState('student')
@@ -15,20 +19,44 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [showForgot, setShowForgot] = useState(false)
   const [recoveredPassword, setRecoveredPassword] = useState('')
 
+  const attemptsRef = useRef(0)
+  const cooldownUntilRef = useRef(0)
+
   const years = Array.from({ length: 10 }, (_, i) => String(2027 + i))
+
+  const checkRateLimit = () => {
+    const now = Date.now()
+    if (now < cooldownUntilRef.current) {
+      const secs = Math.ceil((cooldownUntilRef.current - now) / 1000)
+      setErr(`Too many attempts. Try again in ${secs}s.`)
+      return false
+    }
+    return true
+  }
+
+  const recordAttempt = () => {
+    attemptsRef.current++
+    if (attemptsRef.current >= MAX_ATTEMPTS) {
+      cooldownUntilRef.current = Date.now() + LOGIN_COOLDOWN_MS
+      attemptsRef.current = 0
+    }
+  }
 
   const handleLogin = async () => {
     const trimmed = name.trim()
     if (trimmed.length < 3) { setErr('Enter your full name'); return }
     if (!password) { setErr('Enter your password'); return }
+    if (!checkRateLimit()) return
     setLoading(true); setErr('')
     try {
       const existing = await findStudent(trimmed)
-      if (!existing) { setErr('Name not found. Please register first.'); setLoading(false); return }
+      if (!existing) { setErr('Name not found. Please register first.'); recordAttempt(); setLoading(false); return }
       const valid = await verifyPassword(password, existing.password)
-      if (!valid) { setErr('Wrong password. Try again.'); setLoading(false); return }
-      setStudent(existing)
-      setView(existing.subjects?.length ? 'dashboard' : 'subjects')
+      if (!valid) { setErr('Wrong password. Try again.'); recordAttempt(); setLoading(false); return }
+      attemptsRef.current = 0
+      cooldownUntilRef.current = 0
+      const safe = stripSensitive(existing)
+      setStudent(safe)
     } catch {
       setErr('Connection error. Check your internet.')
     }
@@ -65,9 +93,20 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
     setLoading(false)
   }
 
-  const handleAdmin = () => {
-    if (adminPw === 'jamb2024') { setAdminAuthed(true); setView('admin') }
-    else setErr('Wrong password')
+  const handleAdmin = async () => {
+    if (!adminPw) { setErr('Enter the admin password'); return }
+    setLoading(true); setErr('')
+    try {
+      const snap = await getDoc(doc(db, 'admin_settings', 'admin_auth'))
+      if (!snap.exists()) { setErr('Not configured'); setLoading(false); return }
+      const data = snap.data()
+      const valid = await verifyPassword(adminPw, data.passwordHash)
+      if (!valid) { setErr('Wrong password'); setLoading(false); return }
+      setAdminAuthed(true); setView('admin')
+    } catch {
+      setErr('Connection error.')
+    }
+    setLoading(false)
   }
 
   const handleForgotPassword = async () => {
@@ -309,9 +348,10 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                 )}
                 <button
                   onClick={handleAdmin}
-                  className="w-full bg-[#111] text-white rounded-xl py-3.5 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display"
+                  disabled={loading}
+                  className="w-full bg-[#111] text-white rounded-xl py-3.5 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40"
                 >
-                  Access Admin →
+                  {loading ? 'Verifying...' : 'Access Admin →'}
                 </button>
               </div>
             )}

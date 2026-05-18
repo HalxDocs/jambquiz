@@ -244,3 +244,88 @@ exports.sendBroadcastPush = onDocumentCreated(
     console.log(`[Broadcast] Sent "${title}" to ${sent} subscribers`);
   }
 );
+
+const SUBJECTS = [
+  'Mathematics', 'Physics', 'Chemistry', 'Biology',
+  'English Language', 'Government', 'Literature in English',
+  'Christian Religious Studies', 'Islamic Religious Studies',
+  'Commerce', 'Economics',
+];
+
+exports.computeLeaderboard = onSchedule(
+  {
+    schedule: 'every 15 minutes',
+    timeZone: 'Africa/Lagos',
+  },
+  async () => {
+    const studentsSnap = await db.collection('students').get();
+    const scoresSnap = await db.collection('scores').get();
+
+    const scores = [];
+    scoresSnap.forEach((d) => scores.push({ id: d.id, ...d.data() }));
+
+    const students = {};
+    studentsSnap.forEach((d) => { students[d.id] = d.data(); });
+
+    // Compute per-student totals
+    const totals = {};
+    Object.keys(students).forEach((sid) => {
+      const myScores = scores.filter((s) => s.studentId === sid);
+      const best = {};
+      myScores.forEach((sc) => {
+        if (!best[sc.subject] || sc.score > best[sc.subject].score) best[sc.subject] = sc;
+      });
+      const top = Object.values(best);
+      if (top.length >= 4) {
+        totals[sid] = top.slice(0, 4).reduce((a, sc) => a + sc.score, 0);
+      }
+    });
+
+    // Overall top 100
+    const ranked = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, 100);
+    const overallTop = ranked.map(([sid, total]) => ({
+      id: sid,
+      name: students[sid]?.name || 'Unknown',
+      total,
+    }));
+    await db.collection('leaderboard').doc('overall').set({
+      top: overallTop,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Per-subject top 10
+    for (const subject of SUBJECTS) {
+      const subjectBest = [];
+      Object.keys(students).forEach((sid) => {
+        const myScores = scores.filter((s) => s.studentId === sid && s.subject === subject);
+        if (!myScores.length) return;
+        const best = myScores.reduce((a, b) => a.score > b.score ? a : b);
+        subjectBest.push({ id: sid, name: students[sid]?.name || 'Unknown', score: best.score, outOf: best.outOf || 100 });
+      });
+      const top10 = subjectBest.sort((a, b) => b.score - a.score).slice(0, 10);
+      await db.collection('leaderboard').doc(`subject_${subject.replace(/\s+/g, '_')}`).set({
+        top: top10,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    // Per-student rank
+    const allRanked = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+    let writeBatch = db.batch();
+    let count = 0;
+    allRanked.forEach(([sid, total], i) => {
+      const ref = db.collection('leaderboard_student_ranks').doc(sid);
+      writeBatch.set(ref, { rank: i + 1, total, updatedAt: new Date().toISOString() });
+      count++;
+      if (count >= 400) {
+        // Firestore batch limit is 500
+        writeBatch.commit();
+        writeBatch = db.batch();
+        count = 0;
+      }
+    });
+    if (count > 0) writeBatch.commit();
+
+    console.log(`[Leaderboard] Computed for ${Object.keys(totals).length} students`);
+  }
+);

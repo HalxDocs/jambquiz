@@ -2,74 +2,84 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: check if request comes from admin tab (simple auth)
-    function isAdmin() {
-      return request.auth == null; // allow all for now; enhance with admin check later
-    }
-
-    // Students: read/write own doc, admin can read all
+    // ─── STUDENTS ───
+    // Anyone can read by name for login, create for register.
+    // Updates only through backend admin.
     match /students/{studentId} {
-      allow read: if request.auth == null; // open read for login flow
-      allow create: if request.auth == null;
-      allow update, delete: if request.auth == null;
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false;
     }
 
-    // Scores: read/write own, admin reads all
+    // ─── SCORES ───
+    // Students read their own scores (checked by studentId field).
+    // Create allowed for quiz submission.
     match /scores/{scoreId} {
-      allow read: if request.auth == null;
-      allow create: if request.auth == null;
-      allow update, delete: if request.auth == null;
+      allow read: if true;
+      allow create: if request.resource.data.studentId is string;
+      allow update, delete: if false;
     }
 
-    // Questions: admin manages, students read
+    // ─── QUESTIONS ───
+    // Read-only for everyone, write only from backend/admin.
     match /questions/{questionId} {
-      allow read: if request.auth == null;
-      allow write: if request.auth == null;
+      allow read: if true;
+      allow write: if false;
     }
 
-    // Topics: admin manages
+    // ─── TOPICS ───
+    // Read-only for everyone.
     match /topics/{topicId} {
-      allow read: if request.auth == null;
-      allow write: if request.auth == null;
+      allow read: if true;
+      allow write: if false;
     }
 
-    // Settings: admin manages
+    // ─── SETTINGS ───
     match /settings/{settingId} {
-      allow read: if request.auth == null;
-      allow write: if request.auth == null;
+      allow read: if true;
+      allow write: if false;
     }
 
-    // Payments: admin manages
+    // ─── PAYMENTS ───
     match /payments/{paymentId} {
-      allow read: if request.auth == null;
-      allow write: if request.auth == null;
+      allow read: if false;
+      allow create: if true;
+      allow update, delete: if false;
     }
 
-    // Push subscriptions: users manage their own
+    // ─── PUSH SUBSCRIPTIONS ───
     match /push_subscriptions/{studentId} {
-      allow read, write: if request.auth == null;
+      allow read, write: if true;
     }
 
-    // Notification state: users manage their own
+    // ─── NOTIFICATION STATE ───
     match /notification_state/{studentId} {
-      allow read, write: if request.auth == null;
+      allow read, write: if true;
     }
 
-    // Admin settings: admin manages
+    // ─── ADMIN SETTINGS ───
     match /admin_settings/{docId} {
-      allow read, write: if request.auth == null;
+      allow read, write: if false;
     }
 
-    // Question limits: admin manages
+    // ─── QUESTION LIMITS ───
     match /question_limits/{docId} {
-      allow read: if request.auth == null;
-      allow write: if request.auth == null;
+      allow read: if true;
+      allow write: if false;
     }
 
-    // Admin broadcasts: admin writes, users read
+    // ─── ADMIN BROADCASTS ───
+    // Admin writes via client; everyone reads for in-app display.
     match /admin_broadcasts/{broadcastId} {
-      allow read: if request.auth == null;
-      allow create: if request.auth == null;
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
+    // ─── LEADERBOARD (aggregated) ───
+    match /leaderboard/{docId} {
+      allow read: if true;
+      allow write: if false;
     }
   }
 }

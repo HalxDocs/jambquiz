@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { listenScores, listenStudents, getConsistencyRank, SUBJECTS, WEEKS } from '../store/useStore'
+import { db, collection, doc, onSnapshot, getDoc } from '../firebase'
 
 const RANK_COLOR = {
   gray:   { badge: 'bg-[#F3F3F2] text-[#555] border-[#E5E5E5]' },
@@ -16,14 +17,56 @@ export default function Leaderboard({ student, setView }) {
   const [scores, setScores] = useState([])
   const [activeTab, setActiveTab] = useState('overall')
   const [friendSearch, setFriendSearch] = useState('')
+  const [overallBoard, setOverallBoard] = useState([])
+  const [myRank, setMyRank] = useState(null)
+
+  const [subjectBoards, setSubjectBoards] = useState([])
 
   useEffect(() => {
-    const unsubStudents = listenStudents((all) => setStudents(all))
-    const unsubScores = listenScores((all) => setScores(all))
-    return () => { unsubStudents(); unsubScores() }
-  }, [])
+    let unsubStudents, unsubScores, unsubLeaderboard
 
-  // Best score per subject per student → JAMB total (4-subject sum)
+    // Try aggregated leaderboard first
+    const overallRef = doc(db, 'leaderboard', 'overall')
+    getDoc(overallRef).then((snap) => {
+      if (snap.exists()) {
+        const data = snap.data()
+        if (data.top?.length) {
+          setOverallBoard(data.top.map((s) => ({ ...s, id: s.id })))
+        }
+      }
+    })
+
+    unsubLeaderboard = onSnapshot(
+      collection(db, 'leaderboard'),
+      (snap) => {
+        const boards = []
+        snap.docs.forEach((d) => {
+          if (d.id === 'overall' && d.data().top?.length) {
+            setOverallBoard(d.data().top.map((s) => ({ ...s, id: s.id })))
+          } else if (d.id.startsWith('subject_')) {
+            const subject = d.id.replace(/^subject_/, '').replace(/_/g, ' ')
+            boards.push({ subject, ranked: d.data().top || [] })
+          }
+        })
+        if (boards.length) setSubjectBoards(boards)
+      }
+    )
+
+    // Also load students for search + fallback
+    unsubStudents = listenStudents((all) => setStudents(all))
+
+    // Load scores for consistency rank + fallback
+    unsubScores = listenScores((all) => setScores(all))
+
+    // Load user's own rank
+    getDoc(doc(db, 'leaderboard_student_ranks', student.id)).then((snap) => {
+      if (snap.exists()) setMyRank(snap.data())
+    })
+
+    return () => { unsubStudents?.(); unsubScores?.(); unsubLeaderboard?.() }
+  }, [student])
+
+  // Fallback: compute from raw data if aggregated isn't ready yet
   const getTotal = (studentId) => {
     const mine = scores.filter((s) => s.studentId === studentId)
     const best = {}
@@ -41,14 +84,17 @@ export default function Leaderboard({ student, setView }) {
     return mine.reduce((best, sc) => sc.score > best.score ? sc : best, mine[0])
   }
 
-  // Overall leaderboard
-  const overallBoard = students
-    .map((s) => ({ ...s, total: getTotal(s.id), rank: getConsistencyRank(scores.filter((sc) => sc.studentId === s.id)) }))
-    .filter((s) => s.total !== null)
-    .sort((a, b) => b.total - a.total)
+  // Use aggregated board if available, else compute fallback
+  const finalBoard = overallBoard.length > 0
+    ? overallBoard
+    : students
+        .map((s) => ({ id: s.id, name: s.name, total: getTotal(s.id) }))
+        .filter((s) => s.total !== null)
+        .sort((a, b) => b.total - a.total)
+        .map((s, i) => ({ ...s, rankNum: i + 1 }))
 
-  // Per-subject leaderboards
-  const subjectBoards = SUBJECTS.map((subject) => {
+  // Fallback per-subject board (used when aggregated not ready)
+  const fallbackSubjectBoards = subjectBoards.length > 0 ? subjectBoards : SUBJECTS.map((subject) => {
     const ranked = students
       .map((s) => {
         const best = getSubjectBest(s.id, subject)
@@ -60,25 +106,10 @@ export default function Leaderboard({ student, setView }) {
     return { subject, ranked }
   }).filter((sb) => sb.ranked.length > 0)
 
-  // Per-rank leaderboard (top scorer within each rank)
-  const byRank = {}
-  students.forEach((s) => {
-    const myScores = scores.filter((sc) => sc.studentId === s.id)
-    const { rank, color } = getConsistencyRank(myScores)
-    const total = getTotal(s.id)
-    if (rank === 'GHOST') return
-    if (!byRank[rank]) byRank[rank] = { rank, color, members: [] }
-    byRank[rank].members.push({ name: s.name, id: s.id, total })
-  })
-  const rankGroups = Object.values(byRank).map((g) => ({
-    ...g,
-    members: g.members.sort((a, b) => (b.total || 0) - (a.total || 0)).slice(0, 5),
-  })).sort((a, b) => {
-    const order = ['ELITE', 'SCHOLAR', 'CADET', 'LEARNER', 'ROOKIE']
-    return order.indexOf(a.rank) - order.indexOf(b.rank)
-  })
+  // Use aggregated subject boards if available, else fallback
+  const activeSubjectBoards = subjectBoards.length > 0 ? subjectBoards : fallbackSubjectBoards
 
-  const myRow = overallBoard.findIndex((s) => s.id === student.id)
+  const myRow = finalBoard.findIndex((s) => s.id === student.id)
 
   // Medal track helper
   const getStudentMedals = (studentId) => {
@@ -138,37 +169,37 @@ export default function Leaderboard({ student, setView }) {
         {/* ── OVERALL ── */}
         {activeTab === 'overall' && (
           <div>
-            {overallBoard.length === 0 ? (
+            {finalBoard.length === 0 ? (
               <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
                 <p className="text-[#CCC] text-sm font-label">No scores yet</p>
               </div>
             ) : (
               <div className="bg-white border border-[#EBEBEB] rounded-2xl overflow-hidden">
                 {/* Top 3 podium */}
-                {overallBoard.length >= 2 && (
+                {finalBoard.length >= 2 && (
                   <div className="bg-[#111] p-5 flex items-end justify-center gap-3 mb-0">
                     {/* 2nd */}
-                    {overallBoard[1] && (
+                    {finalBoard[1] && (
                       <div className="flex-1 text-center pb-2">
                         <p className="text-2xl mb-1">🥈</p>
-                        <p className="text-[11px] font-bold text-white font-display truncate">{overallBoard[1].name.split(' ')[0]}</p>
-                        <p className="text-[10px] text-[#666] font-label mt-0.5">{overallBoard[1].total}/400</p>
+                        <p className="text-[11px] font-bold text-white font-display truncate">{finalBoard[1].name.split(' ')[0]}</p>
+                        <p className="text-[10px] text-[#666] font-label mt-0.5">{finalBoard[1].total}/400</p>
                       </div>
                     )}
                     {/* 1st */}
-                    {overallBoard[0] && (
+                    {finalBoard[0] && (
                       <div className="flex-1 text-center">
                         <p className="text-3xl mb-1">🥇</p>
-                        <p className="text-[12px] font-bold text-white font-display truncate">{overallBoard[0].name.split(' ')[0]}</p>
-                        <p className="text-[10px] text-[#888] font-label mt-0.5">{overallBoard[0].total}/400</p>
+                        <p className="text-[12px] font-bold text-white font-display truncate">{finalBoard[0].name.split(' ')[0]}</p>
+                        <p className="text-[10px] text-[#888] font-label mt-0.5">{finalBoard[0].total}/400</p>
                       </div>
                     )}
                     {/* 3rd */}
-                    {overallBoard[2] && (
+                    {finalBoard[2] && (
                       <div className="flex-1 text-center pb-4">
                         <p className="text-xl mb-1">🥉</p>
-                        <p className="text-[11px] font-bold text-white font-display truncate">{overallBoard[2].name.split(' ')[0]}</p>
-                        <p className="text-[10px] text-[#666] font-label mt-0.5">{overallBoard[2].total}/400</p>
+                        <p className="text-[11px] font-bold text-white font-display truncate">{finalBoard[2].name.split(' ')[0]}</p>
+                        <p className="text-[10px] text-[#666] font-label mt-0.5">{finalBoard[2].total}/400</p>
                       </div>
                     )}
                   </div>
@@ -176,7 +207,7 @@ export default function Leaderboard({ student, setView }) {
 
                 {/* Full list */}
                 <div className="divide-y divide-[#F3F3F2]">
-                  {overallBoard.map((s, i) => {
+                  {finalBoard.map((s, i) => {
                     const isMe = s.id === student.id
                     return (
                       <div key={s.id} className={`flex items-center gap-3 px-4 py-3 ${isMe ? 'bg-[#FAFAF9]' : ''}`}>

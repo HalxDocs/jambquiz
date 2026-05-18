@@ -11,7 +11,7 @@ import SubjectDetail from './pages/SubjectDetail'
 import Subscribe from './pages/Subscribe'
 import Leaderboard from './pages/Leaderboard'
 import Supporters from './pages/Supporters'
-import { findStudent } from './store/useStore'
+import { findStudent, stripSensitive } from './store/useStore'
 
 function isIos() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent)
@@ -40,8 +40,9 @@ export default function App() {
   const [showIosHint, setShowIosHint] = useState(() => isIos() && !isInStandaloneMode())
 
   const setStudent = (s) => {
-    setStudentState(s)
-    if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s))
+    const safe = s ? stripSensitive(s) : null
+    setStudentState(safe || s)
+    if (safe) localStorage.setItem(SESSION_KEY, JSON.stringify(safe))
     else localStorage.removeItem(SESSION_KEY)
   }
 
