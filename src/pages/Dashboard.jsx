@@ -40,6 +40,7 @@ function isQuizTime(quizDates) {
   const nowD = new Date()
   const day = nowD.getDay()
   const h = nowD.getHours()
+  const m = nowD.getMinutes()
   const mins = h * 60 + m
   return (day === 5 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
 }
