@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
-import { registerStudent, findStudent, verifyPassword, stripSensitive } from '../store/useStore'
-import { doc, getDoc, db } from '../firebase'
+import { registerStudent, findStudent, hashPassword, verifyPassword, stripSensitive } from '../store/useStore'
+import { doc, getDoc, setDoc, db } from '../firebase'
 
 const LOGIN_COOLDOWN_MS = 30000
 const MAX_ATTEMPTS = 5
@@ -16,8 +16,10 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [adminPw, setAdminPw] = useState('')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
-  const [showForgot, setShowForgot] = useState(false)
   const [recoveredPassword, setRecoveredPassword] = useState('')
+  const [showForgot, setShowForgot] = useState(false)
+  const [adminSetupMode, setAdminSetupMode] = useState(false)
+  const [adminSetupConfirm, setAdminSetupConfirm] = useState('')
 
   const attemptsRef = useRef(0)
   const cooldownUntilRef = useRef(0)
@@ -98,11 +100,34 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
     setLoading(true); setErr('')
     try {
       const snap = await getDoc(doc(db, 'admin_settings', 'admin_auth'))
-      if (!snap.exists()) { setErr('Not configured'); setLoading(false); return }
+      if (!snap.exists()) {
+        setAdminSetupMode(true)
+        setErr('No admin password set. Enter a new password to configure.')
+        setLoading(false)
+        return
+      }
       const data = snap.data()
       const valid = await verifyPassword(adminPw, data.passwordHash)
       if (!valid) { setErr('Wrong password'); setLoading(false); return }
       setAdminAuthed(true); setView('admin')
+    } catch {
+      setErr('Connection error.')
+    }
+    setLoading(false)
+  }
+
+  const handleAdminSetup = async () => {
+    if (!adminPw) { setErr('Enter a password'); return }
+    if (adminPw.length < 4) { setErr('Password must be at least 4 characters'); return }
+    if (adminPw !== adminSetupConfirm) { setErr('Passwords do not match'); return }
+    setLoading(true); setErr('')
+    try {
+      const passwordHash = await hashPassword(adminPw)
+      await setDoc(doc(db, 'admin_settings', 'admin_auth'), { passwordHash })
+      setAdminSetupMode(false)
+      setAdminSetupConfirm('')
+      setAdminPw('')
+      setErr('')
     } catch {
       setErr('Connection error.')
     }
@@ -328,31 +353,68 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
 
             {tab === 'admin' && (
               <div>
-                <div className="mb-4">
-                  <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                    Admin Password
-                  </label>
-                  <input
-                    type="password"
-                    value={adminPw}
-                    onChange={(e) => setAdminPw(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAdmin()}
-                    placeholder="••••••••"
-                    className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                  />
-                </div>
-                {err && (
-                  <div className="mb-3 px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
-                    <p className="text-red-600 text-xs font-label">{err}</p>
+                {adminSetupMode ? (
+                  <div className="space-y-3.5">
+                    <p className="text-xs font-bold text-[#111] font-label">Set Admin Password</p>
+                    <p className="text-[11px] text-[#888] font-label">This is a one-time setup. The password will be stored securely in the database.</p>
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">New Password</label>
+                      <input type="password" value={adminPw}
+                        onChange={(e) => setAdminPw(e.target.value)}
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">Confirm Password</label>
+                      <input type="password" value={adminSetupConfirm}
+                        onChange={(e) => setAdminSetupConfirm(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAdminSetup()}
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
+                    </div>
+                    {err && (
+                      <div className="px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
+                        <p className="text-red-600 text-xs font-label">{err}</p>
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button onClick={handleAdminSetup} disabled={loading}
+                        className="flex-1 bg-[#111] text-white rounded-xl py-3 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40">
+                        {loading ? 'Saving…' : 'Set Password →'}
+                      </button>
+                      <button onClick={() => { setAdminSetupMode(false); setErr(''); setAdminPw(''); setAdminSetupConfirm('') }}
+                        className="flex-1 border border-[#E5E5E5] text-[#888] rounded-xl py-3 text-sm font-bold hover:text-[#111] transition-colors font-label">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="mb-4">
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Admin Password
+                      </label>
+                      <input
+                        type="password"
+                        value={adminPw}
+                        onChange={(e) => setAdminPw(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAdmin()}
+                        placeholder="••••••••"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                    </div>
+                    {err && (
+                      <div className="mb-3 px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
+                        <p className="text-red-600 text-xs font-label">{err}</p>
+                      </div>
+                    )}
+                    <button
+                      onClick={handleAdmin}
+                      disabled={loading}
+                      className="w-full bg-[#111] text-white rounded-xl py-3.5 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40"
+                    >
+                      {loading ? 'Verifying...' : 'Access Admin →'}
+                    </button>
                   </div>
                 )}
-                <button
-                  onClick={handleAdmin}
-                  disabled={loading}
-                  className="w-full bg-[#111] text-white rounded-xl py-3.5 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40"
-                >
-                  {loading ? 'Verifying...' : 'Access Admin →'}
-                </button>
               </div>
             )}
           </div>
