@@ -66,9 +66,15 @@ function stripSensitive(student) {
 }
 
 async function registerStudent(student) {
-  const q = query(collection(db, 'students'), where('nameLower', '==', student.name.toLowerCase().trim()))
-  const snapshot = await getDocs(q)
+  const nameLower = student.name.toLowerCase().trim()
+  // Check via indexed query first
+  const q = query(collection(db, 'students'), where('nameLower', '==', nameLower))
+  let snapshot = await getDocs(q)
   if (!snapshot.empty) return null
+  // Fallback: check legacy users without nameLower
+  const allSnap = await getDocs(collection(db, 'students'))
+  const legacy = allSnap.docs.find((d) => !d.data().nameLower && d.data().name?.toLowerCase().trim() === nameLower)
+  if (legacy) return null
   const nowIso = new Date().toISOString()
   const passwordHash = await hashPassword(student.password)
   const payload = {
@@ -89,11 +95,21 @@ async function registerStudent(student) {
 }
 
 async function findStudent(name) {
-  const q = query(collection(db, 'students'), where('nameLower', '==', name.toLowerCase().trim()))
-  const snapshot = await getDocs(q)
-  if (snapshot.empty) return null
-  const d = snapshot.docs[0]
-  return { id: d.id, ...d.data() }
+  const nameLower = name.toLowerCase().trim()
+  // Try indexed query first
+  const q = query(collection(db, 'students'), where('nameLower', '==', nameLower))
+  let snapshot = await getDocs(q)
+  if (!snapshot.empty) {
+    const d = snapshot.docs[0]
+    return { id: d.id, ...d.data() }
+  }
+  // Fallback: scan legacy users without nameLower
+  const allSnap = await getDocs(collection(db, 'students'))
+  const legacy = allSnap.docs.find((d) => !d.data().nameLower && d.data().name?.toLowerCase().trim() === nameLower)
+  if (!legacy) return null
+  // Migrate: add nameLower to legacy user
+  await updateDoc(doc(db, 'students', legacy.id), { nameLower })
+  return { id: legacy.id, ...legacy.data(), nameLower }
 }
 
 async function findStudentSafe(name) {
