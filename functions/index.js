@@ -1,5 +1,6 @@
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onCall } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
 const webpush = require('web-push');
 
@@ -329,3 +330,111 @@ exports.computeLeaderboard = onSchedule(
     console.log(`[Leaderboard] Computed for ${Object.keys(totals).length} students`);
   }
 );
+
+function getStatus(s) {
+  const now = Date.now();
+  const subUntil = s.subscriptionUntil ? new Date(s.subscriptionUntil).getTime() : 0;
+  if (subUntil > now) return 'active';
+  const trialStart = s.trialStartedAt ? new Date(s.trialStartedAt).getTime()
+    : s.joinedAt ? new Date(s.joinedAt).getTime() : now;
+  const trialEnd = trialStart + 14 * 24 * 60 * 60 * 1000;
+  if (trialEnd > now) return 'trial';
+  return 'expired';
+}
+
+exports.computeAdminStats = onCall(async () => {
+  const [studentsSnap, scoresSnap, paymentsSnap] = await Promise.all([
+    db.collection('students').get(),
+    db.collection('scores').get(),
+    db.collection('payments').get(),
+  ]);
+
+  const allScores = [];
+  scoresSnap.forEach(d => allScores.push({ id: d.id, ...d.data() }));
+
+  const allPayments = [];
+  paymentsSnap.forEach(d => allPayments.push({ id: d.id, ...d.data() }));
+
+  const students = {};
+  studentsSnap.forEach(d => { students[d.id] = { id: d.id, ...d.data() }; });
+
+  const studentIds = Object.keys(students);
+
+  const yearGroups = { all: studentIds };
+  studentIds.forEach(sid => {
+    const yr = students[sid].year || 'unknown';
+    if (!yearGroups[yr]) yearGroups[yr] = [];
+    yearGroups[yr].push(sid);
+  });
+
+  for (const [year, ids] of Object.entries(yearGroups)) {
+    const yrStudents = ids.map(sid => students[sid]);
+    const yrScores = allScores.filter(sc => ids.includes(sc.studentId));
+    const yrPayments = allPayments.filter(p => ids.includes(p.studentId));
+
+    const studentCount = yrStudents.length;
+    const attemptCount = yrScores.length;
+    const avgScore = attemptCount ? Math.round(yrScores.reduce((a, b) => a + b.score, 0) / attemptCount) : 0;
+
+    const totals = {};
+    ids.forEach(sid => {
+      const myScores = yrScores.filter(sc => sc.studentId === sid);
+      const best = {};
+      myScores.forEach(sc => {
+        if (!best[sc.subject] || sc.score > best[sc.subject].score) best[sc.subject] = sc;
+      });
+      const top = Object.values(best).slice(0, 4);
+      if (top.length >= 4) totals[sid] = top.reduce((a, sc) => a + sc.score, 0);
+    });
+
+    const topOverall = Object.entries(totals)
+      .sort((a, b) => b[1] - a[1]).slice(0, 10)
+      .map(([sid, total]) => ({ name: students[sid]?.name || 'Unknown', total }));
+
+    const topBySubject = SUBJECTS.map(subject => {
+      const subScores = yrScores.filter(sc => sc.subject === subject);
+      if (!subScores.length) return null;
+      const byStudent = {};
+      subScores.forEach(sc => {
+        const student = students[sc.studentId];
+        if (!student) return;
+        if (!byStudent[sc.studentId] || sc.score > byStudent[sc.studentId].score) {
+          byStudent[sc.studentId] = { name: student.name, score: sc.score, outOf: sc.outOf || 100 };
+        }
+      });
+      const ranked = Object.values(byStudent)
+        .map(s => ({ ...s, pct: Math.round((s.score / s.outOf) * 100) }))
+        .sort((a, b) => b.score - a.score).slice(0, 3);
+      return { subject, ranked };
+    }).filter(Boolean).filter(s => s.ranked.length > 0);
+
+    const subjectAverages = SUBJECTS.map(subject => {
+      const subScores = yrScores.filter(sc => sc.subject === subject);
+      if (!subScores.length) return null;
+      const avg = Math.round(subScores.reduce((a, b) => a + b.score, 0) / subScores.length);
+      const outOf = subScores[0]?.outOf || 160;
+      return { subject, avg, outOf, attemptCount: subScores.length };
+    }).filter(Boolean);
+
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+    const last30Start = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const revenue = {
+      total: yrPayments.reduce((a, p) => a + (p.amount || 0), 0),
+      thisMonth: yrPayments.filter(p => new Date(p.paidAt).getTime() >= monthStart).reduce((a, p) => a + (p.amount || 0), 0),
+      last30Days: yrPayments.filter(p => new Date(p.paidAt).getTime() >= last30Start).reduce((a, p) => a + (p.amount || 0), 0),
+    };
+
+    let active = 0, trial = 0, expired = 0;
+    yrStudents.forEach(s => { const st = getStatus(s); if (st === 'active') active++; else if (st === 'trial') trial++; else expired++; });
+
+    const docId = year === 'all' ? 'overview' : `year_${year}`;
+    await db.collection('admin_stats').doc(docId).set({
+      year, studentCount, attemptCount, avgScore, topOverall, topBySubject,
+      subjectAverages, revenue, statusCounts: { active, trial, expired },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
+  console.log(`[AdminStats] Computed for ${Object.keys(yearGroups).length} groups`);
+  return { ok: true };
+});

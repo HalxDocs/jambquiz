@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { load, save, addScore, getQuestions, getTopics, getQuestionLimit, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, WEEKS } from '../store/useStore'
+
+const questionCache = new Map()
 import QuizTimer from '../components/quiz/QuizTimer'
 import QuestionCard from '../components/quiz/QuestionCard'
 import QuestionNav from '../components/quiz/QuestionNav'
@@ -87,7 +89,11 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       try {
         const data = {}
         await Promise.all(subjects.map(async (subj) => {
-          const allQ = await getQuestions(subj, week)
+          const cacheKey = `${subj}|${week}`
+          if (!questionCache.has(cacheKey)) {
+            questionCache.set(cacheKey, await getQuestions(subj, week))
+          }
+          const allQ = questionCache.get(cacheKey)
           if (!allQ.length) return
           const limit = await getQuestionLimit(subj, week)
           const picked = shuffleAndPick(allQ, limit)

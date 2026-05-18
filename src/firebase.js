@@ -14,6 +14,9 @@ import {
   getDoc,
   query,
   where,
+  orderBy,
+  limit,
+  startAfter,
 } from 'firebase/firestore'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 
@@ -37,4 +40,4 @@ const db = initializeFirestore(app, {
 
 const functions = getFunctions(app)
 
-export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc, setDoc, getDoc, query, where, functions, httpsCallable }
+export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc, setDoc, getDoc, query, where, orderBy, limit, startAfter, functions, httpsCallable }

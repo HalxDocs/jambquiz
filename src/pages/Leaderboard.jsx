@@ -1,19 +1,9 @@
 import { useState, useEffect } from 'react'
-import { SUBJECTS } from '../store/useStore'
 import { db, collection, doc, onSnapshot, getDoc, getDocs, query, where } from '../firebase'
-
-const RANK_COLOR = {
-  gray:   { badge: 'bg-[#F3F3F2] text-[#555] border-[#E5E5E5]' },
-  yellow: { badge: 'bg-yellow-50 text-yellow-700 border-yellow-100' },
-  blue:   { badge: 'bg-blue-50 text-blue-700 border-blue-100' },
-  purple: { badge: 'bg-purple-50 text-purple-700 border-purple-100' },
-  green:  { badge: 'bg-green-50 text-green-700 border-green-100' },
-}
 
 const MEDAL = ['🥇', '🥈', '🥉']
 
 export default function Leaderboard({ student, setView }) {
-  const [scores, setScores] = useState([])
   const [activeTab, setActiveTab] = useState('overall')
   const [friendSearch, setFriendSearch] = useState('')
   const [friendResults, setFriendResults] = useState([])
@@ -30,12 +20,6 @@ export default function Leaderboard({ student, setView }) {
     getDoc(overallRef).then((snap) => {
       if (snap.exists() && snap.data().top?.length) {
         setOverallBoard(snap.data().top.map((s) => ({ ...s, id: s.id })))
-      } else {
-        // Fallback: load from raw scores (small user count)
-        import('../store/useStore').then(({ listenScores, listenStudents }) => {
-          listenStudents((all) => setStudents(all))
-          listenScores((all) => setScores(all))
-        })
       }
     })
 
@@ -70,19 +54,6 @@ export default function Leaderboard({ student, setView }) {
   const activeSubjectBoards = subjectBoards
 
   const myRow = finalBoard.findIndex((s) => s.id === student.id)
-
-  // Medal track helper
-  const getStudentMedals = (studentId) => {
-    const mine = scores.filter((s) => s.studentId === studentId)
-    return WEEKS.map((week) => {
-      const ws = mine.filter((s) => s.week === week)
-      if (!ws.length) return null
-      const bySubject = {}
-      ws.forEach((s) => { if (!bySubject[s.subject] || s.score > bySubject[s.subject]) bySubject[s.subject] = s.score })
-      const total = Object.values(bySubject).reduce((a, b) => a + b, 0)
-      return total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
-    }).filter(Boolean)
-  }
 
   useEffect(() => {
     const q = friendSearch.trim()
@@ -183,21 +154,15 @@ export default function Leaderboard({ student, setView }) {
                 <div className="divide-y divide-[#F3F3F2]">
                   {finalBoard.map((s, i) => {
                     const isMe = s.id === student.id
-                    const sRank = s.rank || getConsistencyRank(scores.filter((sc) => sc.studentId === s.id))
                     return (
                       <div key={s.id} className={`flex items-center gap-3 px-4 py-3 ${isMe ? 'bg-[#FAFAF9]' : ''}`}>
                         <span className={`w-6 text-center text-sm font-bold font-display shrink-0 ${i < 3 ? '' : 'text-[#CCC]'}`}>
                           {i < 3 ? MEDAL[i] : `${i + 1}`}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <p className={`text-sm font-bold font-body truncate ${isMe ? 'text-[#111]' : 'text-[#333]'}`}>
-                              {s.name}{isMe && <span className="text-[10px] text-[#AAA] font-label ml-1">(you)</span>}
-                            </p>
-                          </div>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border font-label ${RANK_COLOR[sRank.color]?.badge || RANK_COLOR.gray.badge}`}>
-                            ⚡ {sRank.rank}
-                          </span>
+                          <p className={`text-sm font-bold font-body truncate ${isMe ? 'text-[#111]' : 'text-[#333]'}`}>
+                            {s.name}{isMe && <span className="text-[10px] text-[#AAA] font-label ml-1">(you)</span>}
+                          </p>
                         </div>
                         <p className="text-sm font-bold text-[#111] font-display shrink-0">
                           {s.total}<span className="text-[10px] text-[#AAA] font-label">/400</span>
@@ -278,32 +243,22 @@ export default function Leaderboard({ student, setView }) {
             {friendResults.length > 0 && (
               <div className="space-y-3">
                 {friendResults.map((s) => {
-                  const myScores = scores.filter((sc) => sc.studentId === s.id)
-                  const { rank, color } = getConsistencyRank(myScores)
-                  const medals = getStudentMedals(s.id)
                   const isMe = s.id === student.id
+                  const sRank = myRank && myRank.id === s.id ? myRank : null
                   return (
                     <div key={s.id} className={`bg-white border rounded-2xl p-4 ${isMe ? 'border-[#111]' : 'border-[#EBEBEB]'}`}>
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <div>
-                          <p className="text-sm font-bold text-[#111] font-body">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-[#111] font-body truncate">
                             {s.name}{isMe && <span className="text-[10px] text-[#AAA] font-label ml-1">(you)</span>}
                           </p>
-                          <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full font-label tracking-widest border mt-1 ${RANK_COLOR[color]?.badge || RANK_COLOR.gray.badge}`}>
-                            ⚡ {rank}
-                          </span>
+                          {sRank && (
+                            <p className="text-[11px] text-[#888] font-label mt-0.5">
+                              Rank #{sRank.rank} · {sRank.total}/400
+                            </p>
+                          )}
                         </div>
-                        <p className="text-[10px] text-[#AAA] font-label">{medals.length} medal{medals.length !== 1 ? 's' : ''}</p>
                       </div>
-                      {medals.length > 0 ? (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {medals.map((m, i) => (
-                            <span key={i} className="text-base leading-none">{m}</span>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-[#CCC] font-label">No medals yet</p>
-                      )}
                     </div>
                   )
                 })}

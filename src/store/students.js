@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, updateDoc, doc, deleteDoc, onSnapshot, query, where } from '../firebase'
+import { db, collection, addDoc, getDocs, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter } from '../firebase'
 import { TRIAL_DAYS } from './constants'
 
 function getAccessStatus(student) {
@@ -127,4 +127,18 @@ function listenStudents(callback) {
   })
 }
 
-export { getAccessStatus, registerStudent, findStudent, updateStudent, deleteStudent, listenStudents, hashPassword, verifyPassword, findStudentSafe, stripSensitive }
+async function getStudentsPage(year, cursorDoc, pageSize = 20) {
+  let constraints = [orderBy('nameLower'), limit(pageSize)]
+  if (year) constraints.push(where('year', '==', year))
+  if (cursorDoc) constraints.push(startAfter(cursorDoc))
+  const q = query(collection(db, 'students'), ...constraints)
+  const snap = await getDocs(q)
+  const students = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  return {
+    students,
+    lastDoc: snap.docs[snap.docs.length - 1] || null,
+    hasMore: snap.docs.length === pageSize,
+  }
+}
+
+export { getAccessStatus, registerStudent, findStudent, updateStudent, deleteStudent, listenStudents, getStudentsPage, hashPassword, verifyPassword, findStudentSafe, stripSensitive }
