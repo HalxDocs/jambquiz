@@ -6,6 +6,7 @@ import {
 import { notificationScheduler } from '../services/notificationSchedular'
 import { registerPushNotifications, sendLocalNotification, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
+import { db, collection, onSnapshot } from '../firebase'
 import KeyPointNotification from '../components/notifications/KeyPointNotification'
 import RankToast from '../components/dashboard/RankToast'
 import PatchesOverlay from '../components/dashboard/PatchesOverlay'
@@ -96,6 +97,23 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   const [notificationPoint, setNotificationPoint] = useState(null)
   const notificationActiveRef = useRef(false)
+
+  const [broadcast, setBroadcast] = useState(null)
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'admin_broadcasts'), (snap) => {
+      snap.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const data = change.doc.data()
+          const lastSeen = localStorage.getItem('last_broadcast_id')
+          if (data.message && data.title && change.doc.id !== lastSeen) {
+            setBroadcast({ id: change.doc.id, title: data.title, message: data.message })
+          }
+        }
+      })
+    })
+    return () => unsub()
+  }, [])
 
   useEffect(() => {
     const unsubDates = listenQuizDates((dates) => { setQuizDates(dates); setQuizTime(isQuizTime(dates)); setTimeLeft(getTimeUntilQuiz(dates)) })

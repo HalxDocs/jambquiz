@@ -170,6 +170,33 @@ export default function AdminNotifications() {
         </div>
       </div>
 
+      <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
+        <h3 className="text-sm font-bold text-[#111] font-display mb-3">Send Broadcast</h3>
+        <p className="text-xs text-[#888] font-label mb-4">
+          Send a custom push notification to all users. They will see it as an in-app popup and a phone notification.
+        </p>
+        <input
+          value={broadcastTitle}
+          onChange={(e) => setBroadcastTitle(e.target.value)}
+          placeholder="Notification title..."
+          className="w-full bg-[#F5F5F5] border border-[#E5E5E5] rounded-xl px-4 py-2.5 text-sm font-label text-[#111] placeholder-[#BBB] outline-none focus:border-[#111] transition-colors mb-3"
+        />
+        <textarea
+          value={broadcastMessage}
+          onChange={(e) => setBroadcastMessage(e.target.value)}
+          placeholder="Write your message here..."
+          rows={3}
+          className="w-full bg-[#F5F5F5] border border-[#E5E5E5] rounded-xl px-4 py-2.5 text-sm font-label text-[#111] placeholder-[#BBB] outline-none focus:border-[#111] transition-colors resize-none mb-3"
+        />
+        <button
+          onClick={handleSendBroadcast}
+          disabled={!broadcastTitle.trim() || !broadcastMessage.trim() || broadcastStatus === 'Sending...'}
+          className="w-full bg-[#111] text-white rounded-xl py-3 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {broadcastStatus || 'Send to All Users'}
+        </button>
+      </div>
+
       <div className="bg-red-50 border border-red-100 rounded-2xl p-5">
         <h3 className="text-sm font-bold text-red-800 font-display mb-2">Danger Zone</h3>
         <p className="text-xs text-red-600 font-label mb-4">
