@@ -44,7 +44,6 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   const [quizDatesReady, setQuizDatesReady] = useState(false)
   const [nextWeekTopics, setNextWeekTopics] = useState({})
   const [err, setErr] = useState('')
-  const [expandedSubject, setExpandedSubject] = useState(null)
   const timerRef = useRef(null)
 
   const weekLabel = retakeData?.week || currentWeek || 'Week 1'
@@ -124,8 +123,6 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   useEffect(() => {
     if (timeLeft === 0 && step === 'quiz') handleSubmitAll()
   }, [timeLeft])
-
-  const fmt = (s) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
 
   const setAnswer = (subj, qIdx, optIdx) => {
     setQuizData((prev) => ({
