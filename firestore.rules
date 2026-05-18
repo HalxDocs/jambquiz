@@ -58,8 +58,11 @@ service cloud.firestore {
     }
 
     // ─── ADMIN SETTINGS ───
+    // Readable for admin auth check + notification status.
+    // Writable for initial password setup + notification toggle.
     match /admin_settings/{docId} {
-      allow read, write: if false;
+      allow read: if true;
+      allow write: if true;
     }
 
     // ─── QUESTION LIMITS ───

@@ -59,6 +59,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       cooldownUntilRef.current = 0
       const safe = stripSensitive(existing)
       setStudent(safe)
+      setView('dashboard')
     } catch {
       setErr('Connection error. Check your internet.')
     }
