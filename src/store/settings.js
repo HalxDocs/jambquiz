@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, doc, updateDoc, onSnapshot } from '../../firebase'
+import { db, collection, addDoc, getDocs, doc, updateDoc, onSnapshot } from '../firebase'
 
 async function setActiveWeek(week) {
   const snapshot = await getDocs(collection(db, 'settings'))

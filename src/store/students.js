@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, updateDoc, doc, deleteDoc, onSnapshot } from '../../firebase'
+import { db, collection, addDoc, getDocs, updateDoc, doc, deleteDoc, onSnapshot } from '../firebase'
 import { TRIAL_DAYS } from './constants'
 
 function getAccessStatus(student) {

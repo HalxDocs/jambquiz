@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, doc, updateDoc, onSnapshot } from '../../firebase'
+import { db, collection, addDoc, getDocs, doc, updateDoc, onSnapshot } from '../firebase'
 
 async function addPayment(payment) {
   await addDoc(collection(db, 'payments'), {

@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot } from '../../firebase'
+import { db, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot } from '../firebase'
 
 async function addQuestion(subject, week, question) {
   const { id, firestoreId, ...cleanQuestion } = question

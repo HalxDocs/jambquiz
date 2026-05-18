@@ -1,4 +1,4 @@
-export { db } from '../../firebase'
+export { db } from '../firebase'
 
 function load(key, fallback) {
   try {

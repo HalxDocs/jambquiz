@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from '../../firebase'
+import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from '../firebase'
 
 function normalizeTopic(t) {
   if (!t) return null
