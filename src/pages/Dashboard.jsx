@@ -92,6 +92,9 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const [keyPointIdx, setKeyPointIdx] = useState(0)
   const [kpDismissed, setKpDismissed] = useState(false)
 
+  const [pushPermission, setPushPermission] = useState(() =>
+    typeof Notification !== 'undefined' ? Notification.permission : 'denied'
+  )
 
   useEffect(() => {
     const unsubDates = listenQuizDates((dates) => { setQuizDates(dates); setQuizTime(isQuizTime(dates)); setTimeLeft(getTimeUntilQuiz(dates)) })
@@ -109,10 +112,28 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   useEffect(() => { getTopics(currentWeek).then((t) => setWeekTopics(t || {})); setKpDismissed(false); setKeyPointIdx(0) }, [currentWeek])
 
+  const handleEnableNotifications = async () => {
+    const sub = await registerPushNotifications()
+    if (sub) {
+      useUserNotificationStore.getState().setPushSubscription(sub)
+      useUserNotificationStore.getState().setPushPermission('granted')
+      savePushSubscriptionToFirestore(student.id, sub)
+    }
+    setPushPermission(Notification.permission)
+  }
+
   useEffect(() => {
-    const access = getAccessStatus(student)
-    if (access.status === 'expired') return
-    registerPushNotifications().then((sub) => { if (sub) { useUserNotificationStore.getState().setPushSubscription(sub); useUserNotificationStore.getState().setPushPermission('granted'); savePushSubscriptionToFirestore(student.id, sub) } })
+    if (Notification.permission === 'granted') {
+      const access = getAccessStatus(student)
+      if (access.status === 'expired') return
+      registerPushNotifications().then((sub) => {
+        if (sub) {
+          useUserNotificationStore.getState().setPushSubscription(sub)
+          useUserNotificationStore.getState().setPushPermission('granted')
+          savePushSubscriptionToFirestore(student.id, sub)
+        }
+      })
+    }
   }, [student.id])
 
   useEffect(() => { useUserNotificationStore.getState().setPatchesActive(patchesActive) }, [patchesActive])
@@ -155,14 +176,12 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     setSelectedPatchSubjectsLocal(subjects); useUserNotificationStore.getState().setSelectedPatchSubjects(subjects); useUserNotificationStore.getState().setPatchesActive(true)
     setCurrentPatchIdx(0); setShowPatchesModal(false)
     saveNotificationStateToFirestore(student.id, { patchesActive: true, selectedPatchSubjects: subjects, seenPoints: useUserNotificationStore.getState().seenPoints, currentCycleIndex: useUserNotificationStore.getState().currentCycleIndex, lastNotifiedAt: useUserNotificationStore.getState().lastNotifiedAt })
-    notificationScheduler.start(currentWeek, student.subjects, scores, student.id)
   }
   const handleTogglePatchSubject = (sub) => setSelectedPatchSubjectsLocal((prev) => prev.includes(sub) ? prev.filter((s) => s !== sub) : [...prev, sub])
   const handleDeactivatePatches = () => {
     setPatchesActive(false); localStorage.removeItem('patches_active'); localStorage.removeItem('patches_selected_subjects')
     useUserNotificationStore.getState().setPatchesActive(false); useUserNotificationStore.getState().setSelectedPatchSubjects([])
     saveNotificationStateToFirestore(student.id, { patchesActive: false, selectedPatchSubjects: [], seenPoints: useUserNotificationStore.getState().seenPoints, currentCycleIndex: useUserNotificationStore.getState().currentCycleIndex, lastNotifiedAt: useUserNotificationStore.getState().lastNotifiedAt })
-    notificationScheduler.start(currentWeek, student.subjects, scores, student.id)
   }
 
   const P = patchesActive ? { bg: 'bg-red-700', hoverBg: 'hover:bg-red-800', textColor: 'text-red-700' } : { bg: 'bg-[#111]', hoverBg: 'hover:bg-[#222]', textColor: 'text-[#111]' }
@@ -172,6 +191,23 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     <div className="min-h-screen bg-[#F8F8F7]">
       <RankToast rank={rankUpToast} onDismiss={() => setRankUpToast(null)} />
 
+      {pushPermission === 'default' && (
+        <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md">
+          <div className="bg-[#111] border border-[#333] rounded-2xl p-4 shadow-2xl flex items-center gap-3">
+            <span className="text-2xl shrink-0">🔔</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-white font-display">Enable notifications</p>
+              <p className="text-xs text-[#AAA] font-label mt-0.5">Get key point reminders on your phone</p>
+            </div>
+            <button
+              onClick={handleEnableNotifications}
+              className="shrink-0 bg-white text-[#111] rounded-xl px-4 py-2 text-xs font-bold font-label hover:bg-[#F0F0F0] active:scale-95 transition-all"
+            >
+              Enable
+            </button>
+          </div>
+        </div>
+      )}
 
       {patchesActive && patchKeyPoints.length > 0 && (
         <PatchesOverlay
