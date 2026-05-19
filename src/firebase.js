@@ -2,7 +2,8 @@ import { initializeApp } from 'firebase/app'
 import {
   initializeFirestore,
   persistentLocalCache,
-  persistentMultipleTabManager,
+  persistentSingleTabManager,
+  memoryLocalCache,
   collection,
   addDoc,
   getDocs,
@@ -32,11 +33,16 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig)
 
-const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  })
-})
+function makeDb() {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() }),
+    })
+  } catch {
+    return initializeFirestore(app, { localCache: memoryLocalCache() })
+  }
+}
+const db = makeDb()
 
 const functions = getFunctions(app)
 
