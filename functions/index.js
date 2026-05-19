@@ -90,7 +90,7 @@ exports.sendKeyPointNotifications = onSchedule(
       return;
     }
 
-    const vapidPrivateKeyValue = process.env.VAPID_PRIVATE_KEY;
+    const vapidPrivateKeyValue = (process.env.VAPID_PRIVATE_KEY || '').trim();
     if (!vapidPrivateKeyValue) {
       console.error('[CloudFn] VAPID_PRIVATE_KEY not set');
       return;
@@ -208,7 +208,7 @@ exports.sendBroadcastPush = onDocumentCreated(
     const { title, message } = snapshot.data();
     if (!title || !message) return;
 
-    const vapidPrivateKeyValue = process.env.VAPID_PRIVATE_KEY;
+    const vapidPrivateKeyValue = (process.env.VAPID_PRIVATE_KEY || '').trim();
     if (!vapidPrivateKeyValue) {
       console.error('[Broadcast] VAPID_PRIVATE_KEY not set');
       return;
@@ -442,7 +442,7 @@ exports.computeAdminStats = onCall(async () => {
 exports.testPushToAll = onCall(
   { secrets: ['VAPID_PRIVATE_KEY'] },
   async () => {
-    const vapidPrivateKeyValue = process.env.VAPID_PRIVATE_KEY;
+    const vapidPrivateKeyValue = (process.env.VAPID_PRIVATE_KEY || '').trim();
     if (!vapidPrivateKeyValue) return { ok: false, reason: 'VAPID_PRIVATE_KEY secret not set in Firebase. Run: firebase functions:secrets:set VAPID_PRIVATE_KEY' };
 
     webpush.setVapidDetails('mailto:admin@274lab.com', VAPID_PUBLIC_KEY, vapidPrivateKeyValue);
