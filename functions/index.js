@@ -438,3 +438,33 @@ exports.computeAdminStats = onCall(async () => {
   console.log(`[AdminStats] Computed for ${Object.keys(yearGroups).length} groups`);
   return { ok: true };
 });
+
+exports.testPushToAll = onCall(
+  { secrets: ['VAPID_PRIVATE_KEY'] },
+  async () => {
+    const vapidPrivateKeyValue = process.env.VAPID_PRIVATE_KEY;
+    if (!vapidPrivateKeyValue) return { ok: false, reason: 'VAPID_PRIVATE_KEY secret not set in Firebase. Run: firebase functions:secrets:set VAPID_PRIVATE_KEY' };
+
+    webpush.setVapidDetails('mailto:admin@274lab.com', VAPID_PUBLIC_KEY, vapidPrivateKeyValue);
+
+    const subsSnap = await db.collection('push_subscriptions').get();
+    if (subsSnap.empty) return { ok: false, reason: 'No devices registered. Open the app and tap Enable in the notification banner first.' };
+
+    let sent = 0;
+    const payload = JSON.stringify({ point: 'Push notifications are working! You will receive key points every 2 hours.', subject: 'Test', id: 'test-' + Date.now(), isQuestion: false });
+
+    for (const subDoc of subsSnap.docs) {
+      const subscription = subDoc.data();
+      try {
+        await webpush.sendNotification({ endpoint: subscription.endpoint, keys: subscription.keys }, payload);
+        sent++;
+      } catch (err) {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          await db.collection('push_subscriptions').doc(subDoc.id).delete();
+        }
+      }
+    }
+
+    return { ok: true, sent, total: subsSnap.size };
+  }
+);

@@ -191,20 +191,28 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     <div className="min-h-screen bg-[#F8F8F7]">
       <RankToast rank={rankUpToast} onDismiss={() => setRankUpToast(null)} />
 
-      {pushPermission === 'default' && (
+      {pushPermission !== 'granted' && (
         <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md">
           <div className="bg-[#111] border border-[#333] rounded-2xl p-4 shadow-2xl flex items-center gap-3">
             <span className="text-2xl shrink-0">🔔</span>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-white font-display">Enable notifications</p>
-              <p className="text-xs text-[#AAA] font-label mt-0.5">Get key point reminders on your phone</p>
+              <p className="text-sm font-bold text-white font-display">
+                {pushPermission === 'denied' ? 'Notifications blocked' : 'Enable notifications'}
+              </p>
+              <p className="text-xs text-[#AAA] font-label mt-0.5">
+                {pushPermission === 'denied'
+                  ? 'Go to browser settings → Site settings → Notifications → Allow'
+                  : 'Tap to get key point reminders on your phone'}
+              </p>
             </div>
-            <button
-              onClick={handleEnableNotifications}
-              className="shrink-0 bg-white text-[#111] rounded-xl px-4 py-2 text-xs font-bold font-label hover:bg-[#F0F0F0] active:scale-95 transition-all"
-            >
-              Enable
-            </button>
+            {pushPermission === 'default' && (
+              <button
+                onClick={handleEnableNotifications}
+                className="shrink-0 bg-white text-[#111] rounded-xl px-4 py-2 text-xs font-bold font-label hover:bg-[#F0F0F0] active:scale-95 transition-all"
+              >
+                Enable
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAdminNotificationStore } from '../../store/notificationStore'
 import { saveAdminNotificationStateToFirestore } from '../../services/pushNotifications'
-import { db, collection, addDoc } from '../../firebase'
+import { db, collection, addDoc, functions, httpsCallable } from '../../firebase'
 
 export default function AdminNotifications() {
   const { enabled, enabledSince, lastModifiedBy, enable, disable } = useAdminNotificationStore()
@@ -9,6 +9,7 @@ export default function AdminNotifications() {
   const [broadcastTitle, setBroadcastTitle] = useState('')
   const [broadcastMessage, setBroadcastMessage] = useState('')
   const [broadcastStatus, setBroadcastStatus] = useState(null)
+  const [pushTestStatus, setPushTestStatus] = useState(null)
 
   const adminName = 'Admin'
 
@@ -24,6 +25,22 @@ export default function AdminNotifications() {
         saveAdminNotificationStateToFirestore(true)
       }
     }
+  }
+
+  const handleTestPush = async () => {
+    setPushTestStatus('Sending...')
+    try {
+      const fn = httpsCallable(functions, 'testPushToAll')
+      const result = await fn()
+      if (result.data.ok) {
+        setPushTestStatus(`Sent to ${result.data.sent}/${result.data.total} device(s). Check your phone!`)
+      } else {
+        setPushTestStatus('Failed: ' + result.data.reason)
+      }
+    } catch (err) {
+      setPushTestStatus('Error: ' + (err.message || 'Unknown'))
+    }
+    setTimeout(() => setPushTestStatus(null), 8000)
   }
 
   const handleTestNotification = () => {
@@ -124,7 +141,14 @@ export default function AdminNotifications() {
           onClick={handleTestNotification}
           className="w-full bg-[#111] text-white rounded-xl py-3 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display mt-4"
         >
-          {testStatus || 'Send Test Notification'}
+          {testStatus || 'Send Test Notification (in-browser)'}
+        </button>
+        <button
+          onClick={handleTestPush}
+          disabled={pushTestStatus === 'Sending...'}
+          className="w-full bg-blue-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-blue-700 active:scale-[0.99] transition-all font-display mt-2 disabled:opacity-50"
+        >
+          {pushTestStatus && pushTestStatus !== 'Sending...' ? pushTestStatus : (pushTestStatus === 'Sending...' ? 'Sending...' : 'Send Real Push to All Devices')}
         </button>
       </div>
 
