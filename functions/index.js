@@ -7,7 +7,7 @@ const webpush = require('web-push');
 admin.initializeApp();
 const db = admin.firestore();
 
-const VAPID_PUBLIC_KEY = 'BDjWG8ZcgvC2OmcHjvxRUak4DVafBt-RFjMQLqRNobFvnfKZGETpOpu6XrhLuJ5i9690jgPnO3HvAdcdD-Shruw';
+const VAPID_PUBLIC_KEY = 'BJV0OfUDKqQg7gPD1BusnRjhhc1fhjnheW6Ghp2W9T5squ3RhMZMrNVqHiCM0M3lOeJLaq_4K_Z3WL_0PcUn_Bg';
 
 const MAX_TIMES_PER_POINT = 3;
 const MIN_INTERVAL_BETWEEN_NOTIFICATIONS = 30 * 60 * 1000;

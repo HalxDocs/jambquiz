@@ -1,7 +1,7 @@
 // src/services/pushNotifications.js
 import { db, doc, setDoc, getDoc, collection, addDoc, getDocs, updateDoc } from '../firebase'
 
-const VAPID_PUBLIC_KEY = 'BDjWG8ZcgvC2OmcHjvxRUak4DVafBt-RFjMQLqRNobFvnfKZGETpOpu6XrhLuJ5i9690jgPnO3HvAdcdD-Shruw'
+const VAPID_PUBLIC_KEY = 'BJV0OfUDKqQg7gPD1BusnRjhhc1fhjnheW6Ghp2W9T5squ3RhMZMrNVqHiCM0M3lOeJLaq_4K_Z3WL_0PcUn_Bg'
 
 /**
  * Register for push notifications
@@ -22,17 +22,16 @@ export async function registerPushNotifications() {
     }
 
     const registration = await navigator.serviceWorker.ready
-    let subscription = await registration.pushManager.getSubscription()
-    
-    if (!subscription) {
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-      })
-      console.log('[Push] Successfully subscribed')
-    } else {
-      console.log('[Push] Already subscribed')
-    }
+
+    // Always unsubscribe first so we get a fresh subscription tied to the current VAPID key
+    const existing = await registration.pushManager.getSubscription()
+    if (existing) await existing.unsubscribe()
+
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    })
+    console.log('[Push] Successfully subscribed')
 
     return subscription
   } catch (err) {
