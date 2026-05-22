@@ -200,7 +200,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               <p className="text-xs text-[#AAA] font-label mt-0.5">
                 {pushPermission === 'denied'
                   ? 'Go to browser settings → Site settings → Notifications → Allow'
-                  : 'Tap to get key point reminders on your phone'}
+                  : 'Tap to get 247 chops on your phone'}
               </p>
             </div>
             {pushPermission === 'default' && (

@@ -74,7 +74,9 @@ async function registerStudent(student) {
   const passwordHash = await hashPassword(student.password)
   const payload = {
     name: student.name.trim(),
+    nickname: student.nickname || '',
     nameLower: student.name.toLowerCase().trim(),
+    nicknameLower: (student.nickname || '').toLowerCase().trim(),
     password: passwordHash,
     year: student.year,
     email: student.email || '',

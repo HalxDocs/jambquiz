@@ -105,10 +105,24 @@ exports.sendKeyPointNotifications = onSchedule(
       return;
     }
 
+    const TRIAL_DAYS = 14;
+
     let sent = 0;
     for (const subDoc of subsSnap.docs) {
       const studentId = subDoc.id;
       const subscription = subDoc.data();
+
+      // Skip if subscription expired and trial ended
+      const studentSnap = await db.collection('students').doc(studentId).get();
+      if (!studentSnap.exists) continue;
+      const studentData = studentSnap.data();
+      const subUntil = studentData.subscriptionUntil ? new Date(studentData.subscriptionUntil).getTime() : 0;
+      if (subUntil <= Date.now()) {
+        const trialStart = studentData.trialStartedAt
+          ? new Date(studentData.trialStartedAt).getTime()
+          : studentData.joinedAt ? new Date(studentData.joinedAt).getTime() : 0;
+        if (!trialStart || Date.now() - trialStart > TRIAL_DAYS * 24 * 60 * 60 * 1000) continue;
+      }
 
       const subjects = await getStudentSubjects(studentId);
       if (!subjects.length) continue;

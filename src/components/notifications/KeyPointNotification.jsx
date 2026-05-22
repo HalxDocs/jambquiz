@@ -41,7 +41,7 @@ export default function KeyPointNotification({ point, onDismiss, patchesActive }
                 </span>
                 <div>
                   <p className={`text-[10px] font-bold uppercase tracking-widest font-label ${P.accent}`}>
-                    {patchesActive ? 'PATCH ACTIVE' : 'Key Point'}
+                    {patchesActive ? 'PATCH ACTIVE' : '247 Chops'}
                   </p>
                   <p className={`text-[11px] font-semibold font-label ${P.accent}`}>
                     {point.subject}

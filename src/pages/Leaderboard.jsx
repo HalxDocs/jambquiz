@@ -60,15 +60,22 @@ export default function Leaderboard({ student, setView }) {
     if (q.length < 2) { setFriendResults([]); return }
     let cancelled = false
     const searchTerm = q.toLowerCase().trim()
-    const searchQuery = query(
+    const nameQuery = query(
       collection(db, 'students'),
       where('nameLower', '>=', searchTerm),
       where('nameLower', '<', searchTerm + '~')
     )
-    getDocs(searchQuery).then((snap) => {
-      if (!cancelled) {
-        setFriendResults(snap.docs.map((d) => ({ id: d.id, ...d.data() })).slice(0, 20))
-      }
+    const nickQuery = query(
+      collection(db, 'students'),
+      where('nicknameLower', '>=', searchTerm),
+      where('nicknameLower', '<', searchTerm + '~')
+    )
+    Promise.all([getDocs(nameQuery), getDocs(nickQuery)]).then(([nameSnap, nickSnap]) => {
+      if (cancelled) return
+      const map = new Map()
+      nameSnap.docs.forEach((d) => { if (!map.has(d.id)) map.set(d.id, { id: d.id, ...d.data() }) })
+      nickSnap.docs.forEach((d) => { if (!map.has(d.id)) map.set(d.id, { id: d.id, ...d.data() }) })
+      setFriendResults(Array.from(map.values()).slice(0, 20))
     })
     return () => { cancelled = true }
   }, [friendSearch])
@@ -252,6 +259,9 @@ export default function Leaderboard({ student, setView }) {
                           <p className="text-sm font-bold text-[#111] font-body truncate">
                             {s.name}{isMe && <span className="text-[10px] text-[#AAA] font-label ml-1">(you)</span>}
                           </p>
+                          {s.nickname && (
+                            <p className="text-[11px] text-[#888] font-label mt-0.5">@{s.nickname}</p>
+                          )}
                           {sRank && (
                             <p className="text-[11px] text-[#888] font-label mt-0.5">
                               Rank #{sRank.rank} · {sRank.total}/400

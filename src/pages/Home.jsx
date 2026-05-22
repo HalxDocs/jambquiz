@@ -11,6 +11,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [nickname, setNickname] = useState('')
   const [year, setYear] = useState('2027')
   const [email, setEmail] = useState('')
   const [adminPw, setAdminPw] = useState('')
@@ -78,6 +79,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       if (existing) { setErr('This name is already registered. Please lock in.'); setLoading(false); return }
       const newStudent = {
         name: trimmed,
+        nickname: nickname.trim(),
         password,
         year,
         email: email.trim().toLowerCase(),
@@ -222,6 +224,19 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                     />
                   </div>
 
+                  {mode === 'register' && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Nickname <span className="text-[#CCC] normal-case tracking-normal">(Name friends call you)</span>
+                      </label>
+                      <input
+                        value={nickname}
+                        onChange={(e) => setNickname(e.target.value)}
+                        placeholder="e.g. Emeka, ChiChi"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                    </div>
+                  )}
                   {mode === 'register' && (
                     <div>
                       <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">

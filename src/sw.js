@@ -57,7 +57,7 @@ self.addEventListener('push', (event) => {
 
   const title = isQuestion
     ? `📝 Quick Question — ${subject}`
-    : `📚 Key Point — ${subject}`
+    : `📚 247 Chops — ${subject}`
 
   event.waitUntil(self.registration.showNotification(title, options))
 })
