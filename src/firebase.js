@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app'
 import {
   initializeFirestore,
+  getFirestore,
   persistentLocalCache,
   persistentSingleTabManager,
   memoryLocalCache,
@@ -18,6 +19,7 @@ import {
   orderBy,
   limit,
   startAfter,
+  runTransaction,
 } from 'firebase/firestore'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 
@@ -39,11 +41,15 @@ function makeDb() {
       localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() }),
     })
   } catch {
-    return initializeFirestore(app, { localCache: memoryLocalCache() })
+    try {
+      return initializeFirestore(app, { localCache: memoryLocalCache() })
+    } catch {
+      return getFirestore(app)
+    }
   }
 }
 const db = makeDb()
 
 const functions = getFunctions(app)
 
-export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc, setDoc, getDoc, query, where, orderBy, limit, startAfter, functions, httpsCallable }
+export { db, getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc, setDoc, getDoc, query, where, orderBy, limit, startAfter, runTransaction, functions, httpsCallable }

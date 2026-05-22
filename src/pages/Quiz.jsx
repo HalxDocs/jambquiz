@@ -24,7 +24,12 @@ function isInQuizWindow(quizDates) {
 }
 
 function shuffleAndPick(arr, count) {
-  return [...arr].sort(() => Math.random() - 0.5).slice(0, Math.min(count, arr.length))
+  const shuffled = [...arr]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  return shuffled.slice(0, Math.min(count, arr.length))
 }
 
 const ABBR = {
@@ -181,9 +186,10 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     try {
       await Promise.all(results.map((r) => addScore(r)))
       const cached = load('jamb_scores_cache', [])
-      save('jamb_scores_cache', [...cached, ...results])
+      const trimmed = cached.slice(-50)
+      save('jamb_scores_cache', [...trimmed, ...results])
     } catch (e) {
-      console.error('Save error:', e)
+      console.error('Failed to save scores')
     }
 
     if (results.length > 0) setLastScore(results[0])
@@ -201,7 +207,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     const total = results.reduce((a, r) => a + r.score, 0)
     const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
     const today = new Date().toLocaleDateString('en-NG', { weekday: 'long', month: 'short', day: 'numeric' })
-    const firstName = student.name.split(' ')[0]
+    const firstName = (student.name || '').split(' ')[0] || 'Student'
     const lines = [
       `📊 *JAMB Mock Report – ${student.name}*`,
       `${weekLabel} | ${today}`, '',

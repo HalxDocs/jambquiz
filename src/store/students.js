@@ -124,7 +124,7 @@ async function deleteStudent(id) {
 
 function listenStudents(callback) {
   return onSnapshot(collection(db, 'students'), (snapshot) => {
-    const students = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+    const students = snapshot.docs.map((d) => stripSensitive({ id: d.id, ...d.data() }))
     callback(students)
   })
 }
@@ -135,7 +135,7 @@ async function getStudentsPage(year, cursorDoc, pageSize = 20) {
   if (cursorDoc) constraints.push(startAfter(cursorDoc))
   const q = query(collection(db, 'students'), ...constraints)
   const snap = await getDocs(q)
-  const students = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  const students = snap.docs.map((d) => stripSensitive({ id: d.id, ...d.data() }))
   return {
     students,
     lastDoc: snap.docs[snap.docs.length - 1] || null,

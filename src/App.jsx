@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import Home from './pages/Home'
 import Intro from './pages/Intro'
@@ -81,12 +81,19 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const swIntervalRef = useRef(null)
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegistered(r) {
-      if (r) setInterval(() => r.update(), 60 * 60 * 1000)
+      if (r) {
+        clearInterval(swIntervalRef.current)
+        swIntervalRef.current = setInterval(() => r.update(), 60 * 60 * 1000)
+      }
+    },
+    onDeregister() {
+      clearInterval(swIntervalRef.current)
     },
   })
 

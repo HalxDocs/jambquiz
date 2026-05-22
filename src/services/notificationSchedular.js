@@ -25,14 +25,17 @@ class NotificationScheduler {
     this.studentId = studentId
 
     // Do initial check immediately
-    this.evaluateAndNotify(week, studentSubjects, scores)
+    this.evaluateAndNotify(week, studentSubjects, scores).catch(() => {})
 
     // Determine interval: daily if patches active, 2-hour otherwise
     const userState = useUserNotificationStore.getState()
     const interval = userState.patchesActive ? DAILY_INTERVAL_MS : NOTIFICATION_INTERVAL_MS
 
     this.intervalId = setInterval(() => {
-      this.evaluateAndNotify(week, studentSubjects, scores)
+      const s = useUserNotificationStore.getState()
+      const currentSubjects = this.studentId ? (s.subjects || studentSubjects) : studentSubjects
+      const currentScores = s.scores || scores
+      this.evaluateAndNotify(this.currentWeek, currentSubjects, currentScores).catch(() => {})
     }, interval)
   }
 
@@ -177,7 +180,7 @@ class NotificationScheduler {
 
       return points
     } catch (err) {
-      console.error('[Scheduler] Failed to get key points:', err)
+      console.error('[Scheduler] Failed to get key points')
       return []
     }
   }
@@ -197,8 +200,8 @@ class NotificationScheduler {
 
     return subjects.filter((sub) => {
       const best = bestBySubject[sub]
-      if (!best) return true // No attempt yet = weak
-      return best.score / best.outOf < 0.5
+      if (!best) return true
+      return best.outOf > 0 ? best.score / best.outOf < 0.5 : true
     })
   }
 }

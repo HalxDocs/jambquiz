@@ -99,7 +99,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   useEffect(() => {
     const unsubWeek = listenActiveWeek((week) => setCurrentWeek(week))
     const unsubScores = listenScores((allScores) => {
-      const mine = allScores.sort((a, b) => new Date(b.date) - new Date(a.date))
+      const mine = [...allScores].sort((a, b) => new Date(b.date) - new Date(a.date))
       setScores(mine)
       const { rank } = getConsistencyRank(mine)
       if (firstLoadRef.current) { prevRankRef.current = rank; firstLoadRef.current = false }
@@ -111,7 +111,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   useEffect(() => {
     if (!currentWeek) return
     const unsubDates = listenQuizDates(currentWeek, (dates) => { setQuizDates(dates); setQuizTime(isQuizTime(dates)); setTimeLeft(getTimeUntilQuiz(dates)) })
-    const t = setInterval(() => { setQuizDates((prev) => { setQuizTime(isQuizTime(prev)); setTimeLeft(getTimeUntilQuiz(prev)); return prev }) }, 10000)
+    const t = setInterval(() => { setQuizDates((prev) => { const qd = prev; setQuizTime(isQuizTime(qd)); setTimeLeft(getTimeUntilQuiz(qd)); return qd }) }, 10000)
     return () => { unsubDates(); clearInterval(t) }
   }, [currentWeek])
 
@@ -131,12 +131,21 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     if (Notification.permission === 'granted') {
       const access = getAccessStatus(student)
       if (access.status === 'expired') return
-      registerPushNotifications().then((sub) => {
-        if (sub) {
-          useUserNotificationStore.getState().setPushSubscription(sub)
+      navigator.serviceWorker.ready.then((reg) =>
+        reg.pushManager.getSubscription()
+      ).then((existing) => {
+        if (existing) {
+          useUserNotificationStore.getState().setPushSubscription(existing)
           useUserNotificationStore.getState().setPushPermission('granted')
-          savePushSubscriptionToFirestore(student.id, sub)
+          return
         }
+        registerPushNotifications().then((sub) => {
+          if (sub) {
+            useUserNotificationStore.getState().setPushSubscription(sub)
+            useUserNotificationStore.getState().setPushPermission('granted')
+            savePushSubscriptionToFirestore(student.id, sub)
+          }
+        })
       })
     }
   }, [student.id])

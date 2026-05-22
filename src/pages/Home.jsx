@@ -25,7 +25,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const attemptsRef = useRef(0)
   const cooldownUntilRef = useRef(0)
 
-  const years = Array.from({ length: 10 }, (_, i) => String(2027 + i))
+  const years = Array.from({ length: 10 }, (_, i) => String(new Date().getFullYear() + i))
 
   const checkRateLimit = () => {
     const now = Date.now()

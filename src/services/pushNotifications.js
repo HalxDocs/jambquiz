@@ -23,9 +23,16 @@ export async function registerPushNotifications() {
 
     const registration = await navigator.serviceWorker.ready
 
-    // Always unsubscribe first so we get a fresh subscription tied to the current VAPID key
+    // Reuse existing subscription if VAPID key matches
     const existing = await registration.pushManager.getSubscription()
-    if (existing) await existing.unsubscribe()
+    if (existing) {
+      const existingKey = existing.toJSON().applicationServerKey
+      const currentKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      const same = existingKey && currentKey &&
+        existingKey.reduce((a, b, i) => a && b === currentKey[i], true)
+      if (same) return existing
+      await existing.unsubscribe()
+    }
 
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
@@ -35,7 +42,7 @@ export async function registerPushNotifications() {
 
     return subscription
   } catch (err) {
-    console.error('[Push] Registration failed:', err)
+    console.error('[Push] Registration failed')
     return null
   }
 }
@@ -54,7 +61,7 @@ export async function savePushSubscriptionToFirestore(studentId, subscription) {
     })
     console.log('[Push] Subscription saved to Firestore')
   } catch (err) {
-    console.error('[Push] Failed to save subscription to Firestore:', err)
+    console.error('[Push] Failed to save subscription')
   }
 }
 
@@ -70,7 +77,7 @@ export async function saveNotificationStateToFirestore(studentId, state) {
       studentId,
     })
   } catch (err) {
-    console.error('[Push] Failed to save notification state:', err)
+    console.error('[Push] Failed to save notification state')
   }
 }
 
@@ -84,7 +91,7 @@ export async function saveAdminNotificationStateToFirestore(enabled) {
       updatedAt: new Date().toISOString(),
     })
   } catch (err) {
-    console.error('[Push] Failed to save admin state:', err)
+    console.error('[Push] Failed to save admin state')
   }
 }
 

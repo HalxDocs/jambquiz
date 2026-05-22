@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, doc, updateDoc, getDoc, onSnapshot, query, where, orderBy, limit, startAfter } from '../firebase'
+import { db, collection, addDoc, getDocs, doc, updateDoc, getDoc, runTransaction, onSnapshot, query, where, orderBy, limit, startAfter } from '../firebase'
 
 async function addPayment(payment) {
   await addDoc(collection(db, 'payments'), {
@@ -16,17 +16,24 @@ function listenPayments(callback) {
 
 async function extendSubscription(studentId, months = 1) {
   const ref = doc(db, 'students', studentId)
-  const snap = await getDoc(ref)
-  if (!snap.exists()) return null
-  const data = snap.data()
-  const now = Date.now()
-  const current = data.subscriptionUntil ? new Date(data.subscriptionUntil).getTime() : 0
-  const anchor = Math.max(now, current)
-  const next = new Date(anchor)
-  next.setMonth(next.getMonth() + months)
-  const iso = next.toISOString()
-  await updateDoc(ref, { subscriptionUntil: iso })
-  return iso
+  try {
+    const iso = await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(ref)
+      if (!snap.exists()) return null
+      const data = snap.data()
+      const now = Date.now()
+      const current = data.subscriptionUntil ? new Date(data.subscriptionUntil).getTime() : 0
+      const anchor = Math.max(now, current)
+      const next = new Date(anchor)
+      next.setMonth(next.getMonth() + months)
+      const iso = next.toISOString()
+      transaction.update(ref, { subscriptionUntil: iso })
+      return iso
+    })
+    return iso
+  } catch {
+    return null
+  }
 }
 
 async function getPaymentsPage(search, cursorDoc, pageSize = 20) {
