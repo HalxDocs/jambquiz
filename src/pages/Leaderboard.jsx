@@ -135,6 +135,7 @@ export default function Leaderboard({ student, setView }) {
                       <div className="flex-1 text-center pb-2">
                         <p className="text-2xl mb-1">🥈</p>
                         <p className="text-[11px] font-bold text-white font-display truncate">{finalBoard[1].name.split(' ')[0]}</p>
+                        {finalBoard[1].nickname && <p className="text-[9px] text-[#666] font-label truncate">@{finalBoard[1].nickname}</p>}
                         <p className="text-[10px] text-[#666] font-label mt-0.5">{finalBoard[1].total}/400</p>
                       </div>
                     )}
@@ -143,6 +144,7 @@ export default function Leaderboard({ student, setView }) {
                       <div className="flex-1 text-center">
                         <p className="text-3xl mb-1">🥇</p>
                         <p className="text-[12px] font-bold text-white font-display truncate">{finalBoard[0].name.split(' ')[0]}</p>
+                        {finalBoard[0].nickname && <p className="text-[9px] text-[#888] font-label truncate">@{finalBoard[0].nickname}</p>}
                         <p className="text-[10px] text-[#888] font-label mt-0.5">{finalBoard[0].total}/400</p>
                       </div>
                     )}
@@ -151,6 +153,7 @@ export default function Leaderboard({ student, setView }) {
                       <div className="flex-1 text-center pb-4">
                         <p className="text-xl mb-1">🥉</p>
                         <p className="text-[11px] font-bold text-white font-display truncate">{finalBoard[2].name.split(' ')[0]}</p>
+                        {finalBoard[2].nickname && <p className="text-[9px] text-[#666] font-label truncate">@{finalBoard[2].nickname}</p>}
                         <p className="text-[10px] text-[#666] font-label mt-0.5">{finalBoard[2].total}/400</p>
                       </div>
                     )}
@@ -170,6 +173,7 @@ export default function Leaderboard({ student, setView }) {
                           <p className={`text-sm font-bold font-body truncate ${isMe ? 'text-[#111]' : 'text-[#333]'}`}>
                             {s.name}{isMe && <span className="text-[10px] text-[#AAA] font-label ml-1">(you)</span>}
                           </p>
+                          {s.nickname && <p className="text-[10px] text-[#999] font-label truncate">@{s.nickname}</p>}
                         </div>
                         <p className="text-sm font-bold text-[#111] font-display shrink-0">
                           {s.total}<span className="text-[10px] text-[#AAA] font-label">/400</span>
@@ -210,9 +214,12 @@ export default function Leaderboard({ student, setView }) {
                         <span className="w-5 text-center text-xs font-bold font-display shrink-0 text-[#CCC]">
                           {i < 3 ? MEDAL[i] : i + 1}
                         </span>
-                        <p className={`flex-1 text-xs font-semibold font-body truncate ${isMe ? 'text-[#111] font-bold' : 'text-[#333]'}`}>
-                          {s.name}{isMe && <span className="text-[10px] text-[#AAA] font-label ml-1">(you)</span>}
-                        </p>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-xs font-semibold font-body truncate ${isMe ? 'text-[#111] font-bold' : 'text-[#333]'}`}>
+                            {s.name}{isMe && <span className="text-[10px] text-[#AAA] font-label ml-1">(you)</span>}
+                          </p>
+                          {s.nickname && <p className="text-[9px] text-[#999] font-label truncate">@{s.nickname}</p>}
+                        </div>
                         <div className="text-right shrink-0">
                           <span className="text-xs font-bold font-display text-[#111]">{s.score}</span>
                           <span className="text-[10px] text-[#AAA] font-label">/{s.outOf}</span>
@@ -235,7 +242,7 @@ export default function Leaderboard({ student, setView }) {
             <input
               value={friendSearch}
               onChange={(e) => setFriendSearch(e.target.value)}
-              placeholder="Search by name…"
+              placeholder="Search by name or nickname…"
               className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] bg-white mb-4"
               autoFocus
             />
@@ -278,7 +285,7 @@ export default function Leaderboard({ student, setView }) {
               <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
                 <p className="text-2xl mb-2">🔍</p>
                 <p className="text-sm font-semibold text-[#111] font-display mb-1">Find a Friend</p>
-                <p className="text-[11px] text-[#AAA] font-label">Search by name to see their rank and medals</p>
+                <p className="text-[11px] text-[#AAA] font-label">Search by name or nickname to see their rank and medals</p>
               </div>
             )}
           </div>

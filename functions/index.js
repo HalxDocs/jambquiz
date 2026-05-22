@@ -301,6 +301,7 @@ exports.computeLeaderboard = onSchedule(
     const overallTop = ranked.map(([sid, total]) => ({
       id: sid,
       name: students[sid]?.name || 'Unknown',
+      nickname: students[sid]?.nickname || '',
       total,
     }));
     await db.collection('leaderboard').doc('overall').set({
@@ -315,7 +316,7 @@ exports.computeLeaderboard = onSchedule(
         const myScores = scores.filter((s) => s.studentId === sid && s.subject === subject);
         if (!myScores.length) return;
         const best = myScores.reduce((a, b) => a.score > b.score ? a : b);
-        subjectBest.push({ id: sid, name: students[sid]?.name || 'Unknown', score: best.score, outOf: best.outOf || 100 });
+        subjectBest.push({ id: sid, name: students[sid]?.name || 'Unknown', nickname: students[sid]?.nickname || '', score: best.score, outOf: best.outOf || 100 });
       });
       const top10 = subjectBest.sort((a, b) => b.score - a.score).slice(0, 10);
       await db.collection('leaderboard').doc(`subject_${subject.replace(/\s+/g, '_')}`).set({
