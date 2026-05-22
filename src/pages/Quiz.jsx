@@ -52,15 +52,20 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   const subjects = retakeData ? [retakeData.subject] : (student.subjects || [])
 
   useEffect(() => {
+    const unsubWeek = listenActiveWeek((week) => setCurrentWeek(week))
+    return () => { unsubWeek() }
+  }, [])
+
+  useEffect(() => {
+    if (!currentWeek) return
     const timeout = setTimeout(() => setQuizDatesReady(true), 5000)
-    const unsubDates = listenQuizDates((dates) => {
+    const unsubDates = listenQuizDates(currentWeek, (dates) => {
       setQuizDates(dates)
       setQuizDatesReady(true)
       clearTimeout(timeout)
     })
-    const unsubWeek = listenActiveWeek((week) => setCurrentWeek(week))
-    return () => { unsubDates(); unsubWeek(); clearTimeout(timeout) }
-  }, [])
+    return () => { unsubDates(); clearTimeout(timeout) }
+  }, [currentWeek])
 
   useEffect(() => {
     if (!currentWeek) return

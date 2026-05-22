@@ -23,26 +23,29 @@ function listenActiveWeek(callback) {
   })
 }
 
-async function setQuizDates(date1, date2) {
+async function setQuizDates(week, date1, date2) {
+  const key = `quizDates_${week}`
   const snapshot = await getDocs(collection(db, 'settings'))
-  const existing = snapshot.docs.find((d) => d.data().key === 'quizDates')
+  const existing = snapshot.docs.find((d) => d.data().key === key)
   const payload = { date1: date1 || '', date2: date2 || '' }
   if (existing) {
     await updateDoc(doc(db, 'settings', existing.id), payload)
   } else {
-    await addDoc(collection(db, 'settings'), { key: 'quizDates', ...payload })
+    await addDoc(collection(db, 'settings'), { key, ...payload })
   }
 }
 
-async function getQuizDates() {
+async function getQuizDates(week) {
+  const key = `quizDates_${week}`
   const snapshot = await getDocs(collection(db, 'settings'))
-  const found = snapshot.docs.find((d) => d.data().key === 'quizDates')
+  const found = snapshot.docs.find((d) => d.data().key === key)
   return found ? { date1: found.data().date1 || '', date2: found.data().date2 || '' } : { date1: '', date2: '' }
 }
 
-function listenQuizDates(callback) {
+function listenQuizDates(week, callback) {
+  const key = `quizDates_${week}`
   return onSnapshot(collection(db, 'settings'), (snapshot) => {
-    const found = snapshot.docs.find((d) => d.data().key === 'quizDates')
+    const found = snapshot.docs.find((d) => d.data().key === key)
     callback(found ? { date1: found.data().date1 || '', date2: found.data().date2 || '' } : { date1: '', date2: '' })
   })
 }

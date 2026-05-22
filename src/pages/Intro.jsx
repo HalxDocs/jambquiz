@@ -25,12 +25,12 @@ export default function Intro({ onContinue }) {
       <div className="w-full max-w-sm">
 
         <div className="text-center mb-8 pt-6">
-          <div className="w-16 h-16 mx-auto bg-[#111] rounded-2xl flex flex-col items-center justify-center mb-4 shadow-md">
+          <div className="w-16 h-16 mx-auto bg-[#111] rounded-2xl flex flex-col items-center justify-center mb-2 shadow-md">
             <span className="text-xl font-bold text-white font-display leading-none tracking-tighter">274</span>
             <span className="text-[9px] font-bold text-white/50 font-display leading-none tracking-widest uppercase mt-0.5">Lab</span>
           </div>
           <p className="text-[11px] font-semibold text-[#888] font-label tracking-[0.25em] uppercase">
-            274days to identify weaknesses and fix them to ace JAMB
+            Diagnose • Discipline • Patch
           </p>
           <p className="text-[13px] text-[#555] mt-3 font-body leading-snug max-w-[18rem] mx-auto">
             Hi there! Welcome to the Lab.

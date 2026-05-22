@@ -45,8 +45,6 @@ export default function Admin({ setView }) {
   const [topicInputs, setTopicInputs] = useState({})
   const [topicWeek, setTopicWeek] = useState(WEEKS[0])
   const [activeWeek, setActiveWeekState] = useState('Week 1')
-  const [quizDate1, setQuizDate1] = useState('')
-  const [quizDate2, setQuizDate2] = useState('')
 
   // Load students page
   useEffect(() => {
@@ -192,9 +190,6 @@ export default function Admin({ setView }) {
         onWeekChange={setSelectedWeek}
         questionLimit={questionLimit}
         onSaveLimit={setQuestionLimit}
-        quizDate1={quizDate1}
-        quizDate2={quizDate2}
-        onSetQuizDates={(d1, d2) => { setQuizDate1(d1); setQuizDate2(d2) }}
       />
     ),
     topics: (

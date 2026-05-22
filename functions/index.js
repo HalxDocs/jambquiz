@@ -439,6 +439,75 @@ exports.computeAdminStats = onCall(async () => {
   return { ok: true };
 });
 
+exports.sendMockReminder = onSchedule(
+  {
+    schedule: '0 * * * *', // top of every hour
+    timeZone: 'Africa/Lagos',
+    secrets: ['VAPID_PRIVATE_KEY'],
+  },
+  async () => {
+    // Read active week's quiz dates from Firestore
+    const week = await getActiveWeek();
+    const settingsSnap = await db.collection('settings').where('key', '==', `quizDates_${week}`).get();
+    if (settingsSnap.empty) return;
+
+    const { date1, date2 } = settingsSnap.docs[0].data();
+    const now = Date.now();
+    const ONE_HOUR = 60 * 60 * 1000;
+
+    // Check if current time falls inside any quiz date's 1-hour window
+    const isQuizHour = [date1, date2].filter(Boolean).some((d) => {
+      const t = new Date(d).getTime();
+      return now >= t && now < t + ONE_HOUR;
+    });
+
+    if (!isQuizHour) return;
+
+    // Guard: skip if we already sent a reminder in this same hour
+    const guardRef = db.collection('admin_settings').doc('mock_reminder');
+    const guardSnap = await guardRef.get();
+    if (guardSnap.exists) {
+      const lastSent = guardSnap.data().sentAt ? new Date(guardSnap.data().sentAt).getTime() : 0;
+      if (now - lastSent < ONE_HOUR) {
+        console.log('[MockReminder] Already sent this hour, skipping');
+        return;
+      }
+    }
+
+    const vapidPrivateKeyValue = (process.env.VAPID_PRIVATE_KEY || '').trim();
+    if (!vapidPrivateKeyValue) { console.error('[MockReminder] VAPID_PRIVATE_KEY not set'); return; }
+
+    webpush.setVapidDetails('mailto:admin@274lab.com', VAPID_PUBLIC_KEY, vapidPrivateKeyValue);
+
+    const subsSnap = await db.collection('push_subscriptions').get();
+    if (subsSnap.empty) { console.log('[MockReminder] No subscribers'); return; }
+
+    let sent = 0;
+    const payload = JSON.stringify({
+      type: 'broadcast',
+      title: '📝 Mock Test Time!',
+      message: "It's 5PM — your weekly mock test is live! Open the app and start now.",
+      broadcastId: 'mock-' + Date.now(),
+    });
+
+    for (const subDoc of subsSnap.docs) {
+      const subscription = subDoc.data();
+      try {
+        await webpush.sendNotification({ endpoint: subscription.endpoint, keys: subscription.keys }, payload);
+        sent++;
+      } catch (err) {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          await db.collection('push_subscriptions').doc(subDoc.id).delete();
+        }
+      }
+    }
+
+    // Mark as sent so we don't double-fire
+    await guardRef.set({ sentAt: new Date().toISOString() });
+    console.log(`[MockReminder] Sent mock reminder to ${sent} subscriber(s)`);
+  }
+);
+
 exports.testPushToAll = onCall(
   { secrets: ['VAPID_PRIVATE_KEY'] },
   async () => {

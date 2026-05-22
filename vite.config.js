@@ -14,7 +14,7 @@ export default defineConfig({
       filename: 'sw.js',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
-        name: '274Lab',
+        name: 'Diagnose • Discipline • Patch',
         short_name: '274Lab',
         description: '274Lab — JAMB Weekly Quiz, supported by Adeola Memorial College',
         theme_color: '#111827',

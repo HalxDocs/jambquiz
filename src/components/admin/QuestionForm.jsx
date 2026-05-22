@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Cancel01Icon } from '@hugeicons/core-free-icons'
-import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, copyQuestionsToWeek, saveQuestionLimit, setQuizDates } from '../../store/useStore'
+import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, copyQuestionsToWeek, saveQuestionLimit, setQuizDates, getQuizDates } from '../../store/useStore'
 import { compressImage } from './ImageUpload'
 
 export default function QuestionForm({
@@ -12,20 +12,26 @@ export default function QuestionForm({
   onWeekChange,
   questionLimit,
   onSaveLimit,
-  quizDate1,
-  quizDate2,
-  onSetQuizDates,
 }) {
   const [form, setForm] = useState({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '', explanationImage: '', image: '', optionImages: ['', '', '', ''] })
   const [uploadingImg, setUploadingImg] = useState(null)
   const [editingFirestoreId, setEditingFirestoreId] = useState(null)
   const [expandedQuestion, setExpandedQuestion] = useState(null)
   const [err, setErr] = useState('')
-  const [success, setSuccess] = useState('')
+  const [toast, setToast] = useState('')
   const [transferring, setTransferring] = useState(false)
-  const [localQuizDate1, setLocalQuizDate1] = useState(quizDate1 || '')
-  const [localQuizDate2, setLocalQuizDate2] = useState(quizDate2 || '')
+  const [localQuizDate1, setLocalQuizDate1] = useState('')
+  const [localQuizDate2, setLocalQuizDate2] = useState('')
   const [localQuestionLimit, setLocalQuestionLimit] = useState(questionLimit)
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
+
+  useEffect(() => {
+    getQuizDates(selectedWeek).then(({ date1, date2 }) => {
+      setLocalQuizDate1(date1 || '')
+      setLocalQuizDate2(date2 || '')
+    })
+  }, [selectedWeek])
 
   const resetForm = () => {
     setForm({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '', explanationImage: '', image: '', optionImages: ['', '', '', ''] })
@@ -69,13 +75,12 @@ export default function QuestionForm({
     try {
       if (editingFirestoreId) {
         await editQuestion(editingFirestoreId, qData)
-        setSuccess('Question updated!')
+        showToast('Question updated!')
       } else {
         await addQuestion(selectedSubject, selectedWeek, qData)
-        setSuccess('Question added!')
+        showToast('Question added!')
       }
       resetForm()
-      setTimeout(() => setSuccess(''), 3000)
     } catch (e) {
       console.error(e)
       setErr('Failed. Check your connection.')
@@ -101,8 +106,7 @@ export default function QuestionForm({
     if (!window.confirm('Delete this question?')) return
     try {
       await deleteQuestion(firestoreId)
-      setSuccess('Deleted!')
-      setTimeout(() => setSuccess(''), 3000)
+      showToast('Question deleted!')
     } catch (e) {
       console.error(e)
       alert('Failed to delete.')
@@ -113,8 +117,7 @@ export default function QuestionForm({
     try {
       await saveQuestionLimit(selectedSubject, selectedWeek, localQuestionLimit)
       onSaveLimit(localQuestionLimit)
-      setSuccess('Limit saved!')
-      setTimeout(() => setSuccess(''), 3000)
+      showToast('Limit saved!')
     } catch { alert('Failed to save limit.') }
   }
 
@@ -123,8 +126,7 @@ export default function QuestionForm({
     setTransferring(true)
     try {
       const count = await copyQuestionsToWeek(selectedSubject, fromWeek, selectedWeek)
-      setSuccess(`${count} question(s) transferred from ${fromWeek}!`)
-      setTimeout(() => setSuccess(''), 4000)
+      showToast(`${count} question(s) transferred from ${fromWeek}!`)
     } catch { alert('Transfer failed. Check your connection.') }
     setTransferring(false)
   }
@@ -133,10 +135,8 @@ export default function QuestionForm({
     try {
       const date1 = localQuizDate1 ? new Date(localQuizDate1).toISOString() : ''
       const date2 = localQuizDate2 ? new Date(localQuizDate2).toISOString() : ''
-      await setQuizDates(date1, date2)
-      onSetQuizDates(localQuizDate1, localQuizDate2)
-      setSuccess('Quiz dates saved!')
-      setTimeout(() => setSuccess(''), 3000)
+      await setQuizDates(selectedWeek, date1, date2)
+      showToast('Quiz dates saved!')
     } catch { alert('Failed to save quiz dates.') }
   }
 
@@ -153,6 +153,11 @@ export default function QuestionForm({
 
   return (
     <div>
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#111] text-white text-sm font-bold px-5 py-3 rounded-2xl shadow-2xl font-display whitespace-nowrap pointer-events-none">
+          ✓ {toast}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div>
           <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">Subject</label>
@@ -390,7 +395,6 @@ export default function QuestionForm({
         </div>
 
         {err && <div className="mt-3 px-3.5 py-2 bg-red-50 border border-red-100 rounded-xl"><p className="text-red-600 text-xs font-label">{err}</p></div>}
-        {success && <div className="mt-3 px-3.5 py-2 bg-green-50 border border-green-100 rounded-xl"><p className="text-green-600 text-xs font-label">{success}</p></div>}
 
         <div className="flex gap-2.5 mt-4">
           {editingFirestoreId && (

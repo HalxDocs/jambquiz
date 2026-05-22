@@ -155,12 +155,12 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
 
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 mx-auto bg-[#111] rounded-2xl flex flex-col items-center justify-center mb-4 shadow-md">
+          <div className="w-16 h-16 mx-auto bg-[#111] rounded-2xl flex flex-col items-center justify-center mb-2 shadow-md">
             <span className="text-xl font-bold text-white font-display leading-none tracking-tighter">274</span>
             <span className="text-[9px] font-bold text-white/50 font-display leading-none tracking-widest uppercase mt-0.5">Lab</span>
           </div>
           <p className="text-[10px] font-semibold text-[#888] font-label tracking-[0.2em] uppercase mb-2">
-            '274days to identify weaknesses and fix them to ace JAMB'
+            Diagnose • Discipline • Patch
           </p>
           {mode !== 'register' && (
             <p className="text-xs text-[#AAA] font-label">

@@ -97,8 +97,6 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   )
 
   useEffect(() => {
-    const unsubDates = listenQuizDates((dates) => { setQuizDates(dates); setQuizTime(isQuizTime(dates)); setTimeLeft(getTimeUntilQuiz(dates)) })
-    const t = setInterval(() => { setQuizDates((prev) => { setQuizTime(isQuizTime(prev)); setTimeLeft(getTimeUntilQuiz(prev)); return prev }) }, 10000)
     const unsubWeek = listenActiveWeek((week) => setCurrentWeek(week))
     const unsubScores = listenScores((allScores) => {
       const mine = allScores.sort((a, b) => new Date(b.date) - new Date(a.date))
@@ -107,8 +105,15 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
       if (firstLoadRef.current) { prevRankRef.current = rank; firstLoadRef.current = false }
       else if (prevRankRef.current && rank !== prevRankRef.current) { setRankUpToast(rank); prevRankRef.current = rank; setTimeout(() => setRankUpToast(null), 5000) }
     }, student.id)
-    return () => { clearInterval(t); unsubWeek(); unsubScores(); unsubDates() }
+    return () => { unsubWeek(); unsubScores() }
   }, [student])
+
+  useEffect(() => {
+    if (!currentWeek) return
+    const unsubDates = listenQuizDates(currentWeek, (dates) => { setQuizDates(dates); setQuizTime(isQuizTime(dates)); setTimeLeft(getTimeUntilQuiz(dates)) })
+    const t = setInterval(() => { setQuizDates((prev) => { setQuizTime(isQuizTime(prev)); setTimeLeft(getTimeUntilQuiz(prev)); return prev }) }, 10000)
+    return () => { unsubDates(); clearInterval(t) }
+  }, [currentWeek])
 
   useEffect(() => { getTopics(currentWeek).then((t) => setWeekTopics(t || {})); setKpDismissed(false); setKeyPointIdx(0) }, [currentWeek])
 
@@ -140,14 +145,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   const currentWeekIdx = WEEKS.indexOf(currentWeek)
   const rankData = getConsistencyRank(scores)
-  const weeklyMedals = WEEKS.map((week) => {
-    const ws = scores.filter((s) => s.week === week)
-    if (!ws.length) return null
-    const bySubject = {}
-    ws.forEach((s) => { if (!bySubject[s.subject] || s.score > bySubject[s.subject]) bySubject[s.subject] = s.score })
-    const total = Object.values(bySubject).reduce((a, b) => a + b, 0)
-    return total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
-  })
+  const weeklyMedals = WEEKS.map((week) => scores.some((s) => s.week === week) ? 'gold' : null)
 
   const todaySubjectsAttempted = scores.filter((s) => s.week === currentWeek && new Date(s.date).toDateString() === new Date().toDateString()).map((s) => s.subject)
   const hasAttemptedAllSubjects = student.subjects.length > 0 && student.subjects.every((sub) => todaySubjectsAttempted.includes(sub))
