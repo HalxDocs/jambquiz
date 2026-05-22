@@ -59,7 +59,7 @@ export default function Admin({ setView }) {
         if (!studentCursors.current[studentPage + 1]) {
           studentCursors.current[studentPage + 1] = result.lastDoc
         }
-      } catch (e) { console.error('Failed to load students:', e) }
+      } catch { console.error('Failed to load students') }
       setStudentLoading(false)
     })()
   }, [studentPage, studentYearFilter])
@@ -76,7 +76,7 @@ export default function Admin({ setView }) {
         if (!paymentCursors.current[paymentPage + 1]) {
           paymentCursors.current[paymentPage + 1] = result.lastDoc
         }
-      } catch (e) { console.error('Failed to load payments:', e) }
+      } catch { console.error('Failed to load payments') }
       setPaymentLoading(false)
     })()
   }, [paymentPage, paymentSearch])
@@ -88,7 +88,7 @@ export default function Admin({ setView }) {
       try {
         const snap = await getDoc(doc(db, 'admin_stats', 'overview'))
         setAdminStats(snap.exists() ? snap.data() : null)
-      } catch (e) { console.error('Failed to load stats:', e) }
+      } catch { console.error('Failed to load stats') }
       setStatsLoading(false)
     })()
   }, [])
@@ -106,8 +106,10 @@ export default function Admin({ setView }) {
 
   const loadStudentScores = async (studentId) => {
     if (studentScoreCache[studentId]) return
-    const scores = await getStudentScores(studentId)
-    setStudentScoreCache(prev => ({ ...prev, [studentId]: scores }))
+    try {
+      const scores = await getStudentScores(studentId)
+      setStudentScoreCache(prev => ({ ...prev, [studentId]: scores }))
+    } catch { console.error('Failed to load student scores') }
   }
 
   const handleStudentYearChange = (year) => {
@@ -124,8 +126,8 @@ export default function Admin({ setView }) {
   }, [selectedSubject, selectedWeek])
 
   useEffect(() => {
-    getActiveWeek().then((w) => setActiveWeekState(w))
-    getQuizDates().then(({ date1, date2 }) => { setQuizDate1(date1); setQuizDate2(date2) })
+    getActiveWeek().then((w) => setActiveWeekState(w)).catch(() => {})
+    getQuizDates().then(({ date1, date2 }) => { setQuizDate1(date1); setQuizDate2(date2) }).catch(() => {})
   }, [])
 
   const handleSetActiveWeek = async (week) => {
@@ -164,7 +166,7 @@ export default function Admin({ setView }) {
         stats={adminStats}
         loading={statsLoading}
         onComputeStats={handleComputeStats}
-        onRefresh={async () => { setStatsLoading(true); try { const snap = await getDoc(doc(db, 'admin_stats', 'overview')); setAdminStats(snap.exists() ? snap.data() : null) } catch (e) { console.error('Refresh failed', e) }; setStatsLoading(false) }}
+        onRefresh={async () => { setStatsLoading(true); try { const snap = await getDoc(doc(db, 'admin_stats', 'overview')); setAdminStats(snap.exists() ? snap.data() : null) } catch { console.error('Refresh failed') }; setStatsLoading(false) }}
         onTabChange={setTab}
       />
     ),

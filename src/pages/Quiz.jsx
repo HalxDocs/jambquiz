@@ -190,6 +190,12 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       save('jamb_scores_cache', [...trimmed, ...results])
     } catch (e) {
       console.error('Failed to save scores')
+      setErr('Scores saved locally but could not sync. They will be saved when your connection is restored.')
+      try {
+        const cached = load('jamb_scores_cache', [])
+        const trimmed = cached.slice(-50)
+        save('jamb_scores_cache', [...trimmed, ...results])
+      } catch {}
     }
 
     if (results.length > 0) setLastScore(results[0])

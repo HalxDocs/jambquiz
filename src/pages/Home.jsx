@@ -21,9 +21,22 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [showForgot, setShowForgot] = useState(false)
   const [adminSetupMode, setAdminSetupMode] = useState(false)
   const [adminSetupConfirm, setAdminSetupConfirm] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [showAdminPw, setShowAdminPw] = useState(false)
+  const [showSetupPw, setShowSetupPw] = useState(false)
+  const [showSetupConfirm, setShowSetupConfirm] = useState(false)
 
   const attemptsRef = useRef(0)
   const cooldownUntilRef = useRef(0)
+
+  const checkOnline = () => {
+    if (!navigator.onLine) {
+      setErr('No internet connection. Please check your network and try again.')
+      return false
+    }
+    return true
+  }
 
   const years = Array.from({ length: 10 }, (_, i) => String(new Date().getFullYear() + i))
 
@@ -50,6 +63,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
     if (trimmed.length < 3) { setErr('Enter your full name'); return }
     if (!password) { setErr('Enter your password'); return }
     if (!checkRateLimit()) return
+    if (!checkOnline()) return
     setLoading(true); setErr('')
     try {
       const existing = await findStudent(trimmed)
@@ -62,7 +76,8 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       setStudent(safe)
       setView('dashboard')
     } catch {
-      setErr('Connection error. Check your internet.')
+      if (!navigator.onLine) setErr('No internet connection. Check your network.')
+      else setErr('Something went wrong. Please try again.')
     }
     setLoading(false)
   }
@@ -73,6 +88,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setErr('Enter a valid email'); return }
     if (password.length < 4) { setErr('Password must be at least 4 characters'); return }
     if (password !== confirmPassword) { setErr('Passwords do not match'); return }
+    if (!checkOnline()) return
     setLoading(true); setErr('')
     try {
       const existing = await findStudent(trimmed)
@@ -93,13 +109,15 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       setStudent(saved)
       setView('supporters')
     } catch {
-      setErr('Connection error. Check your internet.')
+      if (!navigator.onLine) setErr('No internet connection. Check your network.')
+      else setErr('Something went wrong. Please try again.')
     }
     setLoading(false)
   }
 
   const handleAdmin = async () => {
     if (!adminPw) { setErr('Enter the admin password'); return }
+    if (!checkOnline()) return
     setLoading(true); setErr('')
     try {
       const snap = await getDoc(doc(db, 'admin_settings', 'admin_auth'))
@@ -114,7 +132,8 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       if (!valid) { setErr('Wrong password'); setLoading(false); return }
       setAdminAuthed(true); setView('admin')
     } catch {
-      setErr('Connection error.')
+      if (!navigator.onLine) setErr('No internet connection. Check your network.')
+      else setErr('Something went wrong. Please try again.')
     }
     setLoading(false)
   }
@@ -123,6 +142,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
     if (!adminPw) { setErr('Enter a password'); return }
     if (adminPw.length < 4) { setErr('Password must be at least 4 characters'); return }
     if (adminPw !== adminSetupConfirm) { setErr('Passwords do not match'); return }
+    if (!checkOnline()) return
     setLoading(true); setErr('')
     try {
       const passwordHash = await hashPassword(adminPw)
@@ -132,7 +152,8 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       setAdminPw('')
       setErr('')
     } catch {
-      setErr('Connection error.')
+      if (!navigator.onLine) setErr('No internet connection. Check your network.')
+      else setErr('Something went wrong. Please try again.')
     }
     setLoading(false)
   }
@@ -140,13 +161,15 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const handleForgotPassword = async () => {
     const trimmed = name.trim()
     if (trimmed.length < 3) { setErr('Enter your full name'); return }
+    if (!checkOnline()) return
     setLoading(true); setErr(''); setRecoveredPassword('')
     try {
       const existing = await findStudent(trimmed)
       if (!existing) { setErr('Name not found. Please register first.'); setLoading(false); return }
       setRecoveredPassword('reset')
     } catch {
-      setErr('Connection error. Check your internet.')
+      if (!navigator.onLine) setErr('No internet connection. Check your network.')
+      else setErr('Something went wrong. Please try again.')
     }
     setLoading(false)
   }
@@ -273,14 +296,31 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                     <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
                       Password
                     </label>
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && mode === 'login' && handleLogin()}
-                      placeholder={mode === 'register' ? 'Minimum 4 characters' : '••••••••'}
-                      className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && mode === 'login' && handleLogin()}
+                        placeholder={mode === 'register' ? 'Minimum 4 characters' : '••••••••'}
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                      <button type="button" onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
+                        {showPassword ? (
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                          </svg>
+                        ) : (
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                          </svg>
+                        )}
+                      </button>
+                    </div>
                     {mode === 'login' && (
                       <button onClick={() => { setShowForgot(true); setErr(''); setRecoveredPassword('') }}
                         className="text-[11px] text-[#888] hover:text-[#111] mt-1.5 font-label underline underline-offset-2 transition-colors">
@@ -294,14 +334,31 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                       <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
                         Confirm Password
                       </label>
-                      <input
-                        type="password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
-                        placeholder="Repeat your password"
-                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showConfirm ? 'text' : 'password'}
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
+                          placeholder="Repeat your password"
+                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                        />
+                        <button type="button" onClick={() => setShowConfirm(!showConfirm)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
+                          {showConfirm ? (
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                              <line x1="1" y1="1" x2="23" y2="23"/>
+                            </svg>
+                          ) : (
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                              <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -375,16 +432,50 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                     <p className="text-[11px] text-[#888] font-label">This is a one-time setup. The password will be stored securely in the database.</p>
                     <div>
                       <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">New Password</label>
-                      <input type="password" value={adminPw}
-                        onChange={(e) => setAdminPw(e.target.value)}
-                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
+                      <div className="relative">
+                        <input type={showSetupPw ? 'text' : 'password'} value={adminPw}
+                          onChange={(e) => setAdminPw(e.target.value)}
+                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
+                        <button type="button" onClick={() => setShowSetupPw(!showSetupPw)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
+                          {showSetupPw ? (
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                              <line x1="1" y1="1" x2="23" y2="23"/>
+                            </svg>
+                          ) : (
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                              <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                          )}
+                        </button>
+                      </div>
                     </div>
                     <div>
                       <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">Confirm Password</label>
-                      <input type="password" value={adminSetupConfirm}
-                        onChange={(e) => setAdminSetupConfirm(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleAdminSetup()}
-                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
+                      <div className="relative">
+                        <input type={showSetupConfirm ? 'text' : 'password'} value={adminSetupConfirm}
+                          onChange={(e) => setAdminSetupConfirm(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleAdminSetup()}
+                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
+                        <button type="button" onClick={() => setShowSetupConfirm(!showSetupConfirm)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
+                          {showSetupConfirm ? (
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                              <line x1="1" y1="1" x2="23" y2="23"/>
+                            </svg>
+                          ) : (
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                              <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                          )}
+                        </button>
+                      </div>
                     </div>
                     {err && (
                       <div className="px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
@@ -408,14 +499,31 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                       <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
                         Admin Password
                       </label>
-                      <input
-                        type="password"
-                        value={adminPw}
-                        onChange={(e) => setAdminPw(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleAdmin()}
-                        placeholder="••••••••"
-                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showAdminPw ? 'text' : 'password'}
+                          value={adminPw}
+                          onChange={(e) => setAdminPw(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleAdmin()}
+                          placeholder="••••••••"
+                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                        />
+                        <button type="button" onClick={() => setShowAdminPw(!showAdminPw)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
+                          {showAdminPw ? (
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                              <line x1="1" y1="1" x2="23" y2="23"/>
+                            </svg>
+                          ) : (
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                              <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                          )}
+                        </button>
+                      </div>
                     </div>
                     {err && (
                       <div className="mb-3 px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
