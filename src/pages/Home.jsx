@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { registerStudent, findStudent, hashPassword, verifyPassword, stripSensitive } from '../store/useStore'
+import { registerStudent, findStudent, hashPassword, verifyPassword, stripSensitive, updateStudent } from '../store/useStore'
 import { doc, getDoc, setDoc, db } from '../firebase'
 
 const LOGIN_COOLDOWN_MS = 30000
@@ -19,6 +19,9 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [loading, setLoading] = useState(false)
   const [recoveredPassword, setRecoveredPassword] = useState('')
   const [showForgot, setShowForgot] = useState(false)
+  const [resetStudentId, setResetStudentId] = useState(null)
+  const [showResetPassword, setShowResetPassword] = useState(false)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [adminSetupMode, setAdminSetupMode] = useState(false)
   const [adminSetupConfirm, setAdminSetupConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -159,6 +162,27 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   }
 
   const handleForgotPassword = async () => {
+    if (resetStudentId) {
+      if (!password) { setErr('Enter a new password'); return }
+      if (password.length < 4) { setErr('Password must be at least 4 characters'); return }
+      if (password !== confirmPassword) { setErr('Passwords do not match'); return }
+      if (!checkOnline()) return
+      setLoading(true); setErr('')
+      try {
+        const passwordHash = await hashPassword(password)
+        await updateStudent(resetStudentId, { password: passwordHash })
+        setRecoveredPassword('done')
+        setPassword('')
+        setConfirmPassword('')
+        setResetStudentId(null)
+      } catch {
+        if (!navigator.onLine) setErr('No internet connection. Check your network.')
+        else setErr('Failed to reset password. Please try again.')
+      }
+      setLoading(false)
+      return
+    }
+
     const trimmed = name.trim()
     if (trimmed.length < 3) { setErr('Enter your full name'); return }
     if (!checkOnline()) return
@@ -166,6 +190,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
     try {
       const existing = await findStudent(trimmed)
       if (!existing) { setErr('Name not found. Please register first.'); setLoading(false); return }
+      setResetStudentId(existing.id)
       setRecoveredPassword('reset')
     } catch {
       if (!navigator.onLine) setErr('No internet connection. Check your network.')
@@ -365,30 +390,100 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
 
                 {showForgot && (
                   <div className="bg-[#F8F8F7] border border-[#EBEBEB] rounded-xl p-4 mt-3 space-y-3">
-                    <p className="text-xs font-semibold text-[#111] font-label">Recover Password</p>
-                    <p className="text-[11px] text-[#888] font-label">Enter your full name to retrieve your password.</p>
-                    <input
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleForgotPassword()}
-                      placeholder="Enter your full name"
-                      className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                    />
-                    {recoveredPassword === 'reset' && (
-                      <div className="bg-blue-50 border border-blue-100 rounded-xl px-3.5 py-3">
-                        <p className="text-xs text-blue-800 font-label mb-1">Contact your admin to reset your password</p>
-                      </div>
+                    {recoveredPassword === 'done' ? (
+                      <>
+                        <p className="text-xs font-semibold text-green-700 font-label">✓ Password reset successful</p>
+                        <p className="text-[11px] text-[#888] font-label">You can now lock in with your new password.</p>
+                        <button onClick={() => { setShowForgot(false); setErr(''); setRecoveredPassword('') }}
+                          className="w-full mt-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] transition-all font-display">
+                          Back to Login
+                        </button>
+                      </>
+                    ) : recoveredPassword === 'reset' ? (
+                      <>
+                        <p className="text-xs font-semibold text-[#111] font-label">Reset Password</p>
+                        <p className="text-[11px] text-[#888] font-label">Set a new password for <strong>{name.trim()}</strong></p>
+                        <div>
+                          <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">New Password</label>
+                          <div className="relative">
+                            <input type={showResetPassword ? 'text' : 'password'} value={password}
+                              onChange={(e) => setPassword(e.target.value)}
+                              placeholder="Minimum 4 characters"
+                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
+                            <button type="button" onClick={() => setShowResetPassword(!showResetPassword)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
+                              {showResetPassword ? (
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                                  <line x1="1" y1="1" x2="23" y2="23"/>
+                                </svg>
+                              ) : (
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                  <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">Confirm Password</label>
+                          <div className="relative">
+                            <input type={showResetConfirm ? 'text' : 'password'} value={confirmPassword}
+                              onChange={(e) => setConfirmPassword(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && handleForgotPassword()}
+                              placeholder="Repeat your password"
+                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
+                            <button type="button" onClick={() => setShowResetConfirm(!showResetConfirm)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
+                              {showResetConfirm ? (
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                                  <line x1="1" y1="1" x2="23" y2="23"/>
+                                </svg>
+                              ) : (
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                  <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={handleForgotPassword} disabled={loading}
+                            className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40">
+                            {loading ? 'Resetting…' : 'Reset Password →'}
+                          </button>
+                          <button onClick={() => { setShowForgot(false); setErr(''); setRecoveredPassword(''); setResetStudentId(null); setPassword(''); setConfirmPassword('') }}
+                            className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold hover:text-[#111] hover:border-[#CCC] transition-all font-label">
+                            Cancel
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs font-semibold text-[#111] font-label">Recover Password</p>
+                        <p className="text-[11px] text-[#888] font-label">Enter your full name to find your account, then set a new password.</p>
+                        <input value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleForgotPassword()}
+                          placeholder="Enter your full name"
+                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
+                        <div className="flex gap-2">
+                          <button onClick={handleForgotPassword} disabled={loading}
+                            className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] transition-all font-display disabled:opacity-40">
+                            {loading ? 'Searching…' : 'Find Account'}
+                          </button>
+                          <button onClick={() => { setShowForgot(false); setErr(''); setRecoveredPassword(''); setResetStudentId(null) }}
+                            className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold hover:text-[#111] hover:border-[#CCC] transition-all font-label">
+                            Back
+                          </button>
+                        </div>
+                      </>
                     )}
-                    <div className="flex gap-2">
-                      <button onClick={handleForgotPassword} disabled={loading}
-                        className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40">
-                        {loading ? 'Searching...' : 'Recover'}
-                      </button>
-                      <button onClick={() => { setShowForgot(false); setErr(''); setRecoveredPassword('') }}
-                        className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold hover:text-[#111] hover:border-[#CCC] transition-all font-label">
-                        Back
-                      </button>
-                    </div>
                   </div>
                 )}
 

@@ -3,6 +3,22 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon, ArrowRight01Icon, ArrowLeft01Icon } from '@hugeicons/core-free-icons'
 import { getAccessStatus, updateStudent, deleteStudent, extendSubscription, addPayment, SUBSCRIPTION_PRICE_NGN } from '../../store/useStore'
 
+const ACCESS_OPTIONS = [
+  { label: 'This Month', months: null, desc: 'Until end of this month' },
+  { label: 'Next Month', months: null, desc: 'Until end of next month' },
+  { label: '1 Month', months: 1, desc: '+30 days' },
+  { label: '3 Months', months: 3, desc: '+90 days' },
+  { label: '6 Months', months: 6, desc: '+180 days' },
+]
+
+function endOfMonth(date) {
+  const d = new Date(date)
+  d.setMonth(d.getMonth() + 1)
+  d.setDate(0)
+  d.setHours(23, 59, 59, 999)
+  return d
+}
+
 export default function StudentManager({ students, loading, yearFilter, onYearFilterChange, page, onPrevPage, onNextPage, hasMore, scoreCache, onLoadScores }) {
   const [editingStudentId, setEditingStudentId] = useState(null)
   const [editNameValue, setEditNameValue] = useState('')
@@ -10,6 +26,7 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
   const [editNameLoading, setEditNameLoading] = useState(false)
   const [expandedId, setExpandedId] = useState(null)
   const [success, setSuccess] = useState('')
+  const [grantOpenFor, setGrantOpenFor] = useState(null)
 
   const currentYear = new Date().getFullYear()
   const jamb_years = ['SS3', ...Array.from({ length: 10 }, (_, i) => String(currentYear + i))]
@@ -35,18 +52,32 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
     setEditNameLoading(false)
   }
 
-  const handleMarkPaid = async (student) => {
-    if (!window.confirm(`Mark ${student.name} as paid for ₦${SUBSCRIPTION_PRICE_NGN}?`)) return
+  const handleGrantAccess = async (student, option) => {
+    let expiry
+    const now = new Date()
+    if (option.months) {
+      const current = student.subscriptionUntil ? new Date(student.subscriptionUntil).getTime() : 0
+      const anchor = Math.max(now.getTime(), current)
+      const next = new Date(anchor)
+      next.setMonth(next.getMonth() + option.months)
+      expiry = next.toISOString()
+    } else if (option.label === 'This Month') {
+      const anchor = student.subscriptionUntil && new Date(student.subscriptionUntil) > now
+        ? new Date(student.subscriptionUntil) : now
+      expiry = endOfMonth(anchor).toISOString()
+    } else {
+      const anchor = student.subscriptionUntil && new Date(student.subscriptionUntil) > now
+        ? new Date(student.subscriptionUntil) : now
+      const nextMonth = new Date(anchor)
+      nextMonth.setMonth(nextMonth.getMonth() + 1)
+      expiry = endOfMonth(nextMonth).toISOString()
+    }
     try {
-      const newExpiry = await extendSubscription(student.id, 1)
-      await addPayment({
-        studentId: student.id, studentName: student.name, amount: SUBSCRIPTION_PRICE_NGN,
-        currency: 'NGN', method: 'manual', reference: `MANUAL-${Date.now()}`,
-        paidAt: new Date().toISOString(), extendsTo: newExpiry, recordedBy: 'admin',
-      })
-      setSuccess(`${student.name} extended by 1 month`)
+      await updateStudent(student.id, { subscriptionUntil: expiry })
+      setSuccess(`${student.name} granted access until ${new Date(expiry).toLocaleDateString('en-NG')}`)
       setTimeout(() => setSuccess(''), 3000)
-    } catch { alert('Failed to record payment.') }
+    } catch { alert('Failed to grant access.') }
+    setGrantOpenFor(null)
   }
 
   const sendWhatsAppReport = (student, recipient, myScores) => {
@@ -167,10 +198,23 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
                     </p>
 
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <button onClick={() => handleMarkPaid(student)}
-                        className="h-8 px-2.5 flex items-center justify-center rounded-xl border border-green-100 text-green-700 bg-green-50 hover:bg-green-100 transition-colors text-[11px] font-bold font-label">
-                        + ₦{SUBSCRIPTION_PRICE_NGN}
-                      </button>
+                      <div className="relative">
+                        <button onClick={() => setGrantOpenFor(grantOpenFor === student.id ? null : student.id)}
+                          className="h-8 px-2.5 flex items-center gap-1 rounded-xl border border-green-100 text-green-700 bg-green-50 hover:bg-green-100 transition-colors text-[11px] font-bold font-label">
+                          🎓 Grant Access ▾
+                        </button>
+                        {grantOpenFor === student.id && (
+                          <div className="absolute bottom-full left-0 mb-1 z-10 bg-white border border-[#E5E5E5] rounded-xl shadow-lg py-1 min-w-[160px]">
+                            {ACCESS_OPTIONS.map((opt) => (
+                              <button key={opt.label} onClick={() => handleGrantAccess(student, opt)}
+                                className="w-full text-left px-3.5 py-2 hover:bg-[#F8F8F7] transition-colors text-xs font-label text-[#333]">
+                                <span className="font-semibold text-[#111]">{opt.label}</span>
+                                <span className="block text-[10px] text-[#999]">{opt.desc}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <button onClick={() => startEditName(student)} title="Rename"
                         className="w-8 h-8 flex items-center justify-center rounded-xl border border-[#E5E5E5] text-[#888] hover:text-[#111] transition-colors">
                         <HugeiconsIcon icon={PencilEdit01Icon} size={15} color="currentColor" />
