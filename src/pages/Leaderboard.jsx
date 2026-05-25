@@ -70,12 +70,21 @@ export default function Leaderboard({ student, setView }) {
       where('nicknameLower', '>=', searchTerm),
       where('nicknameLower', '<', searchTerm + '~')
     )
-    Promise.all([getDocs(nameQuery), getDocs(nickQuery)]).then(([nameSnap, nickSnap]) => {
+    Promise.all([getDocs(nameQuery), getDocs(nickQuery)]).then(async ([nameSnap, nickSnap]) => {
       if (cancelled) return
       const map = new Map()
       nameSnap.docs.forEach((d) => { if (!map.has(d.id)) map.set(d.id, { id: d.id, ...d.data() }) })
       nickSnap.docs.forEach((d) => { if (!map.has(d.id)) map.set(d.id, { id: d.id, ...d.data() }) })
-      setFriendResults(Array.from(map.values()).slice(0, 20))
+      const students = Array.from(map.values()).slice(0, 20)
+      const rankPromises = students.map((s) =>
+        getDoc(doc(db, 'leaderboard_student_ranks', s.id)).then((snap) =>
+          snap.exists() ? { studentId: s.id, ...snap.data() } : null
+        ).catch(() => null)
+      )
+      const ranks = await Promise.all(rankPromises)
+      const rankMap = {}
+      ranks.forEach((r) => { if (r) rankMap[r.studentId] = r })
+      setFriendResults(students.map((s) => ({ ...s, friendRank: rankMap[s.id] || null })))
     })
     return () => { cancelled = true }
   }, [friendSearch])
@@ -258,7 +267,7 @@ export default function Leaderboard({ student, setView }) {
               <div className="space-y-3">
                 {friendResults.map((s) => {
                   const isMe = s.id === student.id
-                  const sRank = myRank && myRank.id === s.id ? myRank : null
+                  const fr = s.friendRank
                   return (
                     <div key={s.id} className={`bg-white border rounded-2xl p-4 ${isMe ? 'border-[#111]' : 'border-[#EBEBEB]'}`}>
                       <div className="flex items-start justify-between gap-2">
@@ -269,12 +278,19 @@ export default function Leaderboard({ student, setView }) {
                           {s.nickname && (
                             <p className="text-[11px] text-[#888] font-label mt-0.5">@{s.nickname}</p>
                           )}
-                          {sRank && (
-                            <p className="text-[11px] text-[#888] font-label mt-0.5">
-                              Rank #{sRank.rank} · {sRank.total}/400
+                          {s.subjects?.length > 0 && (
+                            <p className="text-[10px] text-[#999] font-label mt-0.5">
+                              Subjects: {s.subjects.join(', ')}
                             </p>
                           )}
                         </div>
+                        {fr && (
+                          <div className="text-right shrink-0">
+                            <p className="text-xs font-bold font-display text-[#111]">#{fr.rank}</p>
+                            <p className="text-[10px] text-[#AAA] font-label">Rank</p>
+                            <p className="text-xs font-bold font-display text-[#111] mt-0.5">{fr.total || 0}<span className="text-[9px] text-[#AAA] font-label">/400</span></p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )

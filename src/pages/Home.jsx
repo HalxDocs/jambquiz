@@ -12,7 +12,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [nickname, setNickname] = useState('')
-  const [year, setYear] = useState('2027')
+  const [year, setYear] = useState(String(new Date().getFullYear()))
   const [email, setEmail] = useState('')
   const [adminPw, setAdminPw] = useState('')
   const [err, setErr] = useState('')
