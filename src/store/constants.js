@@ -15,7 +15,6 @@ const SUBJECTS = [
 const WEEKS = Array.from({ length: 26 }, (_, i) => `Week ${i + 1}`)
 
 const SUBSCRIPTION_PRICE_NGN = 800
-const TRIAL_DAYS = 14
 
 const RANK_TIERS = [
   { name: 'GHOST',   min: 0,  color: 'gray' },
@@ -26,4 +25,4 @@ const RANK_TIERS = [
   { name: 'ELITE',   min: 21, color: 'green' },
 ]
 
-export { SUBJECTS, WEEKS, SUBSCRIPTION_PRICE_NGN, TRIAL_DAYS, RANK_TIERS }
+export { SUBJECTS, WEEKS, SUBSCRIPTION_PRICE_NGN, RANK_TIERS }

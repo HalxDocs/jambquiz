@@ -8,6 +8,7 @@ export default function AdminNotifications() {
   const [testStatus, setTestStatus] = useState(null)
   const [broadcastTitle, setBroadcastTitle] = useState('')
   const [broadcastMessage, setBroadcastMessage] = useState('')
+  const [broadcastTarget, setBroadcastTarget] = useState('all')
   const [broadcastStatus, setBroadcastStatus] = useState(null)
   const [pushTestStatus, setPushTestStatus] = useState(null)
 
@@ -75,10 +76,11 @@ export default function AdminNotifications() {
 
     setBroadcastStatus('Sending...')
     try {
-      await addDoc(collection(db, 'admin_broadcasts'), { title, message, createdAt: new Date().toISOString() })
+      await addDoc(collection(db, 'admin_broadcasts'), { title, message, target: broadcastTarget, createdAt: new Date().toISOString() })
       setBroadcastStatus('Broadcast sent!')
       setBroadcastTitle('')
       setBroadcastMessage('')
+      setBroadcastTarget('all')
     } catch (err) {
       setBroadcastStatus('Failed: ' + (err.message || 'Unknown error'))
     }
@@ -211,12 +213,31 @@ export default function AdminNotifications() {
           rows={3}
           className="w-full bg-[#F5F5F5] border border-[#E5E5E5] rounded-xl px-4 py-2.5 text-sm font-label text-[#111] placeholder-[#BBB] outline-none focus:border-[#111] transition-colors resize-none mb-3"
         />
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold text-[#888] font-label mb-1.5">Target audience</p>
+          <div className="flex gap-2">
+            {[
+              { value: 'all', label: 'All Users' },
+              { value: 'paid', label: 'Paid Only' },
+              { value: 'unpaid', label: 'Non-Paid' },
+            ].map((opt) => (
+              <button key={opt.value} onClick={() => setBroadcastTarget(opt.value)}
+                className={`flex-1 rounded-lg py-2 text-xs font-bold font-label border transition-colors ${
+                  broadcastTarget === opt.value
+                    ? 'bg-[#111] text-white border-[#111]'
+                    : 'bg-white text-[#888] border-[#E5E5E5] hover:border-[#CCC]'
+                }`}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <button
           onClick={handleSendBroadcast}
           disabled={!broadcastTitle.trim() || !broadcastMessage.trim() || broadcastStatus === 'Sending...'}
           className="w-full bg-[#111] text-white rounded-xl py-3 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {broadcastStatus || 'Send to All Users'}
+          {broadcastStatus || (broadcastTarget === 'all' ? 'Send to All Users' : broadcastTarget === 'paid' ? 'Send to Paid Users Only' : 'Send to Non-Paid Users')}
         </button>
       </div>
 

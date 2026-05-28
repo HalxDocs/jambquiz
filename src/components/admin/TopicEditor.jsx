@@ -33,7 +33,7 @@ export default function TopicEditor({
       onSetTopics(topicInputs)
       setTopicSuccess('Topics saved!')
       setTimeout(() => setTopicSuccess(''), 3000)
-    } catch { alert('Failed to save topics.') }
+    } catch (e) { alert(e?.message || 'Failed to save topics') }
   }
 
   const handleCopyTopicsFrom = async (sourceWeek) => {
@@ -49,7 +49,7 @@ export default function TopicEditor({
       onSetTopicInputs(normalized)
       setTopicSuccess(`Copied from ${sourceWeek} — review and Save`)
       setTimeout(() => setTopicSuccess(''), 4000)
-    } catch { alert('Failed to copy topics.') }
+    } catch (e) { alert(e?.message || 'Failed to copy topics') }
   }
 
   const handleSetActiveWeek = async (week) => {

@@ -27,6 +27,10 @@ export default function QuestionForm({
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
   useEffect(() => {
+    setLocalQuestionLimit(questionLimit)
+  }, [questionLimit])
+
+  useEffect(() => {
     getQuizDates(selectedWeek).then(({ date1, date2 }) => {
       setLocalQuizDate1(date1 || '')
       setLocalQuizDate2(date2 || '')
@@ -82,8 +86,7 @@ export default function QuestionForm({
       }
       resetForm()
     } catch (e) {
-      console.error(e)
-      setErr('Failed. Check your connection.')
+      setErr(e?.message || 'Failed to save question. Check your connection.')
     }
   }
 
@@ -108,8 +111,7 @@ export default function QuestionForm({
       await deleteQuestion(firestoreId)
       showToast('Question deleted!')
     } catch (e) {
-      console.error(e)
-      alert('Failed to delete.')
+      showToast(e?.message || 'Failed to delete question')
     }
   }
 
@@ -118,7 +120,7 @@ export default function QuestionForm({
       await saveQuestionLimit(selectedSubject, selectedWeek, localQuestionLimit)
       onSaveLimit(localQuestionLimit)
       showToast('Limit saved!')
-    } catch { alert('Failed to save limit.') }
+    } catch (e) { showToast(e?.message || 'Failed to save limit') }
   }
 
   const handleTransferQuestions = async (fromWeek) => {
@@ -127,7 +129,7 @@ export default function QuestionForm({
     try {
       const count = await copyQuestionsToWeek(selectedSubject, fromWeek, selectedWeek)
       showToast(`${count} question(s) transferred from ${fromWeek}!`)
-    } catch { alert('Transfer failed. Check your connection.') }
+    } catch (e) { showToast(e?.message || 'Transfer failed. Check your connection.') }
     setTransferring(false)
   }
 
@@ -137,7 +139,7 @@ export default function QuestionForm({
       const date2 = localQuizDate2 ? new Date(localQuizDate2).toISOString() : ''
       await setQuizDates(selectedWeek, date1, date2)
       showToast('Quiz dates saved!')
-    } catch { alert('Failed to save quiz dates.') }
+    } catch (e) { showToast(e?.message || 'Failed to save quiz dates') }
   }
 
   const toDatetimeLocal = (val) => {

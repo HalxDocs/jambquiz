@@ -73,8 +73,8 @@ export default function StatsPanel({ stats, loading, onComputeStats, onRefresh, 
               <p className="text-[10px] text-[#666] font-label">Active</p>
             </div>
             <div className="text-center border-x border-white/10">
-              <p className="text-base font-bold text-yellow-400 font-display">{stats.statusCounts?.trial || 0}</p>
-              <p className="text-[10px] text-[#666] font-label">Trial</p>
+              <p className="text-base font-bold text-yellow-400 font-display">{stats.statusCounts?.freebie || 0}</p>
+              <p className="text-[10px] text-[#666] font-label">Free</p>
             </div>
             <div className="text-center">
               <p className="text-base font-bold text-red-400 font-display">{stats.statusCounts?.expired || 0}</p>

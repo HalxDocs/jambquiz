@@ -34,7 +34,7 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
 
   const handleDeleteStudent = async (studentId, studentName) => {
     if (!window.confirm(`Delete "${studentName}"? This cannot be undone.`)) return
-    try { await deleteStudent(studentId) } catch { alert('Failed to delete student.') }
+    try { await deleteStudent(studentId) } catch (e) { alert(e?.message || 'Failed to delete student') }
   }
 
   const startEditName = (student) => {
@@ -76,7 +76,7 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
       await updateStudent(student.id, { subscriptionUntil: expiry })
       setSuccess(`${student.name} granted access until ${new Date(expiry).toLocaleDateString('en-NG')}`)
       setTimeout(() => setSuccess(''), 3000)
-    } catch { alert('Failed to grant access.') }
+    } catch (e) { alert(e?.message || 'Failed to grant access') }
     setGrantOpenFor(null)
   }
 
@@ -185,10 +185,10 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
                       {(() => {
                         const access = getAccessStatus(student)
                         const cls = access.status === 'active' ? 'bg-green-50 text-green-700 border-green-100'
-                          : access.status === 'trial' ? 'bg-yellow-50 text-yellow-700 border-yellow-100'
+                          : access.status === 'freebie' ? 'bg-yellow-50 text-yellow-700 border-yellow-100'
                           : 'bg-red-50 text-red-700 border-red-100'
                         const label = access.status === 'active' ? `Paid · ${access.daysLeft}d`
-                          : access.status === 'trial' ? `Trial · ${access.daysLeft}d` : 'Expired'
+                          : access.status === 'freebie' ? `${access.freeAttemptsLeft} free left` : 'Expired'
                         return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full font-label ${cls}`}>{label}</span>
                       })()}
                     </div>

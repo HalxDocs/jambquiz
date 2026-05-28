@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { addPayment, extendSubscription, listenPayments, getAccessStatus, SUBSCRIPTION_PRICE_NGN, TRIAL_DAYS, findStudent, updateStudent } from '../store/useStore'
+import { addPayment, extendSubscription, listenPayments, getAccessStatus, SUBSCRIPTION_PRICE_NGN, findStudent, updateStudent } from '../store/useStore'
 
 const PAYSTACK_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ''
 
@@ -96,7 +96,7 @@ export default function Subscribe({ student, setStudent, setView }) {
 
   const statusBadge = {
     active: { color: 'green', label: 'Active' },
-    trial: { color: 'yellow', label: `Trial · ${status.daysLeft}d left` },
+    freebie: { color: 'yellow', label: `${status.freeAttemptsLeft} free quiz left` },
     expired: { color: 'red', label: 'Expired' },
   }[status.status]
 
@@ -193,7 +193,7 @@ export default function Subscribe({ student, setStudent, setView }) {
           </button>
 
           <p className="text-[10px] text-[#AAA] text-center mt-3 font-label">
-            Secured by Paystack · {TRIAL_DAYS}-day free trial on new accounts
+            Secured by Paystack · 2 free quizzes on signup
           </p>
         </div>
 

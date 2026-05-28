@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon, Notification02Icon } from '@hugeicons/core-free-icons'
 import { db, getDoc, doc, httpsCallable, functions } from '../firebase'
-import { SUBJECTS, WEEKS, listenQuestions, getStudentsPage, getPaymentsPage, getStudentScores, getActiveWeek, getQuestionLimit, setActiveWeek, getQuizDates } from '../store/useStore'
+import { SUBJECTS, WEEKS, listenQuestions, getStudentsPage, getPaymentsPage, getStudentScores, getActiveWeek, getQuestionLimit, setActiveWeek } from '../store/useStore'
 import StudentManager from '../components/admin/StudentManager'
 import StatsPanel from '../components/admin/StatsPanel'
 import PaymentsPanel from '../components/admin/PaymentsPanel'
@@ -100,7 +100,7 @@ export default function Admin({ setView }) {
       await computeStatsFn()
       const snap = await getDoc(doc(db, 'admin_stats', 'overview'))
       setAdminStats(snap.exists() ? snap.data() : null)
-    } catch { alert('Failed to compute stats.') }
+    } catch (e) { alert(e?.message || 'Failed to compute stats') }
     setStatsLoading(false)
   }
 
@@ -126,15 +126,15 @@ export default function Admin({ setView }) {
   }, [selectedSubject, selectedWeek])
 
   useEffect(() => {
-    getActiveWeek().then((w) => setActiveWeekState(w)).catch(() => {})
-    getQuizDates().then(({ date1, date2 }) => { setQuizDate1(date1); setQuizDate2(date2) }).catch(() => {})
+    getActiveWeek().then((w) => { setActiveWeekState(w); setSelectedWeek(w) }).catch(() => {})
   }, [])
 
   const handleSetActiveWeek = async (week) => {
     try {
       await setActiveWeek(week)
       setActiveWeekState(week)
-    } catch { alert('Failed.') }
+      setSelectedWeek(week)
+    } catch (e) { alert(e?.message || 'Failed to set active week') }
   }
 
   const TABS = [

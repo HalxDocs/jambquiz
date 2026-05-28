@@ -1,29 +1,27 @@
-import { db, collection, addDoc, getDocs, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter } from '../firebase'
-import { TRIAL_DAYS } from './constants'
-
+import { db, collection, addDoc, getDocs, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter, increment } from '../firebase'
 function getAccessStatus(student) {
-  if (!student) return { status: 'expired', daysLeft: 0, expiresAt: null }
+  if (!student) return { status: 'expired', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0 }
   const now = Date.now()
   const subUntil = student.subscriptionUntil ? new Date(student.subscriptionUntil).getTime() : 0
+  const freeUsed = student.freeAttemptsUsed || 0
+  const freeAttemptsLeft = Math.max(0, 2 - freeUsed)
   if (subUntil > now) {
     return {
       status: 'active',
       daysLeft: Math.ceil((subUntil - now) / (1000 * 60 * 60 * 24)),
       expiresAt: new Date(subUntil).toISOString(),
+      freeAttemptsLeft,
     }
   }
-  const trialStart = student.trialStartedAt
-    ? new Date(student.trialStartedAt).getTime()
-    : student.joinedAt ? new Date(student.joinedAt).getTime() : now
-  const trialEnd = trialStart + TRIAL_DAYS * 24 * 60 * 60 * 1000
-  if (trialEnd > now) {
+  if (freeUsed < 2) {
     return {
-      status: 'trial',
-      daysLeft: Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24)),
-      expiresAt: new Date(trialEnd).toISOString(),
+      status: 'freebie',
+      daysLeft: 0,
+      expiresAt: null,
+      freeAttemptsLeft,
     }
   }
-  return { status: 'expired', daysLeft: 0, expiresAt: new Date(trialEnd).toISOString() }
+  return { status: 'expired', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0 }
 }
 
 function generateSalt() {
@@ -85,6 +83,7 @@ async function registerStudent(student) {
     subjects: student.subjects || [],
     trialStartedAt: student.trialStartedAt || nowIso,
     subscriptionUntil: student.subscriptionUntil || null,
+    freeAttemptsUsed: 0,
     joinedAt: nowIso,
   }
   const ref = await addDoc(collection(db, 'students'), payload)
@@ -122,6 +121,12 @@ async function deleteStudent(id) {
   await deleteDoc(doc(db, 'students', id))
 }
 
+async function incrementFreeAttempts(studentId) {
+  try {
+    await updateDoc(doc(db, 'students', studentId), { freeAttemptsUsed: increment(1) })
+  } catch {}
+}
+
 function listenStudents(callback) {
   return onSnapshot(collection(db, 'students'), (snapshot) => {
     const students = snapshot.docs.map((d) => stripSensitive({ id: d.id, ...d.data() }))
@@ -143,4 +148,4 @@ async function getStudentsPage(year, cursorDoc, pageSize = 20) {
   }
 }
 
-export { getAccessStatus, registerStudent, findStudent, updateStudent, deleteStudent, listenStudents, getStudentsPage, hashPassword, verifyPassword, findStudentSafe, stripSensitive }
+export { getAccessStatus, registerStudent, findStudent, updateStudent, deleteStudent, listenStudents, getStudentsPage, hashPassword, verifyPassword, findStudentSafe, stripSensitive, incrementFreeAttempts }

@@ -5,7 +5,7 @@ export default function SubscriptionBanner({ student, onSubscribe }) {
   if (access.status === 'active' && access.daysLeft > 7) return null
 
   const styles = {
-    trial: { bg: 'bg-yellow-50', border: 'border-yellow-100', text: 'text-yellow-800', label: `Free trial · ${access.daysLeft} day${access.daysLeft !== 1 ? 's' : ''} left` },
+    freebie: { bg: 'bg-yellow-50', border: 'border-yellow-100', text: 'text-yellow-800', label: `${access.freeAttemptsLeft} free quiz attempt${access.freeAttemptsLeft !== 1 ? 's' : ''} remaining` },
     active: { bg: 'bg-blue-50', border: 'border-blue-100', text: 'text-blue-800', label: `Subscription expires in ${access.daysLeft} day${access.daysLeft !== 1 ? 's' : ''}` },
     expired: { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-700', label: 'Access expired — renew to continue' },
   }[access.status]

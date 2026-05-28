@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { load, save, addScore, getQuestions, getTopics, getQuestionLimit, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, WEEKS } from '../store/useStore'
+import { load, save, addScore, getQuestions, getTopics, getQuestionLimit, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, WEEKS, incrementFreeAttempts } from '../store/useStore'
 
 const questionCache = new Map()
 import QuizTimer from '../components/quiz/QuizTimer'
@@ -50,6 +50,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   const [quizDates, setQuizDates] = useState(null)
   const [quizDatesReady, setQuizDatesReady] = useState(false)
   const [nextWeekTopics, setNextWeekTopics] = useState({})
+  const [paymentPrompt, setPaymentPrompt] = useState(null)
   const [err, setErr] = useState('')
   const timerRef = useRef(null)
 
@@ -198,6 +199,8 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       } catch {}
     }
 
+    incrementFreeAttempts(student.id)
+
     if (results.length > 0) setLastScore(results[0])
     if (setRetakeData) setRetakeData(null)
 
@@ -205,7 +208,17 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
     setAllResults(results)
     setMedalToast({ medal, total, max: results.length * 100 })
-    setStep('done')
+
+    const newFreeCount = (student.freeAttemptsUsed || 0) + 1
+    if (newFreeCount >= 2 && !student.subscriptionUntil && !retakeData) {
+      setPaymentPrompt('show')
+      setTimeout(() => {
+        setPaymentPrompt(null)
+        setStep('done')
+      }, 3500)
+    } else {
+      setStep('done')
+    }
     setSubmitting(false)
   }
 
@@ -241,6 +254,26 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
         <div className="text-center">
           <div className="w-10 h-10 border-2 border-[#111] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-sm text-[#888] font-label">Loading quiz…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (paymentPrompt) {
+    return (
+      <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
+        <div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 max-w-sm w-full text-center">
+          <span className="text-3xl">⏰</span>
+          <h2 className="text-xl font-bold text-[#111] font-display mt-3 mb-2">Free Trial Ended</h2>
+          <p className="text-sm text-[#888] font-label mb-4">
+            You've used all 2 free quizzes. Subscribe for ₦800/month to keep practicing and tracking your progress!
+          </p>
+          <button onClick={() => setView('subscribe')} className="w-full bg-[#111] text-white rounded-xl py-3 text-sm font-bold font-display mb-2">
+            Subscribe Now →
+          </button>
+          <button onClick={() => { setPaymentPrompt(null); setStep('done') }} className="w-full text-xs text-[#AAA] font-label py-2">
+            Skip, show results
+          </button>
         </div>
       </div>
     )

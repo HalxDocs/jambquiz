@@ -34,8 +34,8 @@ export default function PaymentsPanel({ payments, loading, search, onSearch, pag
           <p className="text-[10px] text-[#888] font-label mt-0.5">Active</p>
         </div>
         <div className="bg-white border border-[#EBEBEB] rounded-xl p-3 text-center">
-          <p className="text-2xl font-bold text-yellow-600 font-display">{stats?.statusCounts?.trial || 0}</p>
-          <p className="text-[10px] text-[#888] font-label mt-0.5">On Trial</p>
+          <p className="text-2xl font-bold text-yellow-600 font-display">{stats?.statusCounts?.freebie || 0}</p>
+          <p className="text-[10px] text-[#888] font-label mt-0.5">Free</p>
         </div>
         <div className="bg-white border border-[#EBEBEB] rounded-xl p-3 text-center">
           <p className="text-2xl font-bold text-red-500 font-display">{stats?.statusCounts?.expired || 0}</p>

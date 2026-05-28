@@ -105,24 +105,18 @@ exports.sendKeyPointNotifications = onSchedule(
       return;
     }
 
-    const TRIAL_DAYS = 14;
-
     let sent = 0;
     for (const subDoc of subsSnap.docs) {
       const studentId = subDoc.id;
       const subscription = subDoc.data();
 
-      // Skip if subscription expired and trial ended
+      // Skip if subscription expired and no free attempts left
       const studentSnap = await db.collection('students').doc(studentId).get();
       if (!studentSnap.exists) continue;
       const studentData = studentSnap.data();
       const subUntil = studentData.subscriptionUntil ? new Date(studentData.subscriptionUntil).getTime() : 0;
-      if (subUntil <= Date.now()) {
-        const trialStart = studentData.trialStartedAt
-          ? new Date(studentData.trialStartedAt).getTime()
-          : studentData.joinedAt ? new Date(studentData.joinedAt).getTime() : 0;
-        if (!trialStart || Date.now() - trialStart > TRIAL_DAYS * 24 * 60 * 60 * 1000) continue;
-      }
+      const freeUsed = studentData.freeAttemptsUsed || 0;
+      if (subUntil <= Date.now() && freeUsed >= 2) continue;
 
       const subjects = await getStudentSubjects(studentId);
       if (!subjects.length) continue;
@@ -219,7 +213,7 @@ exports.sendBroadcastPush = onDocumentCreated(
       return;
     }
 
-    const { title, message } = snapshot.data();
+    const { title, message, target } = snapshot.data();
     if (!title || !message) return;
 
     const vapidPrivateKeyValue = (process.env.VAPID_PRIVATE_KEY || '').trim();
@@ -232,10 +226,30 @@ exports.sendBroadcastPush = onDocumentCreated(
 
     const broadcastId = event.params.broadcastId;
     const subsSnap = await db.collection('push_subscriptions').get();
-    let sent = 0;
+    const now = Date.now();
 
+    // Pre-fetch students map for filtering
+    let studentsMap = null;
+    if (target === 'paid' || target === 'unpaid') {
+      const studSnap = await db.collection('students').get();
+      studentsMap = {};
+      studSnap.forEach((d) => { studentsMap[d.id] = d.data(); });
+    }
+
+    let sent = 0;
     for (const subDoc of subsSnap.docs) {
+      const studentId = subDoc.id;
       const subscription = subDoc.data();
+
+      if (target === 'paid' || target === 'unpaid') {
+        const s = studentsMap ? studentsMap[studentId] : null;
+        if (!s) continue;
+        const subUntil = s.subscriptionUntil ? new Date(s.subscriptionUntil).getTime() : 0;
+        const isPaid = subUntil > now;
+        if (target === 'paid' && !isPaid) continue;
+        if (target === 'unpaid' && isPaid) continue;
+      }
+
       const pushPayload = JSON.stringify({
         type: 'broadcast',
         title,
@@ -251,12 +265,12 @@ exports.sendBroadcastPush = onDocumentCreated(
         sent++;
       } catch (err) {
         if (err.statusCode === 410 || err.statusCode === 404) {
-          await db.collection('push_subscriptions').doc(subDoc.id).delete();
+          await db.collection('push_subscriptions').doc(studentId).delete();
         }
       }
     }
 
-    console.log(`[Broadcast] Sent "${title}" to ${sent} subscribers`);
+    console.log(`[Broadcast] Sent "${title}" to ${sent} subscriber(s) (target: ${target || 'all'})`);
   }
 );
 
@@ -282,14 +296,22 @@ exports.computeLeaderboard = onSchedule(
     const students = {};
     studentsSnap.forEach((d) => { students[d.id] = d.data(); });
 
-    // Compute per-student totals
+    // Compute per-student totals, session counts, and gold medals
     const totals = {};
+    const sessions = {};
+    const goldMedals = {};
     Object.keys(students).forEach((sid) => {
       const myScores = scores.filter((s) => s.studentId === sid);
       const best = {};
+      const uniqueSessions = new Set();
+      const uniqueWeeks = new Set();
       myScores.forEach((sc) => {
         if (!best[sc.subject] || sc.score > best[sc.subject].score) best[sc.subject] = sc;
+        uniqueSessions.add(`${sc.week}::${sc.subject}`);
+        uniqueWeeks.add(sc.week);
       });
+      sessions[sid] = uniqueSessions.size;
+      goldMedals[sid] = uniqueWeeks.size;
       const top = Object.values(best);
       if (top.length >= 4) {
         totals[sid] = top.slice(0, 4).reduce((a, sc) => a + sc.score, 0);
@@ -302,7 +324,11 @@ exports.computeLeaderboard = onSchedule(
       id: sid,
       name: students[sid]?.name || 'Unknown',
       nickname: students[sid]?.nickname || '',
+      year: students[sid]?.year || '',
+      subjects: students[sid]?.subjects || [],
       total,
+      sessionCount: sessions[sid] || 0,
+      goldMedals: goldMedals[sid] || 0,
     }));
     await db.collection('leaderboard').doc('overall').set({
       top: overallTop,
@@ -331,7 +357,7 @@ exports.computeLeaderboard = onSchedule(
     let count = 0;
     allRanked.forEach(([sid, total], i) => {
       const ref = db.collection('leaderboard_student_ranks').doc(sid);
-      writeBatch.set(ref, { rank: i + 1, total, updatedAt: new Date().toISOString() });
+      writeBatch.set(ref, { rank: i + 1, total, sessionCount: (sessions[sid] || 0), goldMedals: (goldMedals[sid] || 0), updatedAt: new Date().toISOString() });
       count++;
       if (count >= 400) {
         // Firestore batch limit is 500
@@ -350,10 +376,8 @@ function getStatus(s) {
   const now = Date.now();
   const subUntil = s.subscriptionUntil ? new Date(s.subscriptionUntil).getTime() : 0;
   if (subUntil > now) return 'active';
-  const trialStart = s.trialStartedAt ? new Date(s.trialStartedAt).getTime()
-    : s.joinedAt ? new Date(s.joinedAt).getTime() : now;
-  const trialEnd = trialStart + 14 * 24 * 60 * 60 * 1000;
-  if (trialEnd > now) return 'trial';
+  const freeUsed = s.freeAttemptsUsed || 0;
+  if (freeUsed < 2) return 'freebie';
   return 'expired';
 }
 
@@ -439,13 +463,13 @@ exports.computeAdminStats = onCall(async () => {
       last30Days: yrPayments.filter(p => new Date(p.paidAt).getTime() >= last30Start).reduce((a, p) => a + (p.amount || 0), 0),
     };
 
-    let active = 0, trial = 0, expired = 0;
-    yrStudents.forEach(s => { const st = getStatus(s); if (st === 'active') active++; else if (st === 'trial') trial++; else expired++; });
+    let active = 0, freebie = 0, expired = 0;
+    yrStudents.forEach(s => { const st = getStatus(s); if (st === 'active') active++; else if (st === 'freebie') freebie++; else expired++; });
 
     const docId = year === 'all' ? 'overview' : `year_${year}`;
     await db.collection('admin_stats').doc(docId).set({
       year, studentCount, attemptCount, avgScore, topOverall, topBySubject,
-      subjectAverages, revenue, statusCounts: { active, trial, expired },
+      subjectAverages, revenue, statusCounts: { active, freebie, expired },
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   }
