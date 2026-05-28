@@ -576,3 +576,86 @@ exports.testPushToAll = onCall(
     return { ok: true, sent, total: subsSnap.size };
   }
 );
+
+exports.sendQuizReminders = onSchedule(
+  {
+    schedule: 'every 1 minutes',
+    timeZone: 'Africa/Lagos',
+    secrets: ['VAPID_PRIVATE_KEY'],
+  },
+  async () => {
+    const vapidPrivateKeyValue = (process.env.VAPID_PRIVATE_KEY || '').trim();
+    if (!vapidPrivateKeyValue) { console.log('[QuizReminder] No VAPID key'); return; }
+    webpush.setVapidDetails('mailto:admin@274lab.com', VAPID_PUBLIC_KEY, vapidPrivateKeyValue);
+
+    const adminSnap = await db.collection('admin_settings').doc('notifications').get();
+    if (adminSnap.exists && adminSnap.data().enabled === false) { console.log('[QuizReminder] Disabled by admin'); return; }
+
+    const week = await getActiveWeek();
+    const settingsSnap = await db.collection('settings').get();
+    const quizDoc = settingsSnap.docs.find((d) => d.data().key === `quizDates_${week}`);
+    if (!quizDoc) { console.log(`[QuizReminder] No dates for ${week}`); return; }
+
+    const { date1, date2 } = quizDoc.data();
+    const quizDates = [];
+    if (date1) quizDates.push({ id: '1', time: new Date(date1).getTime() });
+    if (date2) quizDates.push({ id: '2', time: new Date(date2).getTime() });
+
+    const now = Date.now();
+    const INTERVALS = [
+      { label: '2h', ms: 2 * 60 * 60 * 1000 },
+      { label: '1.5h', ms: 90 * 60 * 1000 },
+      { label: '15m', ms: 15 * 60 * 1000 },
+      { label: '5m', ms: 5 * 60 * 1000 },
+    ];
+    const TOLERANCE = 60 * 1000;
+
+    const subsSnap = await db.collection('push_subscriptions').get();
+    if (subsSnap.empty) { console.log('[QuizReminder] No subscriptions'); return; }
+
+    for (const qd of quizDates) {
+      const timeUntil = qd.time - now;
+      if (timeUntil <= 0) continue;
+
+      for (const interval of INTERVALS) {
+        if (Math.abs(timeUntil - interval.ms) > TOLERANCE) continue;
+
+        const reminderKey = `${week}_date${qd.id}_${interval.label}`;
+        const guardRef = db.collection('reminder_sent').doc(reminderKey);
+        const guardSnap = await guardRef.get();
+        if (guardSnap.exists) { console.log(`[QuizReminder] ${reminderKey} already sent`); continue; }
+
+        const messages = {
+          '2h': '📝 Your quiz starts in 2 hours! Time to review.',
+          '1.5h': '⏰ Quiz in 1 hour 30 minutes! Get your notes ready.',
+          '15m': '🔔 Quiz starts in 15 minutes! Log in now.',
+          '5m': '🚀 5 minutes to quiz time! Find a quiet spot.',
+        };
+
+        const body = messages[interval.label] || `Quiz starts in ${interval.label}!`;
+        let sent = 0;
+        for (const subDoc of subsSnap.docs) {
+          const studentSnap = await db.collection('students').doc(subDoc.id).get();
+          if (!studentSnap.exists) continue;
+          const s = studentSnap.data();
+          const subUntil = s.subscriptionUntil ? new Date(s.subscriptionUntil).getTime() : 0;
+          if (subUntil <= now && (s.freeAttemptsUsed || 0) >= 2) continue;
+
+          try {
+            await webpush.sendNotification(
+              { endpoint: subDoc.data().endpoint, keys: subDoc.data().keys },
+              JSON.stringify({ title: '📝 Quiz Reminder', body, icon: '/icon-192.png', badge: '/badge-72.png', data: { url: '/' } })
+            );
+            sent++;
+          } catch (err) {
+            if (err.statusCode === 410 || err.statusCode === 404) {
+              await db.collection('push_subscriptions').doc(subDoc.id).delete();
+            }
+          }
+        }
+        await guardRef.set({ sentAt: new Date().toISOString(), sent });
+        console.log(`[QuizReminder] ${reminderKey}: sent to ${sent} students`);
+      }
+    }
+  }
+);
