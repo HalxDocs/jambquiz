@@ -10,9 +10,9 @@ export default function Supporters({ student, setStudent, setView }) {
   const handleSave = async () => {
     const p = parentPhone.trim()
     const t = teacherPhone.trim()
-    if (!p && !t) { setErr('Enter at least one phone number (parent or teacher)'); return }
-    if (p && p.length < 7) { setErr('Enter a valid parent phone number'); return }
-    if (t && t.length < 7) { setErr('Enter a valid teacher phone number'); return }
+    if (!p && !t) { setErr('Enter at least one phone number'); return }
+    if (p && p.length < 7) { setErr('Enter a valid phone number'); return }
+    if (t && t.length < 7) { setErr('Enter a valid phone number'); return }
     setLoading(true); setErr('')
     try {
       const updates = {}
@@ -62,7 +62,7 @@ export default function Supporters({ student, setStudent, setView }) {
         <div className="space-y-3.5 mb-4">
           <div>
             <label className="text-[11px] font-bold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-              Parent / Guardian Phone
+              PARENT / GUARDIAN / SIBLING PHONE
             </label>
             <div className="flex border border-[#E5E5E5] rounded-xl overflow-hidden focus-within:border-[#111] transition-colors bg-white">
               <span className="px-3 py-3 text-sm font-semibold text-[#555] bg-[#F8F8F7] border-r border-[#E5E5E5] select-none font-label">+234</span>
@@ -78,7 +78,7 @@ export default function Supporters({ student, setStudent, setView }) {
 
           <div>
             <label className="text-[11px] font-bold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-              Teacher / Tutor Phone
+              TEACHER / TUTOR / FRIEND PHONE
             </label>
             <div className="flex border border-[#E5E5E5] rounded-xl overflow-hidden focus-within:border-[#111] transition-colors bg-white">
               <span className="px-3 py-3 text-sm font-semibold text-[#555] bg-[#F8F8F7] border-r border-[#E5E5E5] select-none font-label">+234</span>
