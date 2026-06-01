@@ -1,3 +1,5 @@
+import SEO from '../components/seo/SEO'
+
 export default function Intro({ onContinue }) {
   const steps = [
     {
