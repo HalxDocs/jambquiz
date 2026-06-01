@@ -21,6 +21,7 @@ import {
   startAfter,
   runTransaction,
   increment,
+  serverTimestamp,
 } from 'firebase/firestore'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 
@@ -53,4 +54,4 @@ const db = makeDb()
 
 const functions = getFunctions(app)
 
-export { db, getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc, setDoc, getDoc, query, where, orderBy, limit, startAfter, runTransaction, increment, functions, httpsCallable }
+export { db, getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc, setDoc, getDoc, query, where, orderBy, limit, startAfter, runTransaction, increment, serverTimestamp, functions, httpsCallable }

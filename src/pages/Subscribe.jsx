@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { addPayment, extendSubscription, listenPayments, getAccessStatus, SUBSCRIPTION_PRICE_NGN, findStudent, updateStudent } from '../store/useStore'
+import { addPayment, extendSubscription, listenPayments, getAccessStatus, SUBSCRIPTION_PRICE_NGN, findStudent, updateStudent, logEvent } from '../store/useStore'
 
 const PAYSTACK_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ''
 
@@ -9,6 +9,8 @@ export default function Subscribe({ student, setStudent, setView }) {
   const [success, setSuccess] = useState('')
   const [history, setHistory] = useState([])
   const [email, setEmail] = useState(student.email || '')
+
+  useEffect(() => { logEvent(student.id, 'page_view', { page: 'subscribe' }) }, [])
 
   useEffect(() => {
     const unsub = listenPayments((all) => {

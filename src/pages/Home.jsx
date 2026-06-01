@@ -5,6 +5,16 @@ import { doc, getDoc, setDoc, db } from '../firebase'
 const LOGIN_COOLDOWN_MS = 30000
 const MAX_ATTEMPTS = 5
 
+import SEO from '../components/seo/SEO'
+
+const ORG_JSONLD = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "274Lab",
+  "description": "JAMB Weekly Quiz and revision platform. 274 days to identify weaknesses and ace JAMB.",
+  "url": "https://fitness-gym-fc040.web.app",
+}
+
 export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [tab, setTab] = useState('student')
   const [mode, setMode] = useState('login')
@@ -80,7 +90,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       setView('dashboard')
     } catch {
       if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Something went wrong. Please try again.')
+      else setErr('Could not sign in. Server error — please try again.')
     }
     setLoading(false)
   }
@@ -113,7 +123,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       setView('supporters')
     } catch {
       if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Something went wrong. Please try again.')
+      else setErr('Could not create account. Server error — please try again.')
     }
     setLoading(false)
   }
@@ -136,7 +146,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       setAdminAuthed(true); setView('admin')
     } catch {
       if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Something went wrong. Please try again.')
+      else setErr('Could not verify admin. Server error — please try again.')
     }
     setLoading(false)
   }
@@ -200,6 +210,8 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   }
 
   return (
+    <>
+      <SEO title="Home" jsonLd={ORG_JSONLD} />
     <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
 
@@ -209,7 +221,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
               <span className="text-xl font-bold text-white font-display leading-none tracking-tighter">274</span>
               <span className="text-[9px] font-bold text-white/50 font-display leading-none tracking-widest uppercase mt-0.5">Lab</span>
             </div>
-            <p className="text-[9px] text-[#999] font-label leading-relaxed">
+            <p className="text-xs text-[#888] font-label leading-relaxed">
               274days to identify weaknesses and fix them to ace JAMB
             </p>
           {mode !== 'register' && (
@@ -640,9 +652,10 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
         </div>
 
         <p className="text-center text-[11px] text-[#AAA] mt-6 font-label">
-          Supported by <span className="text-[#555] font-semibold">Adeola Memorial College</span>
+          Supported by <span className="text-[#555] font-semibold">A.M.C</span>
         </p>
       </div>
     </div>
+    </>
   )
 }

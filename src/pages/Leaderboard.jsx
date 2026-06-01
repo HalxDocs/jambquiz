@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { MedalFirstPlaceIcon, MedalSecondPlaceIcon, MedalThirdPlaceIcon, CrownIcon, Award01Icon, BookOpen01Icon, StarIcon, StarCircleIcon, Search01Icon } from '@hugeicons/core-free-icons'
 import { db, collection, doc, onSnapshot, getDoc, getDocs, query, where } from '../firebase'
 import { getStudentScores } from '../store/scores'
+import { logEvent } from '../store/useStore'
 
 
-const MEDAL = ['🥇', '🥈', '🥉']
+const MEDAL_ICONS = [MedalFirstPlaceIcon, MedalSecondPlaceIcon, MedalThirdPlaceIcon]
 
 const TITLES = [
-  { min: 350, label: 'JAMB Champion', icon: '👑', emoji: '🏆', color: 'text-yellow-600', bg: 'bg-yellow-100' },
-  { min: 300, label: 'Honor Roll', icon: '🏅', emoji: '📜', color: 'text-blue-600', bg: 'bg-blue-100' },
-  { min: 200, label: 'Scholar', icon: '📖', emoji: '🧠', color: 'text-purple-600', bg: 'bg-purple-100' },
-  { min: 100, label: 'Quiz Apprentice', icon: '⚡', emoji: '🔰', color: 'text-green-600', bg: 'bg-green-100' },
-  { min: 0, label: 'Rising Star', icon: '🌟', emoji: '⭐', color: 'text-amber-600', bg: 'bg-amber-100' },
+  { min: 350, label: 'JAMB Champion', icon: CrownIcon, emoji: Award01Icon, color: 'text-yellow-600', bg: 'bg-yellow-100' },
+  { min: 300, label: 'Honor Roll', icon: Award01Icon, emoji: BookOpen01Icon, color: 'text-blue-600', bg: 'bg-blue-100' },
+  { min: 200, label: 'Scholar', icon: BookOpen01Icon, emoji: StarIcon, color: 'text-purple-600', bg: 'bg-purple-100' },
+  { min: 100, label: 'Quiz Apprentice', icon: StarCircleIcon, emoji: StarCircleIcon, color: 'text-green-600', bg: 'bg-green-100' },
+  { min: 0, label: 'Rising Star', icon: StarCircleIcon, emoji: StarIcon, color: 'text-amber-600', bg: 'bg-amber-100' },
 ]
 
 function getTitle(total) {
@@ -56,6 +59,8 @@ export default function Leaderboard({ student, setView }) {
   const [myRank, setMyRank] = useState(null)
 
   const [subjectBoards, setSubjectBoards] = useState([])
+
+  useEffect(() => { logEvent(student.id, 'page_view', { page: 'leaderboard' }) }, [])
 
   useEffect(() => {
     let unsubLeaderboard
@@ -224,30 +229,30 @@ export default function Leaderboard({ student, setView }) {
                     {/* 2nd */}
                     {finalBoard[1] && (
                       <div className="flex-1 text-center pb-2">
-                        <p className="text-2xl mb-1">🥈</p>
+                        <div className="mb-1 flex justify-center"><HugeiconsIcon icon={MedalSecondPlaceIcon} size={28} color="#A8A8A8" /></div>
                         <p className="text-[11px] font-bold text-white font-display truncate">{finalBoard[1].name.split(' ')[0]}</p>
                         {finalBoard[1].nickname && <p className="text-[9px] text-[#666] font-label truncate">@{finalBoard[1].nickname}</p>}
-                        <p className="text-[10px] text-[#555] font-label mt-1">{getTitle(finalBoard[1].total || 0).icon} {getTitle(finalBoard[1].total || 0).label}</p>
+                        <p className="text-[10px] text-[#555] font-label mt-1 inline-flex items-center gap-0.5 justify-center"><HugeiconsIcon icon={getTitle(finalBoard[1].total || 0).icon} size={11} color="#666" /> {getTitle(finalBoard[1].total || 0).label}</p>
                         <p className="text-[11px] font-bold text-[#CCC] font-display mt-1">{finalBoard[1].total}<span className="text-[9px] text-[#555] font-label">/400</span></p>
                       </div>
                     )}
                     {/* 1st */}
                     {finalBoard[0] && (
                       <div className="flex-1 text-center">
-                        <p className="text-3xl mb-1">🥇</p>
+                        <div className="mb-1 flex justify-center"><HugeiconsIcon icon={MedalFirstPlaceIcon} size={36} color="#FFD700" /></div>
                         <p className="text-[13px] font-bold text-white font-display truncate">{finalBoard[0].name.split(' ')[0]}</p>
                         {finalBoard[0].nickname && <p className="text-[9px] text-[#888] font-label truncate">@{finalBoard[0].nickname}</p>}
-                        <p className="text-[10px] text-[#777] font-label mt-1">{getTitle(finalBoard[0].total || 0).icon} {getTitle(finalBoard[0].total || 0).label}</p>
+                        <p className="text-[10px] text-[#777] font-label mt-1 inline-flex items-center gap-0.5 justify-center"><HugeiconsIcon icon={getTitle(finalBoard[0].total || 0).icon} size={11} color="#888" /> {getTitle(finalBoard[0].total || 0).label}</p>
                         <p className="text-[12px] font-bold text-yellow-400 font-display mt-1">{finalBoard[0].total}<span className="text-[9px] text-[#666] font-label">/400</span></p>
                       </div>
                     )}
                     {/* 3rd */}
                     {finalBoard[2] && (
                       <div className="flex-1 text-center pb-4">
-                        <p className="text-xl mb-1">🥉</p>
+                        <div className="mb-1 flex justify-center"><HugeiconsIcon icon={MedalThirdPlaceIcon} size={24} color="#CD7F32" /></div>
                         <p className="text-[11px] font-bold text-white font-display truncate">{finalBoard[2].name.split(' ')[0]}</p>
                         {finalBoard[2].nickname && <p className="text-[9px] text-[#666] font-label truncate">@{finalBoard[2].nickname}</p>}
-                        <p className="text-[10px] text-[#555] font-label mt-1">{getTitle(finalBoard[2].total || 0).icon} {getTitle(finalBoard[2].total || 0).label}</p>
+                        <p className="text-[10px] text-[#555] font-label mt-1 inline-flex items-center gap-0.5 justify-center"><HugeiconsIcon icon={getTitle(finalBoard[2].total || 0).icon} size={11} color="#666" /> {getTitle(finalBoard[2].total || 0).label}</p>
                         <p className="text-[11px] font-bold text-[#CCC] font-display mt-1">{finalBoard[2].total}<span className="text-[9px] text-[#555] font-label">/400</span></p>
                       </div>
                     )}
@@ -266,7 +271,7 @@ export default function Leaderboard({ student, setView }) {
                       <div key={s.id} className={`px-4 py-3 ${isMe ? 'bg-[#FFF8E7]' : ''}`}>
                         <div className="flex items-center gap-3">
                           <span className={`w-10 h-10 flex items-center justify-center rounded-xl text-lg font-bold font-display shrink-0 ${i < 3 ? 'bg-gradient-to-br from-yellow-400 to-amber-600 text-white shadow-md shadow-yellow-200' : 'bg-[#F3F3F2] text-[#888]'}`}>
-                            {i < 3 ? MEDAL[i] : `#${i + 1}`}
+                            {i < 3 ? <HugeiconsIcon icon={MEDAL_ICONS[i]} size={20} color="currentColor" /> : `#${i + 1}`}
                           </span>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">
@@ -278,7 +283,7 @@ export default function Leaderboard({ student, setView }) {
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                               {s.nickname && <span className="text-[10px] text-[#999] font-label">@{s.nickname}</span>}
-                              {cr && <span className={`text-[9px] font-bold font-label ${cr.color}`}>⚡{cr.label}</span>}
+                              {cr && <span className={`inline-flex items-center gap-0.5 text-[9px] font-bold font-label ${cr.color}`}><HugeiconsIcon icon={StarCircleIcon} size={10} color="currentColor" />{cr.label}</span>}
                               {s.year && <span className="text-[9px] font-bold text-white bg-[#555] px-1.5 py-0.5 rounded font-label">{s.year}</span>}
                             </div>
                           </div>
@@ -290,9 +295,14 @@ export default function Leaderboard({ student, setView }) {
                         <div className="mt-2 w-full bg-[#F3F3F2] rounded-full h-2 overflow-hidden">
                           <div className={`h-full rounded-full transition-all ${bar.color}`} style={{ width: `${bar.pct}%` }} />
                         </div>
-                        <div className="mt-1.5 flex items-center gap-2">
+                        <div className="mt-1.5 flex items-center gap-1">
                           {s.goldMedals > 0 && (
-                            <span className="text-xs tracking-[0.08em] leading-none">{s.goldMedals <= 7 ? '🥇'.repeat(s.goldMedals) : '🥇'.repeat(7) + '+'}</span>
+                            <span className="inline-flex items-center gap-0.5 text-xs tracking-[0.08em]">
+                              {Array.from({ length: Math.min(s.goldMedals, 7) }, (_, idx) => (
+                                <HugeiconsIcon key={idx} icon={MedalFirstPlaceIcon} size={12} color="#F59E0B" />
+                              ))}
+                              {s.goldMedals > 7 && <span className="text-[9px] font-bold font-label text-[#999]">+{s.goldMedals - 7}</span>}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -329,7 +339,7 @@ export default function Leaderboard({ student, setView }) {
                     return (
                       <div key={s.id} className={`flex items-center gap-2.5 py-1.5 ${i < ranked.length - 1 ? 'border-b border-[#F8F8F7]' : ''}`}>
                         <span className="w-5 text-center text-xs font-bold font-display shrink-0 text-[#CCC]">
-                          {i < 3 ? MEDAL[i] : i + 1}
+                          {i < 3 ? <HugeiconsIcon icon={MEDAL_ICONS[i]} size={14} color="#999" /> : i + 1}
                         </span>
                         <div className="flex-1 min-w-0">
                           <p className={`text-xs font-semibold font-body truncate ${isMe ? 'text-[#111] font-bold' : 'text-[#333]'}`}>
@@ -379,14 +389,13 @@ export default function Leaderboard({ student, setView }) {
                   const rank = fr?.rank || 0
                   const total = fr?.total || 0
                   const medalCount = fr?.goldMedals || 0
-                  const showMedals = medalCount > 0 ? (medalCount <= 7 ? '🥇'.repeat(medalCount) : '🥇'.repeat(7) + '+') : ''
                   return (
                     <div key={s.id} className={`bg-white border ${isMe ? 'border-[#F59E0B]' : 'border-[#EBEBEB]'} rounded-2xl overflow-hidden`}>
                       <div className="p-3.5">
                         <div className="flex items-center gap-2.5">
                           {rank > 0 ? (
                             <span className={`w-9 h-9 flex items-center justify-center rounded-xl text-base font-bold font-display shrink-0 ${rank <= 3 ? 'bg-gradient-to-br from-yellow-400 to-amber-600 text-white shadow-sm shadow-yellow-200' : 'bg-[#F3F3F2] text-[#888]'}`}>
-                              {rank <= 3 ? MEDAL[rank - 1] : `#${rank}`}
+                              {rank <= 3 ? <HugeiconsIcon icon={MEDAL_ICONS[rank - 1]} size={20} color="currentColor" /> : `#${rank}`}
                             </span>
                           ) : (
                             <span className="w-9 h-9 flex items-center justify-center rounded-xl bg-[#F8F8F7] text-[#CCC] text-[11px] font-label shrink-0">NR</span>
@@ -399,7 +408,7 @@ export default function Leaderboard({ student, setView }) {
                             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                               {s.nickname ? <span className="text-[10px] text-[#999] font-label">@{s.nickname}</span> : null}
                               {s.consistencyRank && (
-                                <span className={`text-[9px] font-bold font-label ${s.consistencyRank.color}`}>⚡{s.consistencyRank.label}</span>
+                                <span className={`inline-flex items-center gap-0.5 text-[9px] font-bold font-label ${s.consistencyRank.color}`}><HugeiconsIcon icon={StarCircleIcon} size={10} color="currentColor" />{s.consistencyRank.label}</span>
                               )}
                               {s.year && <span className="text-[9px] text-[#AAA] font-label">{s.year}</span>}
                             </div>
@@ -415,9 +424,14 @@ export default function Leaderboard({ student, setView }) {
                                 <span className="text-[10px] text-[#AAA] font-label">/400</span>
                                 <span className="ml-2 text-[9px] text-[#BBB] font-label">Score</span>
                               </div>
-                              {showMedals && (
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-xs tracking-[0.06em] leading-none">{showMedals}</span>
+                              {medalCount > 0 && (
+                                <div className="flex items-center gap-1">
+                                  <span className="inline-flex items-center gap-0.5 text-xs tracking-[0.06em]">
+                                    {Array.from({ length: Math.min(medalCount, 7) }, (_, idx) => (
+                                      <HugeiconsIcon key={idx} icon={MedalFirstPlaceIcon} size={12} color="#F59E0B" />
+                                    ))}
+                                    {medalCount > 7 && <span className="text-[9px] font-bold font-label text-[#999]">+{medalCount - 7}</span>}
+                                  </span>
                                   <span className="text-[9px] text-[#BBB] font-label">{medalCount} {medalCount === 1 ? 'medal' : 'medals'}</span>
                                 </div>
                               )}
@@ -438,7 +452,7 @@ export default function Leaderboard({ student, setView }) {
             )}
             {!friendSearch.trim() && (
               <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
-                <p className="text-2xl mb-2">🔍</p>
+                <div className="mb-2 flex justify-center"><HugeiconsIcon icon={Search01Icon} size={32} color="#CCC" /></div>
                 <p className="text-sm font-semibold text-[#111] font-display mb-1">Find a Friend</p>
                 <p className="text-[11px] text-[#AAA] font-label">Search by name or nickname to see their rank and medals</p>
               </div>

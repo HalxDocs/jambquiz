@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { load, save, addScore, getQuestions, getTopics, getQuestionLimit, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, WEEKS, incrementFreeAttempts } from '../store/useStore'
+import { load, save, addScore, getQuestions, getTopics, getQuestionLimit, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, WEEKS, incrementFreeAttempts, logEvent } from '../store/useStore'
 
 const questionCache = new Map()
 import QuizTimer from '../components/quiz/QuizTimer'
@@ -88,6 +88,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     const { status } = getAccessStatus(student)
     if (status === 'expired') { setStep('expired'); return }
     if (!retakeData && !isInQuizWindow(quizDates)) { setStep('locked'); return }
+    logEvent(student.id, 'quiz_loaded', { retake: !!retakeData })
     setStep('loading')
   }, [quizDatesReady, currentWeek])
 
@@ -200,6 +201,11 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     }
 
     incrementFreeAttempts(student.id)
+    logEvent(student.id, 'quiz_completed', {
+      subjects: results.map((r) => r.subject),
+      scores: results.map((r) => r.score),
+      total: results.reduce((a, r) => a + r.score, 0),
+    })
 
     if (results.length > 0) setLastScore(results[0])
     if (setRetakeData) setRetakeData(null)

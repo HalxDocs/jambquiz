@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { HeartAddIcon, Mail01Icon } from '@hugeicons/core-free-icons'
 import {
   listenActiveWeek, listenScores, getTopics, normalizeTopic,
-  getAccessStatus, getConsistencyRank, listenQuizDates, WEEKS,
+  getAccessStatus, getConsistencyRank, listenQuizDates, WEEKS, logEvent,
 } from '../store/useStore'
 import { registerPushNotifications, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
@@ -91,6 +93,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   const [keyPointIdx, setKeyPointIdx] = useState(0)
   const [kpDismissed, setKpDismissed] = useState(false)
+  const [patchesToast, setPatchesToast] = useState(false)
 
   const [pushPermission, setPushPermission] = useState(() =>
     typeof Notification !== 'undefined' ? Notification.permission : 'denied'
@@ -116,6 +119,8 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   }, [currentWeek])
 
   useEffect(() => { getTopics(currentWeek).then((t) => setWeekTopics(t || {})); setKpDismissed(false); setKeyPointIdx(0) }, [currentWeek])
+
+  useEffect(() => { logEvent(student.id, 'page_view', { page: 'dashboard' }) }, [])
 
   const handleEnableNotifications = async () => {
     const sub = await registerPushNotifications()
@@ -149,6 +154,55 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
       })
     }
   }, [student.id])
+
+  // Inject/remove patches dark mode styles
+  useEffect(() => {
+    const existing = document.getElementById('patches-mode-styles')
+    if (patchesActive) {
+      if (!existing) {
+        const style = document.createElement('style')
+        style.id = 'patches-mode-styles'
+        style.textContent = `
+          html.patches-mode { background: #0a0a0a !important; }
+          html.patches-mode > body { background: #0a0a0a !important; color: #ddd !important; }
+          html.patches-mode .bg-\\[\\#F8F8F7\\] { background: #0d0d0d !important; }
+          html.patches-mode .bg-white { background-color: #161616 !important; }
+          html.patches-mode .border-\\[\\#EBEBEB\\] { border-color: #2a1515 !important; }
+          html.patches-mode .border-\\[\\#E5E5E5\\] { border-color: #3a1818 !important; }
+          html.patches-mode .border-\\[\\#F3F3F2\\] { border-color: #2a1515 !important; }
+          html.patches-mode .text-\\[\\#111\\] { color: #ff5555 !important; }
+          html.patches-mode .text-\\[\\#333\\] { color: #ddd !important; }
+          html.patches-mode .text-\\[\\#555\\] { color: #cc8888 !important; }
+          html.patches-mode .text-\\[\\#666\\] { color: #cc6666 !important; }
+          html.patches-mode .text-\\[\\#888\\] { color: #cc6666 !important; }
+          html.patches-mode .text-\\[\\#AAA\\] { color: #aa5555 !important; }
+          html.patches-mode .text-\\[\\#CCC\\] { color: #884444 !important; }
+          html.patches-mode .text-\\[\\#999\\] { color: #aa5555 !important; }
+          html.patches-mode .bg-\\[\\#F3F3F2\\] { background-color: #1a1a1a !important; }
+          html.patches-mode .bg-\\[\\#FAFAF9\\] { background-color: #1a1a1a !important; }
+          html.patches-mode .bg-\\[\\#F5F5F5\\] { background-color: #1a1a1a !important; }
+          html.patches-mode .from-\\[\\#1a1a1a\\] { background: #0a0a0a !important; }
+          html.patches-mode .to-\\[\\#111\\] { background: #0a0a0a !important; }
+          html.patches-mode .bg-gradient-to-b { background: linear-gradient(to bottom, #0d0d0d, #080808) !important; }
+          html.patches-mode .bg-\\[\\#FFF8E7\\] { background-color: #1a1515 !important; }
+          html.patches-mode select { background-color: #161616 !important; color: #ddd !important; }
+          html.patches-mode input { background-color: #161616 !important; color: #ddd !important; }
+        `
+        document.head.appendChild(style)
+      }
+      document.documentElement.classList.add('patches-mode')
+      setPatchesToast(true)
+      setTimeout(() => setPatchesToast(false), 5000)
+    } else {
+      document.documentElement.classList.remove('patches-mode')
+      if (existing) existing.remove()
+    }
+    return () => {
+      document.documentElement.classList.remove('patches-mode')
+      const s = document.getElementById('patches-mode-styles')
+      if (s) s.remove()
+    }
+  }, [patchesActive])
 
   useEffect(() => { useUserNotificationStore.getState().setPatchesActive(patchesActive) }, [patchesActive])
 
@@ -192,11 +246,23 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   }
 
   const P = patchesActive ? { bg: 'bg-red-700', hoverBg: 'hover:bg-red-800', textColor: 'text-red-700' } : { bg: 'bg-[#111]', hoverBg: 'hover:bg-[#222]', textColor: 'text-[#111]' }
-  const isValentine = (() => { const d = new Date(); return d.getMonth() === 1 && d.getDate() === 14 })()
+  const patchesUnlocked = (() => { const d = new Date(); return d.getMonth() === 5 && d.getDate() >= 21 })()
 
   return (
     <div className="min-h-screen bg-[#F8F8F7]">
       <RankToast rank={rankUpToast} onDismiss={() => setRankUpToast(null)} />
+      {patchesToast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm">
+          <div className="bg-red-700 text-white rounded-2xl shadow-xl px-5 py-4 flex items-center gap-3">
+            <span className="text-2xl shrink-0">🚨</span>
+            <div className="flex-1">
+              <p className="text-sm font-bold font-display">Patches Activated!</p>
+              <p className="text-xs text-red-200 font-label mt-0.5">Time to work on your weak topics</p>
+            </div>
+            <button onClick={() => setPatchesToast(false)} className="text-red-200 hover:text-white text-lg leading-none transition-colors shrink-0">×</button>
+          </div>
+        </div>
+      )}
 
       {pushPermission !== 'granted' && (
         <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md">
@@ -306,11 +372,11 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
             </button>
           ) : (
             <>
-              <button onClick={isValentine ? handleOpenPatchesModal : undefined} disabled={!isValentine}
-                className={`w-full rounded-xl py-3.5 text-sm font-bold transition-all font-display ${isValentine ? 'bg-[#111] text-white hover:bg-[#222] active:scale-[0.99]' : 'bg-[#F3F3F2] text-[#CCC] cursor-not-allowed'}`}>
-                ❤️ ACTIVATE MY PATCHES
+              <button onClick={patchesUnlocked ? handleOpenPatchesModal : undefined} disabled={!patchesUnlocked}
+                className={`w-full rounded-xl py-3.5 text-sm font-bold transition-all font-display inline-flex items-center justify-center gap-1.5 ${patchesUnlocked ? 'bg-[#111] text-white hover:bg-[#222] active:scale-[0.99]' : 'bg-[#F3F3F2] text-[#CCC] cursor-not-allowed'}`}>
+                <HugeiconsIcon icon={HeartAddIcon} size={16} color="currentColor" /> ACTIVATE MY PATCHES
               </button>
-              {!isValentine && <p className="text-center text-[10px] text-[#CCC] font-label mt-1.5">Unlocks on February 14 only</p>}
+              {!patchesUnlocked && <p className="text-center text-[10px] text-[#CCC] font-label mt-1.5">Unlocks on June 21</p>}
             </>
           )}
         </div>
@@ -318,6 +384,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         <div className="flex gap-2">
           <button onClick={() => setView('results')} className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label">My Results</button>
           <button onClick={() => setView('leaderboard')} className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label">🏆 Leaderboard</button>
+          <button onClick={() => setView('contact')} className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label inline-flex items-center justify-center gap-1"><HugeiconsIcon icon={Mail01Icon} size={14} color="currentColor" /> Contact</button>
         </div>
       </div>
     </div>

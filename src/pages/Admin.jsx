@@ -9,6 +9,8 @@ import PaymentsPanel from '../components/admin/PaymentsPanel'
 import QuestionForm from '../components/admin/QuestionForm'
 import TopicEditor from '../components/admin/TopicEditor'
 import AdminNotifications from '../components/admin/AdminNotifications'
+import AnalyticsPanel from '../components/admin/AnalyticsPanel'
+import { useToastStore } from '../store/toast'
 
 export default function Admin({ setView }) {
   const [tab, setTab] = useState('students')
@@ -88,7 +90,9 @@ export default function Admin({ setView }) {
       try {
         const snap = await getDoc(doc(db, 'admin_stats', 'overview'))
         setAdminStats(snap.exists() ? snap.data() : null)
-      } catch { console.error('Failed to load stats') }
+      } catch (e) {
+        console.error('Stats load failed:', e?.message || '')
+      }
       setStatsLoading(false)
     })()
   }, [])
@@ -97,10 +101,24 @@ export default function Admin({ setView }) {
   const handleComputeStats = async () => {
     setStatsLoading(true)
     try {
-      await computeStatsFn()
+      const result = await computeStatsFn()
+      if (!result.data?.ok) { useToastStore.getState().showToast('Stats computation returned an error'); setStatsLoading(false); return }
       const snap = await getDoc(doc(db, 'admin_stats', 'overview'))
-      setAdminStats(snap.exists() ? snap.data() : null)
-    } catch (e) { alert(e?.message || 'Failed to compute stats') }
+      if (snap.exists()) {
+        setAdminStats(snap.data())
+      } else {
+        useToastStore.getState().showToast('Stats computed but no data found. Try again.', 'info')
+      }
+    } catch (e) {
+      const msg = e?.message || 'Unknown error'
+      if (msg.includes('NOT_FOUND') || msg.includes('functions.googleapis.com')) {
+        useToastStore.getState().showToast('Cloud function not deployed. Run: firebase deploy --only functions:computeAdminStats')
+      } else if (msg.includes('permission') || msg.includes('denied') || msg.includes('unauthenticated')) {
+        useToastStore.getState().showToast('Firestore rules blocking read. Deploy: firebase deploy --only firestore:rules, then retry.')
+      } else {
+        useToastStore.getState().showToast('Stats error: ' + msg)
+      }
+    }
     setStatsLoading(false)
   }
 
@@ -134,7 +152,7 @@ export default function Admin({ setView }) {
       await setActiveWeek(week)
       setActiveWeekState(week)
       setSelectedWeek(week)
-    } catch (e) { alert(e?.message || 'Failed to set active week') }
+    } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to set active week') }
   }
 
   const TABS = [
@@ -143,6 +161,7 @@ export default function Admin({ setView }) {
     { key: 'payments',  icon: Wallet01Icon,     label: 'Payments' },
     { key: 'questions', icon: HelpCircleIcon,   label: 'Questions' },
     { key: 'topics',    icon: Book01Icon,       label: 'Topics' },
+    { key: 'usage',     icon: Analytics01Icon,  label: 'Usage' },
     { key: 'notifications', icon: Notification02Icon, label: 'Notifications' },
   ]
 
@@ -166,7 +185,21 @@ export default function Admin({ setView }) {
         stats={adminStats}
         loading={statsLoading}
         onComputeStats={handleComputeStats}
-        onRefresh={async () => { setStatsLoading(true); try { const snap = await getDoc(doc(db, 'admin_stats', 'overview')); setAdminStats(snap.exists() ? snap.data() : null) } catch { console.error('Refresh failed') }; setStatsLoading(false) }}
+        onRefresh={async () => {
+          setStatsLoading(true)
+          try {
+            const snap = await getDoc(doc(db, 'admin_stats', 'overview'))
+            setAdminStats(snap.exists() ? snap.data() : null)
+          } catch (e) {
+            const msg = e?.message || ''
+            if (msg.includes('permission') || msg.includes('denied')) {
+              useToastStore.getState().showToast('Cannot read admin_stats. Deploy: firebase deploy --only firestore:rules')
+            } else {
+              useToastStore.getState().showToast('Refresh failed: ' + msg)
+            }
+          }
+          setStatsLoading(false)
+        }}
         onTabChange={setTab}
       />
     ),
@@ -207,6 +240,7 @@ export default function Admin({ setView }) {
       />
     ),
     notifications: <AdminNotifications />,
+    usage: <AnalyticsPanel />,
   }
 
   return (

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon, ArrowRight01Icon, ArrowLeft01Icon } from '@hugeicons/core-free-icons'
-import { getAccessStatus, updateStudent, deleteStudent, extendSubscription, addPayment, SUBSCRIPTION_PRICE_NGN } from '../../store/useStore'
+import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon, ArrowRight01Icon, ArrowLeft01Icon, UserAdd01Icon } from '@hugeicons/core-free-icons'
+import { getAccessStatus, updateStudent, deleteStudent, registerStudent } from '../../store/useStore'
+import { useToastStore } from '../../store/toast'
 
 const ACCESS_OPTIONS = [
   { label: 'This Month', months: null, desc: 'Until end of this month' },
@@ -27,14 +28,41 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
   const [expandedId, setExpandedId] = useState(null)
   const [success, setSuccess] = useState('')
   const [grantOpenFor, setGrantOpenFor] = useState(null)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [addForm, setAddForm] = useState({ name: '', nickname: '', password: '', year: String(new Date().getFullYear()), email: '', parentPhone: '', teacherPhone: '' })
+  const [addErr, setAddErr] = useState('')
+  const [addLoading, setAddLoading] = useState(false)
 
   const currentYear = new Date().getFullYear()
   const jamb_years = ['SS3', ...Array.from({ length: 10 }, (_, i) => String(currentYear + i))]
   const filterYears = ['all', ...jamb_years]
 
+  const handleAddStudent = async () => {
+    const trimmed = addForm.name.trim()
+    if (trimmed.length < 3) { setAddErr('Name must be at least 3 characters'); return }
+    if (addForm.password.length < 4) { setAddErr('Password must be at least 4 characters'); return }
+    setAddLoading(true); setAddErr('')
+    try {
+      const saved = await registerStudent({
+        name: trimmed,
+        nickname: addForm.nickname.trim(),
+        password: addForm.password,
+        year: addForm.year,
+        email: addForm.email.trim().toLowerCase(),
+        parentPhone: addForm.parentPhone.trim(),
+        teacherPhone: addForm.teacherPhone.trim(),
+        subjects: [],
+      })
+      if (!saved) { setAddErr('A student with this name already exists'); setAddLoading(false); return }
+      setAddForm({ name: '', nickname: '', password: '', year: String(new Date().getFullYear()), email: '', parentPhone: '', teacherPhone: '' })
+      setShowAddForm(false)
+    } catch { setAddErr('Failed to add student. Check your connection.') }
+    setAddLoading(false)
+  }
+
   const handleDeleteStudent = async (studentId, studentName) => {
     if (!window.confirm(`Delete "${studentName}"? This cannot be undone.`)) return
-    try { await deleteStudent(studentId) } catch (e) { alert(e?.message || 'Failed to delete student') }
+    try { await deleteStudent(studentId); useToastStore.getState().showToast(`Deleted "${studentName}"`, 'success') } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to delete student. They may have existing quiz data.') }
   }
 
   const startEditName = (student) => {
@@ -74,9 +102,8 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
     }
     try {
       await updateStudent(student.id, { subscriptionUntil: expiry })
-      setSuccess(`${student.name} granted access until ${new Date(expiry).toLocaleDateString('en-NG')}`)
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (e) { alert(e?.message || 'Failed to grant access') }
+      useToastStore.getState().showToast(`${student.name} granted access until ${new Date(expiry).toLocaleDateString('en-NG')}`, 'success')
+    } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to grant access. Check connection and try again.') }
     setGrantOpenFor(null)
   }
 
@@ -102,7 +129,7 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
     const greeting = recipient === 'parent'
       ? `Hello, this is a weekly performance update for *${student.name}* from 274Lab.`
       : `Hello, weekly performance update for your student *${student.name}* from 274Lab.`
-    const message = `${greeting}\n\n📊 *JAMB Total:* ${total}/${totalOut || 400} (${overallPct}%)\n📝 *Tests taken:* ${myScores.length}\n\n*Best score per subject:*\n${subjectLines}\n\n— 274Lab · Supported by Adeola Memorial College`
+    const message = `${greeting}\n\n📊 *JAMB Total:* ${total}/${totalOut || 400} (${overallPct}%)\n📝 *Tests taken:* ${myScores.length}\n\n*Best score per subject:*\n${subjectLines}\n\n— 274Lab · Supported by A.M.C`
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener')
   }
 
@@ -136,6 +163,43 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
           </button>
         ))}
       </div>
+
+      <button onClick={() => { setShowAddForm(!showAddForm); setAddErr('') }}
+        className={`mb-4 w-full h-10 flex items-center justify-center gap-1.5 rounded-xl text-xs font-bold font-label transition-colors ${
+          showAddForm ? 'bg-[#F3F3F2] text-[#555]' : 'bg-[#111] text-white hover:bg-[#222]'
+        }`}>
+        <HugeiconsIcon icon={UserAdd01Icon} size={16} color="currentColor" />
+        {showAddForm ? 'Cancel' : 'Add Student'}
+      </button>
+
+      {showAddForm && (
+        <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4 space-y-3">
+          <p className="text-[10px] font-bold text-[#888] uppercase tracking-wide font-label">New Student</p>
+          <input value={addForm.name} onChange={(e) => setAddForm({...addForm, name: e.target.value})}
+            placeholder="Full Name" className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111]" />
+          <input value={addForm.nickname} onChange={(e) => setAddForm({...addForm, nickname: e.target.value})}
+            placeholder="Nickname (optional)" className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111]" />
+          <input type="password" value={addForm.password} onChange={(e) => setAddForm({...addForm, password: e.target.value})}
+            placeholder="Password (min 4 chars)" className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111]" />
+          <select value={addForm.year} onChange={(e) => setAddForm({...addForm, year: e.target.value})}
+            className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white">
+            {['SS3', ...Array.from({ length: 10 }, (_, i) => String(currentYear + i))].map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+          <input value={addForm.email} onChange={(e) => setAddForm({...addForm, email: e.target.value})}
+            placeholder="Email (optional)" type="email" className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111]" />
+          <input value={addForm.parentPhone} onChange={(e) => setAddForm({...addForm, parentPhone: e.target.value})}
+            placeholder="Parent / Guardian / Sibling Phone (optional)" className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111]" />
+          <input value={addForm.teacherPhone} onChange={(e) => setAddForm({...addForm, teacherPhone: e.target.value})}
+            placeholder="Teacher / Tutor / Friend Phone (optional)" className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111]" />
+          {addErr && <p className="text-red-500 text-xs font-label">{addErr}</p>}
+          <button onClick={handleAddStudent} disabled={addLoading}
+            className="w-full bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] transition-all font-display disabled:opacity-40">
+            {addLoading ? 'Adding…' : 'Add Student →'}
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">

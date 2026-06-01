@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { SUBJECTS, WEEKS, setTopics, getTopics, normalizeTopic } from '../../store/useStore'
+import { useToastStore } from '../../store/toast'
 
 export default function TopicEditor({
   activeWeek,
@@ -31,9 +32,8 @@ export default function TopicEditor({
     try {
       await setTopics(topicWeek, topicInputs)
       onSetTopics(topicInputs)
-      setTopicSuccess('Topics saved!')
-      setTimeout(() => setTopicSuccess(''), 3000)
-    } catch (e) { alert(e?.message || 'Failed to save topics') }
+      useToastStore.getState().showToast(`Topics saved for ${topicWeek}`, 'success')
+    } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to save topics. Check your connection.') }
   }
 
   const handleCopyTopicsFrom = async (sourceWeek) => {
@@ -47,17 +47,15 @@ export default function TopicEditor({
         if (t) normalized[sub] = t
       })
       onSetTopicInputs(normalized)
-      setTopicSuccess(`Copied from ${sourceWeek} — review and Save`)
-      setTimeout(() => setTopicSuccess(''), 4000)
-    } catch (e) { alert(e?.message || 'Failed to copy topics') }
+      useToastStore.getState().showToast(`Copied from ${sourceWeek} — review and Save`, 'success')
+    } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to copy topics. Check your connection.') }
   }
 
   const handleSetActiveWeek = async (week) => {
     try {
       await onSetActiveWeek(week)
-      setSuccess(`Active week → ${week}`)
-      setTimeout(() => setSuccess(''), 3000)
-    } catch { alert('Failed.') }
+      useToastStore.getState().showToast(`Active week → ${week}`, 'success')
+    } catch { useToastStore.getState().showToast('Failed to set active week. Check your connection.') }
   }
 
   const toggleKeyPoints = (subject) => {

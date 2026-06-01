@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://fitness-gym-fc040.web.app/sitemap.xml

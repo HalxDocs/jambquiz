@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { listenScores, WEEKS } from '../store/useStore'
+import { listenScores, WEEKS, logEvent } from '../store/useStore'
 
 export default function Results({ student, setView }) {
   const [scores, setScores] = useState([])
@@ -12,6 +12,8 @@ export default function Results({ student, setView }) {
     }, student.id)
     return () => unsub()
   }, [student])
+
+  useEffect(() => { logEvent(student.id, 'page_view', { page: 'results' }) }, [])
 
   // Group by week — best score per subject per week
   const weekGroups = WEEKS.map((week) => {

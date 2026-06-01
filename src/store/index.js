@@ -30,3 +30,5 @@ export { setActiveWeek, getActiveWeek, listenActiveWeek, setQuizDates, getQuizDa
 export { addPayment, listenPayments, extendSubscription, getPaymentsPage } from './payments'
 
 export { getConsistencyRank } from './ranks'
+
+export { logEvent } from './analytics'

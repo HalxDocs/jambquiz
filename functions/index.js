@@ -1,6 +1,6 @@
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
-const { onCall } = require('firebase-functions/v2/https');
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
 const webpush = require('web-push');
 
@@ -382,11 +382,12 @@ function getStatus(s) {
 }
 
 exports.computeAdminStats = onCall(async () => {
-  const [studentsSnap, scoresSnap, paymentsSnap] = await Promise.all([
-    db.collection('students').get(),
-    db.collection('scores').get(),
-    db.collection('payments').get(),
-  ]);
+  try {
+    const [studentsSnap, scoresSnap, paymentsSnap] = await Promise.all([
+      db.collection('students').get(),
+      db.collection('scores').get(),
+      db.collection('payments').get(),
+    ]);
 
   const allScores = [];
   scoresSnap.forEach(d => allScores.push({ id: d.id, ...d.data() }));
@@ -476,6 +477,10 @@ exports.computeAdminStats = onCall(async () => {
 
   console.log(`[AdminStats] Computed for ${Object.keys(yearGroups).length} groups`);
   return { ok: true };
+  } catch (e) {
+    console.error('[AdminStats] Error:', e);
+    throw new HttpsError('internal', e.message || 'Failed to compute stats');
+  }
 });
 
 exports.sendMockReminder = onSchedule(

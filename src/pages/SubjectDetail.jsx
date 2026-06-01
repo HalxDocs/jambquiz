@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { listenScores, listenTopics, normalizeTopic } from '../store/useStore'
+import { listenScores, listenTopics, normalizeTopic, logEvent } from '../store/useStore'
 
 function renderCorrections(s) {
   if (!s.questions) return null
@@ -55,6 +55,8 @@ export default function SubjectDetail({ student, subject, setView, setRetakeData
   const [scores, setScores] = useState([])
   const [allTopics, setAllTopics] = useState({})
   const [expandedId, setExpandedId] = useState(null)
+
+  useEffect(() => { logEvent(student.id, 'page_view', { page: 'subject_detail', subject }) }, [])
 
   useEffect(() => {
     const unsubScores = listenScores((allScores) => {

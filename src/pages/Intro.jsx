@@ -71,7 +71,7 @@ export default function Intro({ onContinue }) {
         </button>
 
         <p className="text-center text-[11px] text-[#AAA] mt-5 font-label">
-          Supported by <span className="text-[#555] font-semibold">Adeola Memorial College</span>
+          Supported by <span className="text-[#555] font-semibold">A.M.C</span>
         </p>
       </div>
     </div>

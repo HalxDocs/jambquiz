@@ -11,6 +11,8 @@ import SubjectDetail from './pages/SubjectDetail'
 import Subscribe from './pages/Subscribe'
 import Leaderboard from './pages/Leaderboard'
 import Supporters from './pages/Supporters'
+import Contact from './pages/Contact'
+import GlobalToast from './components/ui/GlobalToast'
 import { findStudent, stripSensitive } from './store/useStore'
 
 function isIos() {
@@ -53,7 +55,7 @@ export default function App() {
 
   // Intercept hardware back button — go to dashboard instead of closing the app
   useEffect(() => {
-    const subViews = ['quiz', 'results', 'leaderboard', 'subject-detail', 'subscribe', 'supporters', 'subjects']
+    const subViews = ['quiz', 'results', 'leaderboard', 'subject-detail', 'subscribe', 'supporters', 'subjects', 'contact']
     if (subViews.includes(view)) {
       window.history.pushState({ jamb: view }, '')
     }
@@ -61,7 +63,7 @@ export default function App() {
 
   useEffect(() => {
     const handler = () => {
-      const subViews = ['quiz', 'results', 'leaderboard', 'subject-detail', 'subscribe', 'supporters', 'subjects']
+      const subViews = ['quiz', 'results', 'leaderboard', 'subject-detail', 'subscribe', 'supporters', 'subjects', 'contact']
       if (subViews.includes(view)) {
         setView('dashboard')
         window.history.pushState({ jamb: 'dashboard' }, '')
@@ -162,6 +164,9 @@ export default function App() {
       {view === 'admin' && adminAuthed && (
         <Admin setView={setView} />
       )}
+      {view === 'contact' && student && (
+        <Contact student={student} setView={setView} />
+      )}
 
       {/* Update toast */}
       {needRefresh && (
@@ -259,6 +264,8 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <GlobalToast />
     </div>
   )
 }
