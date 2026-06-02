@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { normalizeTopic } from '../../store/useStore'
+import { safeUrl } from '../../lib/safeUrl'
 import Corrections from './Corrections'
 
 const WaIcon = () => (
@@ -100,7 +101,7 @@ export default function QuizResults({
             <p className="text-[10px] text-[#AAA] font-label mb-3">Includes scores, next week topics & encouragement</p>
             <div className="space-y-2">
               {parentPhone && (
-                <a href={buildWAMsg(parentPhone, allResults)} target="_blank" rel="noreferrer"
+                <a href={buildWAMsg(parentPhone, allResults)} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-3 w-full bg-green-600 hover:bg-green-700 text-white rounded-xl px-4 py-3 transition-colors">
                   <WaIcon />
                   <div className="text-left">
@@ -110,7 +111,7 @@ export default function QuizResults({
                 </a>
               )}
               {teacherPhone && (
-                <a href={buildWAMsg(teacherPhone, allResults)} target="_blank" rel="noreferrer"
+                <a href={buildWAMsg(teacherPhone, allResults)} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-3 w-full bg-[#111] hover:bg-[#222] text-white rounded-xl px-4 py-3 transition-colors">
                   <WaIcon />
                   <div className="text-left">
@@ -135,7 +136,7 @@ export default function QuizResults({
                     <p className="text-xs text-[#555] font-body shrink-0">{subj}</p>
                     <div className="flex items-center gap-1.5 min-w-0">
                       <p className="text-xs text-[#111] font-semibold bg-[#F3F3F2] px-2.5 py-1 rounded-lg font-label truncate">{t.name}</p>
-                      {t.video && <a href={t.video} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label shrink-0">▶</a>}
+                      {safeUrl(t.video) && <a href={safeUrl(t.video)} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label shrink-0">▶</a>}
                     </div>
                   </div>
                 )

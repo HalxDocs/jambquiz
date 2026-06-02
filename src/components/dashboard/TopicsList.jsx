@@ -1,3 +1,5 @@
+import { safeUrl } from '../../lib/safeUrl'
+
 export default function TopicsList({ topics, currentWeek, theme }) {
   if (!topics.length) return null
   return (
@@ -18,7 +20,7 @@ export default function TopicsList({ topics, currentWeek, theme }) {
               <p className="text-sm font-semibold text-[#111] font-body">{topic.name}</p>
             </div>
             {topic.video && (
-              <a href={topic.video} target="_blank" rel="noreferrer" className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label hover:bg-red-100 transition-colors">
+              <a href={safeUrl(topic.video)} target="_blank" rel="noopener noreferrer" className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label hover:bg-red-100 transition-colors">
                 ▶ Watch
               </a>
             )}

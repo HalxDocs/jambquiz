@@ -1,6 +1,6 @@
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
 const webpush = require('web-push');
 
@@ -579,6 +579,77 @@ exports.testPushToAll = onCall(
     }
 
     return { ok: true, sent, total: subsSnap.size };
+  }
+);
+
+exports.getPortalStats = onRequest(
+  { cors: true },
+  async (req, res) => {
+    try {
+      const [studentsSnap, scoresSnap] = await Promise.all([
+        db.collection('students').get(),
+        db.collection('scores').get(),
+      ]);
+
+      const now = Date.now();
+      let totalStudents = 0;
+      let activeSubscriptions = 0;
+      const scoresThisWeek = [];
+      const allScores = [];
+
+      studentsSnap.forEach(d => {
+        totalStudents++;
+        const s = d.data();
+        const subUntil = s.subscriptionUntil ? new Date(s.subscriptionUntil).getTime() : 0;
+        if (subUntil > now) activeSubscriptions++;
+      });
+
+      scoresSnap.forEach(d => {
+        const s = { id: d.id, ...d.data() };
+        allScores.push(s);
+      });
+
+      const totalQuizzesTaken = allScores.length;
+
+      const weekMap = {};
+      allScores.forEach(s => {
+        if (!weekMap[s.week]) weekMap[s.week] = 0;
+        weekMap[s.week]++;
+      });
+
+      const activeWeek = await getActiveWeek();
+
+      const weekScores = allScores.filter(s => s.week === activeWeek);
+      const uniqueStudentsThisWeek = new Set(weekScores.map(s => s.studentId)).size;
+
+      // Compute average score
+      const latestScores = {};
+      allScores.forEach(s => {
+        const key = `${s.studentId}_${s.subject}`;
+        if (!latestScores[key] || s.createdAt > latestScores[key].createdAt) {
+          latestScores[key] = s;
+        }
+      });
+      const latestList = Object.values(latestScores);
+      const avgPct = latestList.length
+        ? Math.round(latestList.reduce((a, s) => a + (s.score / (s.outOf || 100)) * 100, 0) / latestList.length)
+        : 0;
+
+      res.json({
+        ok: true,
+        stats: {
+          totalStudents,
+          activeSubscriptions,
+          totalQuizzesTaken,
+          studentsActiveThisWeek: uniqueStudentsThisWeek,
+          averageScorePct: avgPct,
+          activeWeek,
+        },
+      });
+    } catch (e) {
+      console.error('[getPortalStats] Error:', e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
   }
 );
 

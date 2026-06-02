@@ -3,6 +3,8 @@ import { addPayment, extendSubscription, listenPayments, getAccessStatus, SUBSCR
 
 const PAYSTACK_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ''
 
+import SEO from '../components/seo/SEO'
+
 export default function Subscribe({ student, setStudent, setView }) {
   const [paying, setPaying] = useState(false)
   const [err, setErr] = useState('')
@@ -103,6 +105,8 @@ export default function Subscribe({ student, setStudent, setView }) {
   }[status.status]
 
   return (
+    <>
+      <SEO title="Subscribe" />
     <div className="min-h-screen bg-[#F8F8F7]">
       <div className="max-w-md mx-auto px-4 pb-10">
 
@@ -223,5 +227,6 @@ export default function Subscribe({ student, setStudent, setView }) {
         )}
       </div>
     </div>
+    </>
   )
 }

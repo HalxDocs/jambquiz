@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { SUBJECTS, updateStudent } from '../store/useStore'
 
+import SEO from '../components/seo/SEO'
+
 export default function SubjectSelect({ student, setStudent, setView }) {
   const [selected, setSelected] = useState(student?.subjects || [])
   const [err, setErr] = useState('')
@@ -30,6 +32,8 @@ export default function SubjectSelect({ student, setStudent, setView }) {
   }
 
   return (
+    <>
+      <SEO title="Select Subjects" />
     <div className="min-h-screen bg-[#F8F8F7] p-4">
       <div className="max-w-md mx-auto">
 
@@ -132,5 +136,6 @@ export default function SubjectSelect({ student, setStudent, setView }) {
 
       </div>
     </div>
+    </>
   )
 }

@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter, increment } from '../firebase'
+import { db, collection, addDoc, getDocs, getCountFromServer, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter, increment } from '../firebase'
 function getAccessStatus(student) {
   if (!student) return { status: 'expired', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0 }
   const now = Date.now()
@@ -148,4 +148,19 @@ async function getStudentsPage(year, cursorDoc, pageSize = 20) {
   }
 }
 
-export { getAccessStatus, registerStudent, findStudent, updateStudent, deleteStudent, listenStudents, getStudentsPage, hashPassword, verifyPassword, findStudentSafe, stripSensitive, incrementFreeAttempts }
+async function getStudentsCount(year) {
+  try {
+    const constraints = []
+    if (year) constraints.push(where('year', '==', year))
+    const q = constraints.length
+      ? query(collection(db, 'students'), ...constraints)
+      : collection(db, 'students')
+    const snap = await getCountFromServer(q)
+    return snap.data().count
+  } catch (e) {
+    console.error('getStudentsCount failed:', e?.message || e)
+    return 0
+  }
+}
+
+export { getAccessStatus, registerStudent, findStudent, updateStudent, deleteStudent, listenStudents, getStudentsPage, getStudentsCount, hashPassword, verifyPassword, findStudentSafe, stripSensitive, incrementFreeAttempts }

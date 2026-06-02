@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { SUBJECTS, WEEKS, setTopics, getTopics, normalizeTopic } from '../../store/useStore'
 import { useToastStore } from '../../store/toast'
+import { safeUrl } from '../../lib/safeUrl'
 
 export default function TopicEditor({
   activeWeek,
@@ -213,7 +214,7 @@ export default function TopicEditor({
                 <div className="flex items-center gap-1.5 min-w-0">
                   <p className="text-xs font-semibold text-[#111] bg-white border border-[#E5E5E5] px-2.5 py-1 rounded-lg font-label truncate">{t.name}</p>
                   {t.video && (
-                    <a href={t.video} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label hover:bg-red-100 shrink-0" title={t.video}>
+                    <a href={safeUrl(t.video)} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label hover:bg-red-100 shrink-0" title={safeUrl(t.video)}>
                       ▶ Video
                     </a>
                   )}

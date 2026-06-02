@@ -10,6 +10,8 @@ const SUBJECTS = [
   { value: 'other', label: 'Other' },
 ]
 
+import SEO from '../components/seo/SEO'
+
 export default function Contact({ student, setView }) {
   const [subject, setSubject] = useState('feature-request')
   const [message, setMessage] = useState('')
@@ -26,6 +28,8 @@ export default function Contact({ student, setView }) {
   }
 
   return (
+    <>
+      <SEO title="Contact" />
     <div className="min-h-screen bg-[#F8F8F7]">
       <div className="max-w-md mx-auto px-4 pb-10">
         <div className="pt-8 pb-6">
@@ -78,5 +82,6 @@ export default function Contact({ student, setView }) {
         )}
       </div>
     </div>
+    </>
   )
 }

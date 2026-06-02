@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { updateStudent } from '../store/useStore'
 
+import SEO from '../components/seo/SEO'
+
 export default function Supporters({ student, setStudent, setView }) {
   const [parentPhone, setParentPhone] = useState('')
   const [teacherPhone, setTeacherPhone] = useState('')
@@ -28,6 +30,8 @@ export default function Supporters({ student, setStudent, setView }) {
   }
 
   return (
+    <>
+      <SEO title="Supporters" />
     <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
 
@@ -117,5 +121,6 @@ export default function Supporters({ student, setStudent, setView }) {
 
       </div>
     </div>
+    </>
   )
 }

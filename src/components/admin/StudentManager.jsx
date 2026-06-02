@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon, ArrowRight01Icon, ArrowLeft01Icon, UserAdd01Icon } from '@hugeicons/core-free-icons'
+import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon, ArrowRight01Icon, ArrowLeft01Icon, UserAdd01Icon, UserGroupIcon } from '@hugeicons/core-free-icons'
 import { getAccessStatus, updateStudent, deleteStudent, registerStudent } from '../../store/useStore'
 import { useToastStore } from '../../store/toast'
 
@@ -20,7 +20,7 @@ function endOfMonth(date) {
   return d
 }
 
-export default function StudentManager({ students, loading, yearFilter, onYearFilterChange, page, onPrevPage, onNextPage, hasMore, scoreCache, onLoadScores }) {
+export default function StudentManager({ students, loading, yearFilter, onYearFilterChange, page, onPrevPage, onNextPage, hasMore, scoreCache, onLoadScores, total, onCountChange }) {
   const [editingStudentId, setEditingStudentId] = useState(null)
   const [editNameValue, setEditNameValue] = useState('')
   const [editNameErr, setEditNameErr] = useState('')
@@ -56,13 +56,14 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
       if (!saved) { setAddErr('A student with this name already exists'); setAddLoading(false); return }
       setAddForm({ name: '', nickname: '', password: '', year: String(new Date().getFullYear()), email: '', parentPhone: '', teacherPhone: '' })
       setShowAddForm(false)
+      onCountChange && onCountChange()
     } catch { setAddErr('Failed to add student. Check your connection.') }
     setAddLoading(false)
   }
 
   const handleDeleteStudent = async (studentId, studentName) => {
     if (!window.confirm(`Delete "${studentName}"? This cannot be undone.`)) return
-    try { await deleteStudent(studentId); useToastStore.getState().showToast(`Deleted "${studentName}"`, 'success') } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to delete student. They may have existing quiz data.') }
+    try { await deleteStudent(studentId); useToastStore.getState().showToast(`Deleted "${studentName}"`, 'success'); onCountChange && onCountChange() } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to delete student. They may have existing quiz data.') }
   }
 
   const startEditName = (student) => {
@@ -152,6 +153,21 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
 
   return (
     <div>
+      <div className="flex items-center gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded-xl bg-[#111] text-white flex items-center justify-center shrink-0">
+            <HugeiconsIcon icon={UserGroupIcon} size={18} color="currentColor" />
+          </div>
+          <div>
+            <p className="text-[10px] text-[#888] font-label uppercase tracking-wide leading-none mb-0.5">Total Students</p>
+            <p className="text-xl font-bold font-display text-[#111] leading-none">{total === null ? '—' : total.toLocaleString()}</p>
+          </div>
+        </div>
+        <span className="ml-auto text-[10px] text-[#AAA] font-label">
+          {yearFilter === 'all' ? 'All years' : yearFilter}
+        </span>
+      </div>
+
       <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
         {filterYears.map((y) => (
           <button key={y} onClick={() => onYearFilterChange(y)}

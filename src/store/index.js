@@ -9,7 +9,7 @@ export { db, load, save } from './db'
 
 export { normalizeTopic, setTopics, getTopics, listenTopics } from './topics'
 
-export { getAccessStatus, registerStudent, findStudent, updateStudent, deleteStudent, listenStudents, getStudentsPage, hashPassword, verifyPassword, stripSensitive, incrementFreeAttempts } from './students'
+export { getAccessStatus, registerStudent, findStudent, updateStudent, deleteStudent, listenStudents, getStudentsPage, getStudentsCount, hashPassword, verifyPassword, stripSensitive, incrementFreeAttempts } from './students'
 
 export { addScore, listenScores, getStudentScores } from './scores'
 

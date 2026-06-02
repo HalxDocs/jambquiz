@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { registerStudent, findStudent, hashPassword, verifyPassword, stripSensitive, updateStudent } from '../store/useStore'
 import { doc, getDoc, setDoc, db } from '../firebase'
 
@@ -20,6 +20,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [mode, setMode] = useState('login')
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
+  const [currentPassword, setCurrentPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [nickname, setNickname] = useState('')
   const [year, setYear] = useState(String(new Date().getFullYear()))
@@ -40,8 +41,29 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
   const [showSetupPw, setShowSetupPw] = useState(false)
   const [showSetupConfirm, setShowSetupConfirm] = useState(false)
 
+  const RATE_LIMIT_KEY = 'jamb_login_ratelimit'
   const attemptsRef = useRef(0)
   const cooldownUntilRef = useRef(0)
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RATE_LIMIT_KEY)
+      if (raw) {
+        const { attempts, cooldownUntil } = JSON.parse(raw)
+        if (Number.isFinite(attempts)) attemptsRef.current = attempts
+        if (Number.isFinite(cooldownUntil)) cooldownUntilRef.current = cooldownUntil
+      }
+    } catch {}
+  }, [])
+
+  const persistRateLimit = () => {
+    try {
+      localStorage.setItem(RATE_LIMIT_KEY, JSON.stringify({
+        attempts: attemptsRef.current,
+        cooldownUntil: cooldownUntilRef.current,
+      }))
+    } catch {}
+  }
 
   const checkOnline = () => {
     if (!navigator.onLine) {
@@ -69,6 +91,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       cooldownUntilRef.current = Date.now() + LOGIN_COOLDOWN_MS
       attemptsRef.current = 0
     }
+    persistRateLimit()
   }
 
   const handleLogin = async () => {
@@ -85,6 +108,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
       if (!valid) { setErr('Wrong password. Try again.'); recordAttempt(); setLoading(false); return }
       attemptsRef.current = 0
       cooldownUntilRef.current = 0
+      persistRateLimit()
       const safe = stripSensitive(existing)
       setStudent(safe)
       setView('dashboard')
@@ -173,18 +197,27 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
 
   const handleForgotPassword = async () => {
     if (resetStudentId) {
+      if (!currentPassword) { setErr('Enter your current password to confirm'); return }
       if (!password) { setErr('Enter a new password'); return }
       if (password.length < 4) { setErr('Password must be at least 4 characters'); return }
       if (password !== confirmPassword) { setErr('Passwords do not match'); return }
       if (!checkOnline()) return
       setLoading(true); setErr('')
       try {
+        const studentDoc = await findStudent(name.trim())
+        if (!studentDoc) { setErr('Student not found.'); setLoading(false); return }
+        const valid = await verifyPassword(currentPassword, studentDoc.password)
+        if (!valid) { setErr('Current password is incorrect.'); recordAttempt(); setLoading(false); return }
         const passwordHash = await hashPassword(password)
         await updateStudent(resetStudentId, { password: passwordHash })
         setRecoveredPassword('done')
         setPassword('')
+        setCurrentPassword('')
         setConfirmPassword('')
         setResetStudentId(null)
+        attemptsRef.current = 0
+        cooldownUntilRef.current = 0
+        persistRateLimit()
       } catch {
         if (!navigator.onLine) setErr('No internet connection. Check your network.')
         else setErr('Failed to reset password. Please try again.')
@@ -279,6 +312,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                     <input
                       value={name}
                       onChange={(e) => setName(e.target.value)}
+                      maxLength={50}
                       placeholder="e.g. Chukwuemeka Okafor"
                       className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
                     />
@@ -339,6 +373,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && mode === 'login' && handleLogin()}
+                        maxLength={64}
                         placeholder={mode === 'register' ? 'Minimum 4 characters' : '••••••••'}
                         className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
                       />
@@ -416,10 +451,36 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                         <p className="text-xs font-semibold text-[#111] font-label">Reset Password</p>
                         <p className="text-[11px] text-[#888] font-label">Set a new password for <strong>{name.trim()}</strong></p>
                         <div>
+                          <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">Current Password <span className="text-red-500">*</span></label>
+                          <div className="relative">
+                            <input type={showPassword ? 'text' : 'password'} value={currentPassword}
+                              onChange={(e) => setCurrentPassword(e.target.value)}
+                              maxLength={64}
+                              placeholder="Your current password"
+                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
+                            <button type="button" onClick={() => setShowPassword(!showPassword)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
+                              {showPassword ? (
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                                  <line x1="1" y1="1" x2="23" y2="23"/>
+                                </svg>
+                              ) : (
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                  <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                        <div>
                           <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">New Password</label>
                           <div className="relative">
                             <input type={showResetPassword ? 'text' : 'password'} value={password}
                               onChange={(e) => setPassword(e.target.value)}
+                              maxLength={64}
                               placeholder="Minimum 4 characters"
                               className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
                             <button type="button" onClick={() => setShowResetPassword(!showResetPassword)}
@@ -482,6 +543,7 @@ export default function Home({ setView, setStudent, setAdminAuthed }) {
                         <input value={name}
                           onChange={(e) => setName(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleForgotPassword()}
+                          maxLength={50}
                           placeholder="Enter your full name"
                           className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
                         <div className="flex gap-2">

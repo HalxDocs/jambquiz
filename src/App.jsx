@@ -23,12 +23,22 @@ function isInStandaloneMode() {
 }
 
 const SESSION_KEY = 'jamb_session'
+const SESSION_TS_KEY = 'jamb_session_ts'
+const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 const INTRO_KEY = 'jamb_intro_seen'
 
 export default function App() {
   const introSeen = typeof window !== 'undefined' && localStorage.getItem(INTRO_KEY) === '1'
   const savedSession = (() => {
-    try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null') } catch { return null }
+    try {
+      const ts = Number(localStorage.getItem(SESSION_TS_KEY) || 0)
+      if (ts && Date.now() - ts > SESSION_MAX_AGE_MS) {
+        localStorage.removeItem(SESSION_KEY)
+        localStorage.removeItem(SESSION_TS_KEY)
+        return null
+      }
+      return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')
+    } catch { return null }
   })()
 
   const [view, setView] = useState(savedSession ? 'dashboard' : (introSeen ? 'home' : 'intro'))
@@ -44,8 +54,13 @@ export default function App() {
   const setStudent = (s) => {
     const safe = s ? stripSensitive(s) : null
     setStudentState(safe || s)
-    if (safe) localStorage.setItem(SESSION_KEY, JSON.stringify(safe))
-    else localStorage.removeItem(SESSION_KEY)
+    if (safe) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify(safe))
+      localStorage.setItem(SESSION_TS_KEY, String(Date.now()))
+    } else {
+      localStorage.removeItem(SESSION_KEY)
+      localStorage.removeItem(SESSION_TS_KEY)
+    }
   }
 
   const dismissIntro = () => {

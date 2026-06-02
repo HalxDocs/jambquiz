@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon, Notification02Icon } from '@hugeicons/core-free-icons'
 import { db, getDoc, doc, httpsCallable, functions } from '../firebase'
-import { SUBJECTS, WEEKS, listenQuestions, getStudentsPage, getPaymentsPage, getStudentScores, getActiveWeek, getQuestionLimit, setActiveWeek } from '../store/useStore'
+import { SUBJECTS, WEEKS, listenQuestions, getStudentsPage, getStudentsCount, getPaymentsPage, getStudentScores, getActiveWeek, getQuestionLimit, setActiveWeek } from '../store/useStore'
 import StudentManager from '../components/admin/StudentManager'
 import StatsPanel from '../components/admin/StatsPanel'
 import PaymentsPanel from '../components/admin/PaymentsPanel'
@@ -11,6 +11,7 @@ import TopicEditor from '../components/admin/TopicEditor'
 import AdminNotifications from '../components/admin/AdminNotifications'
 import AnalyticsPanel from '../components/admin/AnalyticsPanel'
 import { useToastStore } from '../store/toast'
+import SEO from '../components/seo/SEO'
 
 export default function Admin({ setView }) {
   const [tab, setTab] = useState('students')
@@ -21,6 +22,7 @@ export default function Admin({ setView }) {
   const [studentHasMore, setStudentHasMore] = useState(false)
   const [studentYearFilter, setStudentYearFilter] = useState('all')
   const [studentLoading, setStudentLoading] = useState(false)
+  const [studentTotal, setStudentTotal] = useState(null)
   const studentCursors = useRef([null])
 
   // Payment pagination
@@ -55,9 +57,13 @@ export default function Admin({ setView }) {
       try {
         const cursor = studentCursors.current[studentPage] || null
         const yearFilter = studentYearFilter !== 'all' ? studentYearFilter : null
-        const result = await getStudentsPage(yearFilter, cursor)
+        const [result, total] = await Promise.all([
+          getStudentsPage(yearFilter, cursor),
+          getStudentsCount(yearFilter),
+        ])
         setStudents(result.students)
         setStudentHasMore(result.hasMore)
+        setStudentTotal(total)
         if (!studentCursors.current[studentPage + 1]) {
           studentCursors.current[studentPage + 1] = result.lastDoc
         }
@@ -65,6 +71,16 @@ export default function Admin({ setView }) {
       setStudentLoading(false)
     })()
   }, [studentPage, studentYearFilter])
+
+  const refreshStudentCount = async () => {
+    try {
+      const yearFilter = studentYearFilter !== 'all' ? studentYearFilter : null
+      const total = await getStudentsCount(yearFilter)
+      setStudentTotal(total)
+    } catch (e) {
+      console.error('Failed to refresh count:', e?.message || e)
+    }
+  }
 
   // Load payments page
   useEffect(() => {
@@ -178,6 +194,8 @@ export default function Admin({ setView }) {
         hasMore={studentHasMore}
         scoreCache={studentScoreCache}
         onLoadScores={loadStudentScores}
+        total={studentTotal}
+        onCountChange={refreshStudentCount}
       />
     ),
     stats: (
@@ -244,6 +262,8 @@ export default function Admin({ setView }) {
   }
 
   return (
+    <>
+      <SEO title="Admin · Quiz Manager" />
     <div className="min-h-screen bg-[#F8F8F7]">
       <div className="max-w-2xl mx-auto px-4 pb-10">
 
@@ -295,5 +315,6 @@ export default function Admin({ setView }) {
 
       </div>
     </div>
+    </>
   )
 }

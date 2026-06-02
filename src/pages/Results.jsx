@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { listenScores, WEEKS, logEvent } from '../store/useStore'
 
+import SEO from '../components/seo/SEO'
+
 export default function Results({ student, setView }) {
   const [scores, setScores] = useState([])
   const [expandedWeek, setExpandedWeek] = useState(null)
@@ -79,6 +81,8 @@ export default function Results({ student, setView }) {
   }
 
   return (
+    <>
+      <SEO title="My Results" />
     <div className="min-h-screen bg-[#F8F8F7]">
       <div className="max-w-md mx-auto px-4 pb-10">
 
@@ -180,5 +184,6 @@ export default function Results({ student, setView }) {
         </button>
       </div>
     </div>
+    </>
   )
 }

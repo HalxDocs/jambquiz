@@ -3,6 +3,7 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { MedalFirstPlaceIcon, MedalSecondPlaceIcon, MedalThirdPlaceIcon, CrownIcon, Award01Icon, BookOpen01Icon, StarIcon, StarCircleIcon, Search01Icon } from '@hugeicons/core-free-icons'
 import { db, collection, doc, onSnapshot, getDoc, getDocs, query, where } from '../firebase'
 import { getStudentScores } from '../store/scores'
+import SEO from '../components/seo/SEO'
 import { logEvent } from '../store/useStore'
 
 
@@ -183,6 +184,8 @@ export default function Leaderboard({ student, setView }) {
   ]
 
   return (
+    <>
+      <SEO title="Leaderboard" />
     <div className="min-h-screen bg-[#F8F8F7]">
       <div className="max-w-md mx-auto px-4 pb-10">
 
@@ -462,5 +465,6 @@ export default function Leaderboard({ student, setView }) {
 
       </div>
     </div>
+    </>
   )
 }

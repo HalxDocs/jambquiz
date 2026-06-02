@@ -8,6 +8,7 @@ import {
   collection,
   addDoc,
   getDocs,
+  getCountFromServer,
   deleteDoc,
   doc,
   onSnapshot,
@@ -54,4 +55,4 @@ const db = makeDb()
 
 const functions = getFunctions(app)
 
-export { db, getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc, setDoc, getDoc, query, where, orderBy, limit, startAfter, runTransaction, increment, serverTimestamp, functions, httpsCallable }
+export { db, getFirestore, collection, addDoc, getDocs, getCountFromServer, deleteDoc, doc, onSnapshot, updateDoc, setDoc, getDoc, query, where, orderBy, limit, startAfter, runTransaction, increment, serverTimestamp, functions, httpsCallable }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import SEO from '../components/seo/SEO'
 import { load, save, addScore, getQuestions, getTopics, getQuestionLimit, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, WEEKS, incrementFreeAttempts, logEvent } from '../store/useStore'
 
 const questionCache = new Map()
@@ -256,17 +257,22 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   // ── GATE SCREENS ───────────────────────────────────────────────────────────
   if (step === 'init' || step === 'loading') {
     return (
+      <>
+      <SEO title="Quiz" />
       <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center">
         <div className="text-center">
           <div className="w-10 h-10 border-2 border-[#111] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-sm text-[#888] font-label">Loading quiz…</p>
         </div>
       </div>
+    </>
     )
   }
 
   if (paymentPrompt) {
     return (
+      <>
+      <SEO title="Quiz" />
       <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 max-w-sm w-full text-center">
           <span className="text-3xl">⏰</span>
@@ -282,11 +288,14 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
           </button>
         </div>
       </div>
+    </>
     )
   }
 
   if (step === 'expired') {
     return (
+      <>
+      <SEO title="Quiz" />
       <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 max-w-sm w-full text-center">
           <span className="text-3xl">🔒</span>
@@ -298,11 +307,14 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
           </div>
         </div>
       </div>
+    </>
     )
   }
 
   if (step === 'locked') {
     return (
+      <>
+      <SEO title="Quiz" />
       <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 max-w-sm w-full text-center">
           <span className="text-3xl">🔒</span>
@@ -312,11 +324,14 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
           <button onClick={() => setView('dashboard')} className="bg-[#111] text-white px-6 py-3 rounded-xl text-sm font-bold font-display">Back to Dashboard</button>
         </div>
       </div>
+    </>
     )
   }
 
   if (step === 'error') {
     return (
+      <>
+      <SEO title="Quiz" />
       <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 max-w-sm w-full text-center">
           <span className="text-3xl">😕</span>
@@ -325,6 +340,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
           <button onClick={() => setView('dashboard')} className="bg-[#111] text-white px-6 py-3 rounded-xl text-sm font-bold font-display">Back to Dashboard</button>
         </div>
       </div>
+    </>
     )
   }
 
@@ -334,7 +350,10 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     const teacherPhone = student.teacherPhone?.replace(/\D/g, '')
 
     return (
+      <>
+      <SEO title="Quiz Results" />
       <QuizResults allResults={allResults} weekLabel={weekLabel} medalToast={medalToast} setMedalToast={setMedalToast} nextWeekTopics={nextWeekTopics} parentPhone={parentPhone} teacherPhone={teacherPhone} buildWAMsg={buildWAMsg} student={student} onBackToDashboard={() => setView('dashboard')} onViewResults={() => setView('results')} />
+    </>
     )
   }
 
@@ -352,6 +371,8 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   const isLastQ = currentQ === questions.length - 1
 
   return (
+    <>
+      <SEO title="Quiz" />
     <div className="min-h-screen bg-[#F8F8F7]">
       <div className="bg-white border-b border-[#EBEBEB] sticky top-0 z-10">
         <div className="max-w-md mx-auto px-4 pt-3">
@@ -435,5 +456,6 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
         </button>
       </div>
     </div>
+    </>
   )
 }

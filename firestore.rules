@@ -3,95 +3,222 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ─── STUDENTS ───
-    // Anyone can read by name for login, create for register.
-    // Updates only through backend admin.
+    // Public read for login lookup.
+    // Create: anyone can register (no PII abuse possible - just a name/password).
+    // Update: only safe fields (nickname, email, phones, subjects, password via reset).
+    //          Server-side fields (subscriptionUntil, freeAttemptsUsed, role) are protected.
+    // Delete: blocked from client (admin only via cloud function).
     match /students/{studentId} {
       allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true;
+
+      allow create: if request.resource.data.name is string
+                    && request.resource.data.name.size() >= 3
+                    && request.resource.data.name.size() <= 50
+                    && request.resource.data.password is string
+                    && request.resource.data.password.size() >= 4
+                    && request.resource.data.password.size() <= 200
+                    && (!('subscriptionUntil' in request.resource.data)
+                        || request.resource.data.subscriptionUntil == null
+                        || (request.resource.data.subscriptionUntil is string
+                            && request.resource.data.subscriptionUntil.size() <= 50))
+                    && (!('freeAttemptsUsed' in request.resource.data)
+                        || (request.resource.data.freeAttemptsUsed is int
+                            && request.resource.data.freeAttemptsUsed >= 0
+                            && request.resource.data.freeAttemptsUsed <= 1000))
+                    && (!('role' in request.resource.data) || request.resource.data.role == 'student');
+
+      allow update: if request.resource.data.diff(resource.data).affectedKeys()
+                      .hasOnly(['nickname', 'nicknameLower', 'email', 'parentPhone', 'teacherPhone',
+                                'subjects', 'password', 'name', 'nameLower',
+                                'subscriptionUntil', 'freeAttemptsUsed'])
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() >= 3
+                    && request.resource.data.name.size() <= 50
+                    && request.resource.data.password is string
+                    && request.resource.data.password.size() >= 4
+                    && request.resource.data.password.size() <= 200
+                    && (!('subscriptionUntil' in request.resource.data)
+                        || request.resource.data.subscriptionUntil == null
+                        || (request.resource.data.subscriptionUntil is string
+                            && request.resource.data.subscriptionUntil.size() <= 50))
+                    && (!('freeAttemptsUsed' in request.resource.data)
+                        || (request.resource.data.freeAttemptsUsed is int
+                            && request.resource.data.freeAttemptsUsed >= 0
+                            && request.resource.data.freeAttemptsUsed <= 1000))
+                    && (!('role' in request.resource.data) || request.resource.data.role == resource.data.role);
+
+      allow delete: if false;
     }
 
     // ─── SCORES ───
-    // Students read their own scores (checked by studentId field).
-    // Create allowed for quiz submission.
+    // Public read for leaderboards.
+    // Create: client submits on quiz completion. Must include studentId, score, subject, week, correct, wrong, unanswered, outOf, questions array.
+    // Update/Delete: blocked (immutable score history).
     match /scores/{scoreId} {
       allow read: if true;
-      allow create: if request.resource.data.studentId is string;
+
+      allow create: if request.resource.data.studentId is string
+                    && request.resource.data.studentId.size() > 0
+                    && request.resource.data.subject is string
+                    && request.resource.data.subject.size() > 0
+                    && request.resource.data.subject.size() <= 50
+                    && request.resource.data.week is string
+                    && request.resource.data.week.size() > 0
+                    && request.resource.data.score is number
+                    && request.resource.data.score >= 0
+                    && request.resource.data.score <= 400
+                    && request.resource.data.outOf is number
+                    && request.resource.data.outOf >= 1
+                    && request.resource.data.outOf <= 400
+                    && request.resource.data.date is string
+                    && request.resource.data.date.size() > 0
+                    && request.resource.data.correct is number
+                    && request.resource.data.correct >= 0
+                    && request.resource.data.wrong is number
+                    && request.resource.data.wrong >= 0
+                    && request.resource.data.unanswered is number
+                    && request.resource.data.unanswered >= 0
+                    && request.resource.data.answers is list
+                    && request.resource.data.answers.size() <= 100;
+
       allow update, delete: if false;
     }
 
     // ─── QUESTIONS ───
+    // Public read+write (admin manages from client by app design).
     match /questions/{questionId} {
       allow read: if true;
-      allow write: if true;
+
+      allow create: if request.resource.data.subject is string
+                    && request.resource.data.subject.size() > 0
+                    && request.resource.data.subject.size() <= 50
+                    && request.resource.data.week is string
+                    && request.resource.data.week.size() > 0
+                    && request.resource.data.question is string
+                    && request.resource.data.question.size() <= 2000
+                    && request.resource.data.options is list
+                    && request.resource.data.options.size() == 4
+                    && request.resource.data.answer is number
+                    && request.resource.data.answer >= 0
+                    && request.resource.data.answer <= 3;
+
+      allow update: if request.resource.data.subject is string
+                    && request.resource.data.subject.size() > 0
+                    && request.resource.data.subject.size() <= 50
+                    && request.resource.data.week is string
+                    && request.resource.data.week.size() > 0
+                    && request.resource.data.question is string
+                    && request.resource.data.question.size() <= 2000
+                    && request.resource.data.options is list
+                    && request.resource.data.options.size() == 4
+                    && request.resource.data.answer is number
+                    && request.resource.data.answer >= 0
+                    && request.resource.data.answer <= 3;
+
+      allow delete: if true;
     }
 
     // ─── TOPICS ───
+    // Public read+write (admin manages from client).
     match /topics/{topicId} {
       allow read: if true;
-      allow write: if true;
+
+      allow write: if request.resource.data.size() <= 12;
     }
 
     // ─── SETTINGS ───
+    // Public read. Lock writes from client (admin only via cloud function or admin SDK).
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if true;
+      allow write: if false;
     }
 
     // ─── PAYMENTS ───
+    // No public read. Client creates payment record on checkout.
+    // Update/Delete blocked (immutable).
     match /payments/{paymentId} {
       allow read: if false;
-      allow create: if true;
+      allow create: if request.resource.data.studentId is string
+                    && request.resource.data.studentId.size() > 0
+                    && request.resource.data.amount is number
+                    && request.resource.data.amount > 0
+                    && request.resource.data.amount <= 1000000;
       allow update, delete: if false;
     }
 
     // ─── PUSH SUBSCRIPTIONS ───
+    // Public write for device registration. Block read (privacy).
     match /push_subscriptions/{studentId} {
-      allow read, write: if true;
+      allow read: if false;
+      allow write: if request.resource.data.endpoint is string
+                   && request.resource.data.endpoint.size() > 0
+                   && request.resource.data.keys is map
+                   && request.resource.data.keys.p256dh is string
+                   && request.resource.data.keys.auth is string;
     }
 
     // ─── NOTIFICATION STATE ───
+    // Public write for user state. Block read (privacy).
     match /notification_state/{studentId} {
-      allow read, write: if true;
+      allow read: if false;
+      allow write: if request.resource.data.size() <= 20;
     }
 
     // ─── ADMIN STATS ───
+    // Public read (for admin panel). Writes locked to cloud function.
     match /admin_stats/{docId} {
       allow read: if true;
-      allow write: if true;
+      allow write: if false;
     }
 
     // ─── ADMIN SETTINGS ───
+    // Public read for notifications toggle UI. Lock writes from client.
     match /admin_settings/{docId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if docId == 'notifications' || docId == 'admin_auth';
+      allow write: if false;
     }
 
     // ─── QUESTION LIMITS ───
+    // Public read. Lock writes from client (admin SDK only).
     match /question_limits/{docId} {
       allow read: if true;
-      allow write: if true;
+      allow write: if false;
     }
 
     // ─── ADMIN BROADCASTS ───
-    // Admin writes via client; everyone reads for in-app display.
+    // Public read for in-app display. Create allowed (admin client). Update/delete blocked.
     match /admin_broadcasts/{broadcastId} {
       allow read: if true;
-      allow create: if true;
+      allow create: if request.resource.data.title is string
+                    && request.resource.data.title.size() <= 100
+                    && request.resource.data.message is string
+                    && request.resource.data.message.size() <= 500
+                    && request.resource.data.target is string;
       allow update, delete: if false;
     }
 
     // ─── LEADERBOARD (aggregated) ───
+    // Public read. Writes only from cloud function.
     match /leaderboard/{docId} {
       allow read: if true;
       allow write: if false;
     }
 
+    // ─── LEADERBOARD STUDENT RANKS ───
+    match /leaderboard_student_ranks/{studentId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // ─── USAGE LOGS ───
+    // Public read (for admin analytics panel). Client creates events. Update/delete blocked.
     match /usage_logs/{logId} {
       allow read: if true;
-      allow create: if true;
+      allow create: if request.resource.data.studentId is string
+                    && request.resource.data.studentId.size() > 0
+                    && request.resource.data.eventType is string
+                    && request.resource.data.eventType.size() > 0
+                    && request.resource.data.eventType.size() <= 50;
       allow update, delete: if false;
     }
   }

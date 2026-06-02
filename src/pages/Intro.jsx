@@ -23,6 +23,8 @@ export default function Intro({ onContinue }) {
   ]
 
   return (
+    <>
+      <SEO title="Intro" />
     <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
 
@@ -77,5 +79,6 @@ export default function Intro({ onContinue }) {
         </p>
       </div>
     </div>
+    </>
   )
 }

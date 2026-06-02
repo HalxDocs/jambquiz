@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
 import { listenScores, listenTopics, normalizeTopic, logEvent } from '../store/useStore'
+import { safeUrl } from '../lib/safeUrl'
+
+import SEO from '../components/seo/SEO'
 
 function renderCorrections(s) {
   if (!s.questions) return null
@@ -96,6 +99,8 @@ export default function SubjectDetail({ student, subject, setView, setRetakeData
     : null
 
   return (
+    <>
+      <SEO title={subject} />
     <div className="min-h-screen bg-[#F8F8F7]">
       <div className="max-w-md mx-auto px-4 pb-10">
 
@@ -158,11 +163,11 @@ export default function SubjectDetail({ student, subject, setView, setRetakeData
                         {topicName ? (
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="text-sm font-bold text-[#111] font-body leading-snug">{topicName}</p>
-                            {getTopicVideo(score) && (
+                            {safeUrl(getTopicVideo(score)) && (
                               <a
-                                href={getTopicVideo(score)}
+                                href={safeUrl(getTopicVideo(score))}
                                 target="_blank"
-                                rel="noreferrer"
+                                rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-lg font-label hover:bg-red-100 transition-colors"
                                 title="Watch on YouTube"
                               >
@@ -252,5 +257,6 @@ export default function SubjectDetail({ student, subject, setView, setRetakeData
 
       </div>
     </div>
+    </>
   )
 }

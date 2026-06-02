@@ -10,6 +10,7 @@ import { useUserNotificationStore } from '../store/notificationStore'
 import RankToast from '../components/dashboard/RankToast'
 import PatchesOverlay from '../components/dashboard/PatchesOverlay'
 import PatchesModal from '../components/dashboard/PatchesModal'
+import SEO from '../components/seo/SEO'
 import MedalTrack from '../components/dashboard/MedalTrack'
 import SubscriptionBanner from '../components/dashboard/SubscriptionBanner'
 import KeyPointsCard from '../components/dashboard/KeyPointsCard'
@@ -249,6 +250,8 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const patchesUnlocked = (() => { const d = new Date(); return d.getMonth() === 5 && d.getDate() >= 21 })()
 
   return (
+    <>
+      <SEO title="Dashboard" />
     <div className="min-h-screen bg-[#F8F8F7]">
       <RankToast rank={rankUpToast} onDismiss={() => setRankUpToast(null)} />
       {patchesToast && (
@@ -388,5 +391,6 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         </div>
       </div>
     </div>
+    </>
   )
 }
