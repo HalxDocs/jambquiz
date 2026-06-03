@@ -735,3 +735,304 @@ exports.sendQuizReminders = onSchedule(
     }
   }
 );
+
+const MAX_MESSAGE_LENGTH = 500;
+const MAX_NAME_LENGTH = 60;
+
+exports.guestbook = onRequest({ cors: true }, async (req, res) => {
+  if (req.method === 'OPTIONS') {
+    res.set('Access-Control-Max-Age', '3600').status(204).send('');
+    return;
+  }
+
+  if (req.method === 'GET') {
+    try {
+      const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+      const snap = await db.collection('guestbook')
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .get();
+
+      const entries = [];
+      snap.forEach(d => {
+        const data = d.data();
+        entries.push({
+          id: d.id,
+          name: data.name,
+          message: data.message,
+          signature: data.signature || '',
+          createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
+        });
+      });
+
+      res.json({ ok: true, entries });
+    } catch (e) {
+      console.error('[Guestbook] GET error:', e);
+      res.status(500).json({ ok: false, error: 'Failed to fetch entries' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST') {
+    try {
+      const { name, message, signature } = req.body || {};
+      const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
+
+      if (!name || !name.trim()) {
+        res.status(400).json({ ok: false, error: 'Name is required' });
+        return;
+      }
+
+      const cleanName = name.trim().slice(0, MAX_NAME_LENGTH);
+      const cleanMessage = message ? message.trim().slice(0, MAX_MESSAGE_LENGTH) : '';
+
+      const docRef = await db.collection('guestbook').add({
+        name: cleanName,
+        message: cleanMessage,
+        signature: signature || '',
+        ip,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      res.status(201).json({ ok: true, id: docRef.id });
+    } catch (e) {
+      console.error('[Guestbook] POST error:', e);
+      res.status(500).json({ ok: false, error: 'Failed to save entry' });
+    }
+    return;
+  }
+
+  res.status(405).json({ ok: false, error: 'Method not allowed' });
+});
+
+exports.sendAbsentSmsReport = onSchedule(
+  {
+    schedule: '5 18 * * 6',
+    timeZone: 'Africa/Lagos',
+    secrets: ['TERMII_API_KEY'],
+  },
+  async () => {
+    const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
+    if (!TERMII_API_KEY) {
+      console.log('[AbsentSms] TERMII_API_KEY not set — skipping')
+      return
+    }
+
+    const week = await getActiveWeek()
+    console.log(`[AbsentSms] Checking absences for ${week}`)
+
+    // Get all students who have scores for this week
+    const scoresSnap = await db.collection('scores').get()
+    const studentsWithScores = new Set()
+    scoresSnap.forEach((d) => {
+      const s = d.data()
+      if (s.week === week && s.studentId) studentsWithScores.add(s.studentId)
+    })
+    console.log(`[AbsentSms] ${studentsWithScores.size} students have scores for ${week}`)
+
+    // Get all students with phone numbers
+    const allStudents = await db.collection('students').get()
+    let sent = 0
+    let skipped = 0
+
+    for (const doc of allStudents.docs) {
+      const student = doc.data()
+      const studentId = doc.id
+      const name = student.name || 'Student'
+
+      // Skip if student already has scores this week
+      if (studentsWithScores.has(studentId)) {
+        skipped++
+        continue
+      }
+
+      // Collect valid phones
+      const phones = [
+        { label: 'parent', phone: normalizePhone(student.parentPhone) },
+        { label: 'teacher', phone: normalizePhone(student.teacherPhone) },
+      ].filter((p) => p.phone)
+      if (!phones.length) {
+        skipped++
+        continue
+      }
+
+      // Guard: skip if already notified for this week
+      const guardId = `absent_${studentId}_${week.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+      const guardRef = db.collection('reminder_sent').doc(guardId)
+      const guardSnap = await guardRef.get()
+      if (guardSnap.exists) {
+        skipped++
+        continue
+      }
+
+      const smsText = `274Lab — ${week}\n${name} was absent for this week's quiz. Please remind them to check in next week.\n— 274Lab`
+      const truncated = smsText.slice(0, 765)
+      let sentCount = 0
+
+      for (const { label, phone } of phones) {
+        try {
+          const resp = await fetch('https://api.termii.com/api/sms/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              api_key: TERMII_API_KEY,
+              to: phone,
+              from: '274Lab',
+              sms: truncated,
+              type: 'plain',
+              channel: 'generic',
+            }),
+          })
+          const result = await resp.json()
+          if (result?.message?.err || result?.error) {
+            console.error(`[AbsentSms] Termii error for ${label} (${phone}):`, result?.message?.err || result?.error)
+          } else {
+            sentCount++
+            console.log(`[AbsentSms] Sent to ${label} (${phone}) for ${studentId}`)
+          }
+        } catch (e) {
+          console.error(`[AbsentSms] Failed to send to ${label} (${phone}):`, e?.message || e)
+        }
+      }
+
+      if (sentCount > 0) {
+        await guardRef.set({
+          sentAt: admin.firestore.FieldValue.serverTimestamp(),
+          studentId,
+          week,
+          reason: 'absent',
+          sentTo: phones.map((p) => p.label),
+          sentCount,
+        })
+        sent++
+      } else {
+        skipped++
+      }
+    }
+
+    console.log(`[AbsentSms] Done. Sent ${sent} absent alerts. Skipped ${skipped} (already had scores / no phone / already notified)`)
+  }
+)
+
+function normalizePhone(p) {
+  if (!p || !p.trim()) return null
+  let s = p.replace(/[\s\-\(\)]/g, '')
+  if (s.startsWith('+')) s = s.slice(1)
+  if (s.startsWith('0')) s = '234' + s.slice(1)
+  if (s.length >= 10 && s.length <= 14) return s
+  return null
+}
+
+exports.sendQuizSmsReport = onDocumentCreated(
+  {
+    document: 'scores/{scoreId}',
+    secrets: ['TERMII_API_KEY'],
+  },
+  async (event) => {
+    const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
+    if (!TERMII_API_KEY) {
+      console.log('[SmsReport] TERMII_API_KEY not set — skipping')
+      return
+    }
+
+    const scoreSnap = event.data
+    if (!scoreSnap) { console.log('[SmsReport] No data'); return }
+    const score = scoreSnap.data()
+    if (!score || !score.studentId || !score.week) { console.log('[SmsReport] Missing studentId or week'); return }
+
+    const { studentId, week } = score
+    const studentSnap = await db.collection('students').doc(studentId).get()
+    if (!studentSnap.exists) { console.log(`[SmsReport] Student ${studentId} not found`); return }
+
+    const student = studentSnap.data()
+    const studentSubjects = student.subjects || []
+    if (!studentSubjects.length) { console.log(`[SmsReport] ${studentId} has no subjects`); return }
+
+    // Get all scores for this student + week
+    const scoresSnap = await db.collection('scores')
+      .where('studentId', '==', studentId)
+      .get()
+
+    if (scoresSnap.empty) { console.log('[SmsReport] No scores found'); return }
+
+    const weekScores = scoresSnap.docs.map((d) => d.data()).filter((s) => s.week === week)
+    const submittedSubjects = new Set(weekScores.map((s) => s.subject))
+
+    // Only send if ALL student subjects are represented in this week's scores
+    const allDone = studentSubjects.every((sub) => submittedSubjects.has(sub))
+    if (!allDone) {
+      console.log(`[SmsReport] ${studentId} ${week}: ${submittedSubjects.size}/${studentSubjects.length} subjects done — waiting`)
+      return
+    }
+
+    // Guard: skip if already sent for this student+week
+    const guardId = `sms_${studentId}_${week.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+    const guardRef = db.collection('reminder_sent').doc(guardId)
+    const guardSnap = await guardRef.get()
+    if (guardSnap.exists) { console.log(`[SmsReport] ${guardId} already sent`); return }
+
+    // Build report
+    const name = student.name || 'Student'
+    const total = weekScores.reduce((a, s) => a + (s.score || 0), 0)
+    const maxTotal = weekScores.length * 100
+    const pct = maxTotal > 0 ? Math.round((total / maxTotal) * 100) : 0
+
+    const lines = []
+    weekScores.forEach((s) => {
+      const sp = s.score || 0
+      const flag = sp < 50 ? '⚠️' : ''
+      lines.push(`${s.subject} ${sp}%${flag}`)
+    })
+
+    const smsText = `274Lab — ${week}\n${name}: ${total}/${maxTotal} (${pct}%)\n${lines.join(', ')}\nKeep going!`
+    const truncated = smsText.slice(0, 765)
+
+    const phones = [
+      { label: 'parent', phone: normalizePhone(student.parentPhone) },
+      { label: 'teacher', phone: normalizePhone(student.teacherPhone) },
+    ].filter((p) => p.phone)
+
+    if (!phones.length) { console.log(`[SmsReport] ${studentId} has no valid phone numbers`); return }
+
+    let sentCount = 0
+    for (const { label, phone } of phones) {
+      try {
+        const body = {
+          api_key: TERMII_API_KEY,
+          to: phone,
+          from: '274Lab',
+          sms: truncated,
+          type: 'plain',
+          channel: 'generic',
+        }
+        const resp = await fetch('https://api.termii.com/api/sms/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const result = await resp.json()
+        if (result?.message?.err || result?.error) {
+          console.error(`[SmsReport] Termii error for ${label} (${phone}):`, result?.message?.err || result?.error)
+        } else {
+          sentCount++
+          console.log(`[SmsReport] Sent to ${label} (${phone})`)
+        }
+      } catch (e) {
+        console.error(`[SmsReport] Failed to send to ${label} (${phone}):`, e?.message || e)
+      }
+    }
+
+    if (sentCount > 0) {
+      await guardRef.set({
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        studentId,
+        week,
+        sentTo: phones.map((p) => p.label),
+        total,
+        pct,
+        sentCount,
+      })
+      console.log(`[SmsReport] ${studentId} ${week}: sent to ${sentCount} recipient(s)`)
+    }
+  }
+)

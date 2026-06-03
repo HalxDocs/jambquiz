@@ -1,4 +1,8 @@
-import { db, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, where } from '../firebase'
+import { db, collection, addDoc, getDocs, getDoc, deleteDoc, doc, setDoc, updateDoc, onSnapshot, query, where } from '../firebase'
+
+function limitDocId(subject, week) {
+  return String(subject || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50) + '__' + String(week || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50)
+}
 
 async function addQuestion(subject, week, question) {
   const { id, firestoreId, ...cleanQuestion } = question
@@ -36,8 +40,8 @@ function listenQuestions(subject, week, callback) {
 async function copyQuestionsToWeek(subject, fromWeek, toWeek) {
   const q = query(collection(db, 'questions'), where('subject', '==', subject), where('week', '==', fromWeek))
   const snapshot = await getDocs(q)
-  for (const doc of snapshot.docs) {
-    const { createdAt, ...cleanQ } = doc.data()
+  for (const questionDoc of snapshot.docs) {
+    const { createdAt, ...cleanQ } = questionDoc.data()
     await addDoc(collection(db, 'questions'), {
       ...cleanQ,
       week: toWeek,
@@ -48,10 +52,14 @@ async function copyQuestionsToWeek(subject, fromWeek, toWeek) {
 }
 
 async function saveQuestionLimit(subject, week, limit) {
-  const q = query(collection(db, 'question_limits'), where('subject', '==', subject), where('week', '==', week))
-  const snapshot = await getDocs(q)
-  if (!snapshot.empty) await deleteDoc(doc(db, 'question_limits', snapshot.docs[0].id))
-  await addDoc(collection(db, 'question_limits'), { subject, week, limit })
+  const safeLimit = Math.max(1, Math.min(200, parseInt(limit) || 25))
+  await setDoc(doc(db, 'question_limits', limitDocId(subject, week)), {
+    subject,
+    week,
+    limit: safeLimit,
+    updatedAt: new Date().toISOString(),
+  })
+  return safeLimit
 }
 
 function defaultQuestionLimit(subject) {
@@ -59,10 +67,9 @@ function defaultQuestionLimit(subject) {
 }
 
 async function getQuestionLimit(subject, week) {
-  const q = query(collection(db, 'question_limits'), where('subject', '==', subject), where('week', '==', week))
-  const snapshot = await getDocs(q)
-  if (snapshot.empty) return defaultQuestionLimit(subject)
-  return snapshot.docs[0].data().limit
+  const snap = await getDoc(doc(db, 'question_limits', limitDocId(subject, week)))
+  if (!snap.exists()) return defaultQuestionLimit(subject)
+  return snap.data().limit
 }
 
 export {

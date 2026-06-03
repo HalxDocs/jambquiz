@@ -229,31 +229,6 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     setSubmitting(false)
   }
 
-  const buildWAMsg = (phone, results) => {
-    const total = results.reduce((a, r) => a + r.score, 0)
-    const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
-    const today = new Date().toLocaleDateString('en-NG', { weekday: 'long', month: 'short', day: 'numeric' })
-    const firstName = (student.name || '').split(' ')[0] || 'Student'
-    const lines = [
-      `📊 *JAMB Mock Report – ${student.name}*`,
-      `${weekLabel} | ${today}`, '',
-      '*Subject Scores:*',
-      ...results.map((r) => `• ${r.subject}: ${r.score}/100 ${r.score >= 70 ? '✅' : r.score >= 50 ? '🟡' : '⚠️'}`),
-      '',
-      `*Total Score: ${total}/${results.length * 100}* ${medal}`,
-      '',
-    ]
-    const topicLines = Object.entries(nextWeekTopics)
-      .map(([s, raw]) => { const t = normalizeTopic(raw); return t?.name ? `• ${s}: ${t.name}` : null })
-      .filter(Boolean)
-    if (topicLines.length) { lines.push('*Next Week Topics:*', ...topicLines, '') }
-    if (total >= 280) lines.push(`💪 Outstanding! ${firstName} is excelling this week. Keep it up!`)
-    else if (total >= 200) lines.push(`📈 Good effort! ${firstName} is on track. Consistent practice will push scores higher.`)
-    else lines.push(`🔁 Tough week, but every mock is a lesson. Encourage ${firstName} to review corrections and come back stronger.`)
-    lines.push('', '_274Days to identify weaknesses and fix them to ace JAMB_')
-    return `https://wa.me/${phone}?text=${encodeURIComponent(lines.join('\n'))}`
-  }
-
   // ── GATE SCREENS ───────────────────────────────────────────────────────────
   if (step === 'init' || step === 'loading') {
     return (
@@ -346,13 +321,11 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
 
   // ── DONE ───────────────────────────────────────────────────────────────────
   if (step === 'done') {
-    const parentPhone = student.parentPhone?.replace(/\D/g, '')
-    const teacherPhone = student.teacherPhone?.replace(/\D/g, '')
 
     return (
       <>
       <SEO title="Quiz Results" />
-      <QuizResults allResults={allResults} weekLabel={weekLabel} medalToast={medalToast} setMedalToast={setMedalToast} nextWeekTopics={nextWeekTopics} parentPhone={parentPhone} teacherPhone={teacherPhone} buildWAMsg={buildWAMsg} student={student} onBackToDashboard={() => setView('dashboard')} onViewResults={() => setView('results')} />
+      <QuizResults allResults={allResults} weekLabel={weekLabel} medalToast={medalToast} setMedalToast={setMedalToast} nextWeekTopics={nextWeekTopics} onBackToDashboard={() => setView('dashboard')} onViewResults={() => setView('results')} />
     </>
     )
   }

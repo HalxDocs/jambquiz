@@ -7,7 +7,7 @@ service cloud.firestore {
     // Create: anyone can register (no PII abuse possible - just a name/password).
     // Update: only safe fields (nickname, email, phones, subjects, password via reset).
     //          Server-side fields (subscriptionUntil, freeAttemptsUsed, role) are protected.
-    // Delete: blocked from client (admin only via cloud function).
+    // Delete: allowed for admin client (the admin app is the only UI that exposes this).
     match /students/{studentId} {
       allow read: if true;
 
@@ -47,7 +47,7 @@ service cloud.firestore {
                             && request.resource.data.freeAttemptsUsed <= 1000))
                     && (!('role' in request.resource.data) || request.resource.data.role == resource.data.role);
 
-      allow delete: if false;
+      allow delete: if true;
     }
 
     // ─── SCORES ───
@@ -119,18 +119,27 @@ service cloud.firestore {
     }
 
     // ─── TOPICS ───
-    // Public read+write (admin manages from client).
+    // Public read+write (admin manages from client). Doc ID is the week label (sanitized).
+    // Each value is a map of subjects → { name, video, keyPoints[10] }.
     match /topics/{topicId} {
       allow read: if true;
 
-      allow write: if request.resource.data.size() <= 12;
+      allow create, update: if request.resource.data.week is string
+                            && request.resource.data.week.size() > 0
+                            && request.resource.data.week.size() <= 50
+                            && request.resource.data.topics is map
+                            && request.resource.data.topics.size() <= 11
+                            && request.resource.data.updatedAt is string;
+      allow delete: if true;
     }
 
     // ─── SETTINGS ───
-    // Public read. Lock writes from client (admin only via cloud function or admin SDK).
+    // Public read. Writes allowed for known admin client doc IDs (activeWeek, quizDates_Week_*).
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if false;
+      allow write: if settingId == 'activeWeek'
+                   || settingId.matches('quizDates_.*')
+                   || settingId.matches('quizDatesWeek_.*');
     }
 
     // ─── PAYMENTS ───
@@ -172,17 +181,26 @@ service cloud.firestore {
     }
 
     // ─── ADMIN SETTINGS ───
-    // Public read for notifications toggle UI. Lock writes from client.
+    // Public read for notifications toggle UI. Writes allowed only for known admin client doc IDs.
     match /admin_settings/{docId} {
       allow read: if docId == 'notifications' || docId == 'admin_auth';
-      allow write: if false;
+      allow write: if docId == 'notifications' || docId == 'admin_auth';
     }
 
     // ─── QUESTION LIMITS ───
-    // Public read. Lock writes from client (admin SDK only).
+    // Public read+write for admin client. Doc ID format: "<subject>__<week>".
     match /question_limits/{docId} {
       allow read: if true;
-      allow write: if false;
+      allow create, update: if request.resource.data.subject is string
+                            && request.resource.data.subject.size() > 0
+                            && request.resource.data.subject.size() <= 50
+                            && request.resource.data.week is string
+                            && request.resource.data.week.size() > 0
+                            && request.resource.data.week.size() <= 50
+                            && request.resource.data.limit is int
+                            && request.resource.data.limit >= 1
+                            && request.resource.data.limit <= 200;
+      allow delete: if true;
     }
 
     // ─── ADMIN BROADCASTS ───

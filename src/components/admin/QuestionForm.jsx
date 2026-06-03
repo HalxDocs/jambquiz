@@ -117,8 +117,9 @@ export default function QuestionForm({
 
   const handleSaveLimit = async () => {
     try {
-      await saveQuestionLimit(selectedSubject, selectedWeek, localQuestionLimit)
-      onSaveLimit(localQuestionLimit)
+      const saved = await saveQuestionLimit(selectedSubject, selectedWeek, localQuestionLimit)
+      onSaveLimit(saved)
+      setLocalQuestionLimit(saved)
       showToast('Limit saved!')
     } catch (e) { showToast(e?.message || 'Failed to save limit') }
   }

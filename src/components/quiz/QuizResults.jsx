@@ -1,14 +1,8 @@
 import { useState } from 'react'
 import { normalizeTopic } from '../../store/useStore'
 import { safeUrl } from '../../lib/safeUrl'
+import { runAutopsy } from '../../lib/weakTopicAutopsy'
 import Corrections from './Corrections'
-
-const WaIcon = () => (
-  <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current shrink-0">
-    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
-    <path d="M12 0C5.373 0 0 5.373 0 12c0 2.123.556 4.116 1.524 5.845L0 24l6.289-1.506A11.93 11.93 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.8 9.8 0 01-4.988-1.364l-.358-.213-3.733.894.928-3.637-.232-.373A9.793 9.793 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182c5.43 0 9.818 4.388 9.818 9.818 0 5.43-4.388 9.818-9.818 9.818z" />
-  </svg>
-)
 
 export default function QuizResults({
   allResults,
@@ -16,15 +10,14 @@ export default function QuizResults({
   medalToast,
   setMedalToast,
   nextWeekTopics,
-  parentPhone,
-  teacherPhone,
-  buildWAMsg,
-  student,
   onBackToDashboard,
   onViewResults,
 }) {
   const [expandedSubject, setExpandedSubject] = useState(null)
+  const [autopsyOpen, setAutopsyOpen] = useState(false)
+  const [autopsyCopied, setAutopsyCopied] = useState(false)
   const total = allResults.reduce((a, r) => a + r.score, 0)
+  const autopsy = runAutopsy({ currentResults: allResults, historyResults: [] })
   const maxTotal = allResults.length * 100
   const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
   const pct = Math.round((total / maxTotal) * 100)
@@ -95,34 +88,91 @@ export default function QuizResults({
           </div>
         </div>
 
-        {(parentPhone || teacherPhone) && (
-          <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
-            <p className="text-[11px] font-bold text-[#888] uppercase tracking-[0.15em] font-label mb-0.5">Send Report via WhatsApp</p>
-            <p className="text-[10px] text-[#AAA] font-label mb-3">Includes scores, next week topics & encouragement</p>
-            <div className="space-y-2">
-              {parentPhone && (
-                <a href={buildWAMsg(parentPhone, allResults)} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-3 w-full bg-green-600 hover:bg-green-700 text-white rounded-xl px-4 py-3 transition-colors">
-                  <WaIcon />
-                  <div className="text-left">
-                    <p className="text-sm font-bold font-display">Send to Parent</p>
-                    <p className="text-[11px] text-green-200 font-label">{student.parentPhone}</p>
-                  </div>
-                </a>
-              )}
-              {teacherPhone && (
-                <a href={buildWAMsg(teacherPhone, allResults)} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-3 w-full bg-[#111] hover:bg-[#222] text-white rounded-xl px-4 py-3 transition-colors">
-                  <WaIcon />
-                  <div className="text-left">
-                    <p className="text-sm font-bold font-display">Send to Teacher</p>
-                    <p className="text-[11px] text-[#666] font-label">{student.teacherPhone}</p>
-                  </div>
-                </a>
-              )}
+        {autopsy.hasData && (
+          <div className="bg-gradient-to-br from-[#111] to-[#222] text-white rounded-2xl p-5 mb-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-lg">🔬</span>
+              <p className="text-[10px] font-semibold text-[#999] uppercase tracking-[0.2em] font-label">Weak Topic Autopsy</p>
             </div>
+            <p className="text-base font-bold font-display mb-1">Where you're bleeding points.</p>
+            <p className="text-[11px] text-[#AAA] font-label mb-3">A one-tap diagnosis from the questions you just missed.</p>
+            <button
+              onClick={() => setAutopsyOpen(!autopsyOpen)}
+              className="w-full bg-white text-[#111] rounded-xl py-2.5 text-sm font-bold font-display hover:bg-[#F3F3F2] transition-colors"
+            >
+              {autopsyOpen ? 'Hide Diagnosis ▲' : 'Run Autopsy — show me what to study tonight ▼'}
+            </button>
+
+            {autopsyOpen && autopsy.tonight && (
+              <div className="mt-4 space-y-3">
+                {autopsy.worstSubjects.length > 0 && (
+                  <div className="space-y-2">
+                    {autopsy.worstSubjects.slice(0, 3).map((s) => (
+                      <div key={s.subject} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-sm font-bold font-display">{s.subject}</p>
+                          <span className={`text-[10px] font-bold font-label px-2 py-0.5 rounded-full ${
+                            s.avgPct >= 60 ? 'bg-yellow-500/20 text-yellow-300' :
+                            'bg-red-500/20 text-red-300'
+                          }`}>
+                            {s.avgPct}% · ~{s.pointsLost} pts lost
+                          </span>
+                        </div>
+                        {s.biggestBleeding && s.biggestBleeding.key !== '__unmatched__' && (
+                          <p className="text-[11px] text-[#CCC] font-label">
+                            Bleeding from: <span className="text-white font-semibold">{s.biggestBleeding.label}</span>
+                            {s.biggestBleeding.count > 1 && <span className="text-[#999]"> · {s.biggestBleeding.count} question{s.biggestBleeding.count > 1 ? 's' : ''}</span>}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="bg-white text-[#111] rounded-2xl p-4">
+                  <p className="text-[10px] font-bold text-[#888] uppercase tracking-[0.15em] font-label mb-1">Tonight's One Action</p>
+                  <p className="text-base font-bold font-display mb-3">{autopsy.tonight.oneAction}</p>
+                  <div className="bg-[#F8F8F7] border border-[#EBEBEB] rounded-xl p-3 mb-2">
+                    <p className="text-[10px] font-bold text-[#888] uppercase tracking-wide font-label mb-1">The Key Sentence</p>
+                    <p className="text-xs text-[#111] font-body leading-relaxed">{autopsy.tonight.keySentence}</p>
+                  </div>
+                  <div className="bg-[#F8F8F7] border border-[#EBEBEB] rounded-xl p-3 mb-3">
+                    <p className="text-[10px] font-bold text-[#888] uppercase tracking-wide font-label mb-1">Do This Now</p>
+                    <p className="text-xs text-[#111] font-body leading-relaxed">{autopsy.tonight.practicePrompt}</p>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-green-700 bg-green-100 border border-green-200 px-2 py-1 rounded-full font-label">
+                      Expected: {autopsy.tonight.expectedPoints}
+                    </span>
+                    <button
+                      onClick={() => {
+                        const text = `🔬 Weak Topic Autopsy — ${weekLabel}\n\n${autopsy.tonight.oneAction}\n\nKey sentence: ${autopsy.tonight.keySentence}\n\nDo this now: ${autopsy.tonight.practicePrompt}\n\nExpected: ${autopsy.tonight.expectedPoints}\n\n— 274Lab`
+                        if (navigator.clipboard?.writeText) {
+                          navigator.clipboard.writeText(text).then(() => {
+                            setAutopsyCopied(true)
+                            setTimeout(() => setAutopsyCopied(false), 2000)
+                          })
+                        }
+                      }}
+                      className="text-[10px] font-bold text-[#555] hover:text-[#111] font-label transition-colors"
+                    >
+                      {autopsyCopied ? '✓ Copied' : 'Copy to notes'}
+                    </button>
+                  </div>
+                </div>
+
+                {autopsy.parentLine && (
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <p className="text-[10px] font-bold text-[#999] uppercase tracking-wide font-label mb-1">Read this to yourself</p>
+                    <p className="text-xs text-[#DDD] font-body leading-relaxed">{autopsy.parentLine}</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
+
+        
 
         {Object.keys(nextWeekTopics).some((k) => normalizeTopic(nextWeekTopics[k])?.name) && (
           <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
