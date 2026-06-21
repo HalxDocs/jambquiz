@@ -285,7 +285,7 @@ export default function Leaderboard({ student, setView }) {
                   const cr = s.sessionCount != null ? getConsistencyFromCount(s.sessionCount) : null
                   const title = getTitle(s.total || 0)
                   return (
-                    <div className="mx-4 mt-4 mb-3 bg-[#FFF8E7] border border-amber-200 rounded-2xl p-4">
+                    <div className="mt-4 mb-3 bg-[#FFF8E7] border border-amber-200 rounded-2xl p-4">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-[10px] font-bold text-amber-600 font-label uppercase tracking-wider">Your Position</span>
                         <span className="text-[10px] text-[#F59E0B] font-bold font-label bg-amber-100 px-1.5 py-0.5 rounded-full">YOU</span>
