@@ -14,8 +14,8 @@ const MIN_INTERVAL_BETWEEN_NOTIFICATIONS = 30 * 60 * 1000;
 
 function normalizeTopic(t) {
   if (!t) return null;
-  if (typeof t === 'string') return { name: t, video: '', keyPoints: [] };
-  return { name: t.name || '', video: t.video || '', keyPoints: Array.isArray(t.keyPoints) ? t.keyPoints : [] };
+  if (typeof t === 'string') return { name: t, smsName: '', video: '', keyPoints: [] };
+  return { name: t.name || '', smsName: t.smsName || '', video: t.video || '', keyPoints: Array.isArray(t.keyPoints) ? t.keyPoints : [] };
 }
 
 async function getAllKeyPoints(week, studentSubjects) {
@@ -40,9 +40,9 @@ async function getAllKeyPoints(week, studentSubjects) {
 }
 
 async function getActiveWeek() {
-  const snap = await db.collection('settings').where('key', '==', 'activeWeek').get();
-  if (snap.empty) return 'Week 1';
-  return snap.docs[0].data().value;
+  const snap = await db.collection('settings').doc('activeWeek').get();
+  if (!snap.exists) return 'Week 1';
+  return snap.data().value || 'Week 1';
 }
 
 async function getStudentSubjects(studentId) {
@@ -152,11 +152,11 @@ exports.sendKeyPointNotifications = onSchedule(
       if (!nextPoint) {
         const reset = {};
         eligiblePoints.forEach((p) => { reset[p.id] = 0; });
-        await db.collection('notification_state').doc(studentId).update({
+        await db.collection('notification_state').doc(studentId).set({
           seenPoints: reset,
           currentCycleIndex: 0,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        }, { merge: true });
         continue;
       }
 
@@ -192,7 +192,7 @@ exports.sendKeyPointNotifications = onSchedule(
           console.log(`[CloudFn] Removing expired subscription for ${studentId}`);
           await db.collection('push_subscriptions').doc(studentId).delete();
         } else {
-          console.error(`[CloudFn] Failed to send to ${studentId}:`, err.message);
+          console.error(`[CloudFn] Failed to send to ${studentId}:`, err.message || err);
         }
       }
     }
@@ -266,11 +266,13 @@ exports.sendBroadcastPush = onDocumentCreated(
       } catch (err) {
         if (err.statusCode === 410 || err.statusCode === 404) {
           await db.collection('push_subscriptions').doc(studentId).delete();
+        } else {
+          console.error(`[Broadcast] Failed to send to ${studentId}:`, err.message || err);
         }
       }
     }
 
-    console.log(`[Broadcast] Sent "${title}" to ${sent} subscriber(s) (target: ${target || 'all'})`);
+    console.log(`[Broadcast] Sent "${title}" to ${sent}/${subsSnap.size} subscriber(s) (target: ${target || 'all'})`);
   }
 );
 
@@ -280,6 +282,20 @@ const SUBJECTS = [
   'Christian Religious Studies', 'Islamic Religious Studies',
   'Commerce', 'Economics',
 ];
+
+const SUBJECT_ABBREVIATIONS = {
+  'Mathematics': 'MTH',
+  'Physics': 'PHY',
+  'Chemistry': 'CHM',
+  'Biology': 'BIO',
+  'English Language': 'ENG',
+  'Government': 'GOV',
+  'Literature in English': 'LIT',
+  'Christian Religious Studies': 'CRS',
+  'Islamic Religious Studies': 'IRS',
+  'Commerce': 'COM',
+  'Economics': 'ECO',
+};
 
 exports.computeLeaderboard = onSchedule(
   {
@@ -361,12 +377,12 @@ exports.computeLeaderboard = onSchedule(
       count++;
       if (count >= 400) {
         // Firestore batch limit is 500
-        writeBatch.commit();
+        await writeBatch.commit();
         writeBatch = db.batch();
         count = 0;
       }
     });
-    if (count > 0) writeBatch.commit();
+    if (count > 0) await writeBatch.commit();
 
     console.log(`[Leaderboard] Computed for ${Object.keys(totals).length} students`);
   }
@@ -381,7 +397,8 @@ function getStatus(s) {
   return 'expired';
 }
 
-exports.computeAdminStats = onCall(async () => {
+exports.computeAdminStats = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Login required')
   try {
     const [studentsSnap, scoresSnap, paymentsSnap] = await Promise.all([
       db.collection('students').get(),
@@ -483,55 +500,38 @@ exports.computeAdminStats = onCall(async () => {
   }
 });
 
-exports.sendMockReminder = onSchedule(
+exports.sendQuizTimeReminder = onSchedule(
   {
-    schedule: '0 * * * *', // top of every hour
+    schedule: '0 17 * * 5,6', // 5pm Friday and Saturday
     timeZone: 'Africa/Lagos',
     secrets: ['VAPID_PRIVATE_KEY'],
   },
   async () => {
-    // Read active week's quiz dates from Firestore
-    const week = await getActiveWeek();
-    const settingsSnap = await db.collection('settings').where('key', '==', `quizDates_${week}`).get();
-    if (settingsSnap.empty) return;
-
-    const { date1, date2 } = settingsSnap.docs[0].data();
     const now = Date.now();
-    const ONE_HOUR = 60 * 60 * 1000;
 
-    // Check if current time falls inside any quiz date's 1-hour window
-    const isQuizHour = [date1, date2].filter(Boolean).some((d) => {
-      const t = new Date(d).getTime();
-      return now >= t && now < t + ONE_HOUR;
-    });
-
-    if (!isQuizHour) return;
-
-    // Guard: skip if we already sent a reminder in this same hour
-    const guardRef = db.collection('admin_settings').doc('mock_reminder');
+    // Guard: skip if we already sent a reminder today
+    const today = new Date().toISOString().slice(0, 10)
+    const guardRef = db.collection('admin_settings').doc(`quiz_time_reminder_${today}`);
     const guardSnap = await guardRef.get();
     if (guardSnap.exists) {
-      const lastSent = guardSnap.data().sentAt ? new Date(guardSnap.data().sentAt).getTime() : 0;
-      if (now - lastSent < ONE_HOUR) {
-        console.log('[MockReminder] Already sent this hour, skipping');
-        return;
-      }
+      console.log(`[QuizTimeReminder] Already sent today (${today}), skipping`);
+      return;
     }
 
     const vapidPrivateKeyValue = (process.env.VAPID_PRIVATE_KEY || '').trim();
-    if (!vapidPrivateKeyValue) { console.error('[MockReminder] VAPID_PRIVATE_KEY not set'); return; }
+    if (!vapidPrivateKeyValue) { console.error('[QuizTimeReminder] VAPID_PRIVATE_KEY not set'); return; }
 
     webpush.setVapidDetails('mailto:admin@274lab.com', VAPID_PUBLIC_KEY, vapidPrivateKeyValue);
 
     const subsSnap = await db.collection('push_subscriptions').get();
-    if (subsSnap.empty) { console.log('[MockReminder] No subscribers'); return; }
+    if (subsSnap.empty) { console.log('[QuizTimeReminder] No subscribers'); return; }
 
     let sent = 0;
     const payload = JSON.stringify({
       type: 'broadcast',
-      title: '📝 Mock Test Time!',
+      title: '📝 Quiz Time!',
       message: "It's 5PM — your weekly mock test is live! Open the app and start now.",
-      broadcastId: 'mock-' + Date.now(),
+      broadcastId: 'quiz-time-' + Date.now(),
     });
 
     for (const subDoc of subsSnap.docs) {
@@ -546,15 +546,15 @@ exports.sendMockReminder = onSchedule(
       }
     }
 
-    // Mark as sent so we don't double-fire
     await guardRef.set({ sentAt: new Date().toISOString() });
-    console.log(`[MockReminder] Sent mock reminder to ${sent} subscriber(s)`);
+    console.log(`[QuizTimeReminder] Sent to ${sent} subscriber(s)`);
   }
 );
 
 exports.testPushToAll = onCall(
   { secrets: ['VAPID_PRIVATE_KEY'] },
-  async () => {
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Login required')
     const vapidPrivateKeyValue = (process.env.VAPID_PRIVATE_KEY || '').trim();
     if (!vapidPrivateKeyValue) return { ok: false, reason: 'VAPID_PRIVATE_KEY secret not set in Firebase. Run: firebase functions:secrets:set VAPID_PRIVATE_KEY' };
 
@@ -574,11 +574,103 @@ exports.testPushToAll = onCall(
       } catch (err) {
         if (err.statusCode === 410 || err.statusCode === 404) {
           await db.collection('push_subscriptions').doc(subDoc.id).delete();
+        } else {
+          console.error('[TestPush] Failed to send:', err.message || err);
         }
       }
     }
 
-    return { ok: true, sent, total: subsSnap.size };
+    console.log(`[TestPush] Sent to ${sent}/${subsSnap.size} device(s)`);
+  }
+);
+
+exports.testSms = onCall(
+  { secrets: ['TERMII_API_KEY'] },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Login required')
+    const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
+    if (!TERMII_API_KEY) return { ok: false, message: 'TERMII_API_KEY secret not set. Run: firebase functions:secrets:set TERMII_API_KEY' }
+
+    const phone = normalizePhone(request.data?.phone || '')
+    if (!phone) return { ok: false, message: 'Invalid phone number. Use international format (e.g. 2348012345678)' }
+
+    const smsText = 'This is a test SMS from 274Lab. Your SMS integration is working correctly!'
+    const resp = await fetch('https://api.termii.com/api/sms/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: TERMII_API_KEY, to: phone, from: '274Lab', sms: smsText, type: 'plain', channel: 'generic' }),
+    })
+    const result = await resp.json()
+    if (!resp.ok) return { ok: false, message: `Termii HTTP ${resp.status}: ${JSON.stringify(result)}` }
+    if (result?.message?.err || result?.error) return { ok: false, message: result?.message?.err || result?.error }
+    return { ok: true, message: `Test SMS sent to ${phone}` }
+  }
+);
+
+exports.sendAccountabilityIntro = onCall(
+  { secrets: ['TERMII_API_KEY'] },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Login required')
+    const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
+    if (!TERMII_API_KEY) return { ok: false, message: 'TERMII_API_KEY not set' }
+
+    const { studentId, phones } = request.data || {}
+    if (!studentId || !phones?.length) return { ok: false, message: 'Missing studentId or phones' }
+
+    const studentSnap = await db.collection('students').doc(studentId).get()
+    if (!studentSnap.exists) return { ok: false, message: 'Student not found' }
+    const student = studentSnap.data()
+    const name = student.name || 'Student'
+
+    const recoveryCode = Math.floor(1000 + Math.random() * 9000).toString()
+    await studentSnap.ref.update({ recoveryCode })
+
+    const introText = [
+      'Hi,',
+      '',
+      `${name} has started preparing for JAMB with our weekly topic-based test and chose you as accountability partner.`,
+      '',
+      'Your role is to remind them every Friday to take their test as we keep updating you.',
+      '',
+      'You make the difference.',
+      '',
+      `Recovery code: ${recoveryCode}`,
+      '',
+      'Powered by 274Lab',
+    ].join('\n')
+
+    let sentCount = 0
+    for (const phone of phones) {
+      const p = normalizePhone(phone)
+      if (!p) continue
+      try {
+        const r = await sendSmsTermii(TERMII_API_KEY, p, introText)
+        if (r.ok) sentCount++
+        else console.error(`[AccountabilityIntro] Failed to send to ${p}:`, r.error)
+      } catch (e) { console.error('[AccountabilityIntro] Error:', e?.message || e) }
+    }
+    return { ok: true, sentCount }
+  }
+);
+
+exports.verifyRecoveryCode = onCall(
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Login required')
+    const { studentId, code } = request.data || {}
+    if (!studentId || !code) return { ok: false }
+
+    const studentSnap = await db.collection('students').doc(studentId).get()
+    if (!studentSnap.exists) return { ok: false }
+
+    const student = studentSnap.data()
+    if ((student.recoveryCode || '') !== code.toString().trim()) return { ok: false }
+
+    await studentSnap.ref.update({
+      missedStreak: 0,
+      suspended: false,
+      appealedAt: admin.firestore.FieldValue.serverTimestamp(),
+    })
+    return { ok: true }
   }
 );
 
@@ -822,7 +914,7 @@ exports.sendAbsentSmsReport = onSchedule(
     console.log(`[AbsentSms] Checking absences for ${week}`)
 
     // Get all students who have scores for this week
-    const scoresSnap = await db.collection('scores').get()
+    const scoresSnap = await db.collection('scores').where('week', '==', week).get()
     const studentsWithScores = new Set()
     scoresSnap.forEach((d) => {
       const s = d.data()
@@ -832,6 +924,7 @@ exports.sendAbsentSmsReport = onSchedule(
 
     // Get all students with phone numbers
     const allStudents = await db.collection('students').get()
+    const topicNames = await getWeekTopicNames(week)
     let sent = 0
     let skipped = 0
 
@@ -865,30 +958,19 @@ exports.sendAbsentSmsReport = onSchedule(
         continue
       }
 
-      const smsText = `274Lab — ${week}\n${name} was absent for this week's quiz. Please remind them to check in next week.\n— 274Lab`
+      const subjects = (student.subjects || []).map((s) => ({ subject: s, score: null }))
+      const smsText = buildSmsBody(name, week, subjects, topicNames)
       const truncated = smsText.slice(0, 765)
       let sentCount = 0
 
       for (const { label, phone } of phones) {
         try {
-          const resp = await fetch('https://api.termii.com/api/sms/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              api_key: TERMII_API_KEY,
-              to: phone,
-              from: '274Lab',
-              sms: truncated,
-              type: 'plain',
-              channel: 'generic',
-            }),
-          })
-          const result = await resp.json()
-          if (result?.message?.err || result?.error) {
-            console.error(`[AbsentSms] Termii error for ${label} (${phone}):`, result?.message?.err || result?.error)
-          } else {
+          const r = await sendSmsTermii(TERMII_API_KEY, phone, truncated)
+          if (r.ok) {
             sentCount++
             console.log(`[AbsentSms] Sent to ${label} (${phone}) for ${studentId}`)
+          } else {
+            console.error(`[AbsentSms] Error for ${label} (${phone}):`, r.error)
           }
         } catch (e) {
           console.error(`[AbsentSms] Failed to send to ${label} (${phone}):`, e?.message || e)
@@ -914,6 +996,12 @@ exports.sendAbsentSmsReport = onSchedule(
   }
 )
 
+function truncateTopic(name, maxLen = 14) {
+  if (!name) return ''
+  const s = String(name)
+  return s.length > maxLen ? s.slice(0, maxLen) : s
+}
+
 function normalizePhone(p) {
   if (!p || !p.trim()) return null
   let s = p.replace(/[\s\-\(\)]/g, '')
@@ -922,6 +1010,151 @@ function normalizePhone(p) {
   if (s.length >= 10 && s.length <= 14) return s
   return null
 }
+
+async function getWeekTopicNames(week) {
+  try {
+    const snap = await db.collection('topics').where('week', '==', week).get()
+    if (snap.empty) { console.log(`[getWeekTopicNames] No topics found for ${week}`); return {} }
+    const topicsData = snap.docs[0].data().topics || {}
+    const names = {}
+    Object.entries(topicsData).forEach(([subject, t]) => {
+      const n = normalizeTopic(t)
+      if (n && n.name) {
+        names[subject] = { name: n.name, smsName: n.smsName || '' }
+      }
+    })
+    console.log(`[getWeekTopicNames] ${week}:`, JSON.stringify(names))
+    return names
+  } catch (e) {
+    console.error('[getWeekTopicNames] Error:', e?.message || e)
+    return {}
+  }
+}
+
+function buildSmsBody(name, week, subjectsWithScore, topicNames) {
+  const lines = ['Hi,', '', `Here's a weekly report for ${name} from 274Lab.`, '', 'PERFORMANCE:', '']
+  subjectsWithScore.forEach(({ subject, score }) => {
+    const abbr = SUBJECT_ABBREVIATIONS[subject] || subject.slice(0, 3).toUpperCase()
+    const topic = topicNames[subject] || {}
+    const smsLabel = topic.smsName || truncateTopic(topic.name || '')
+    const scorePart = score !== null ? `${score}%` : 'ABS'
+    lines.push(`${abbr}${smsLabel ? `: ${smsLabel}` : ''} – ${scorePart}`)
+  })
+  lines.push('', 'Powered by 274Lab')
+  return lines.join('\n')
+}
+
+async function sendSmsTermii(apiKey, to, text) {
+  const truncated = text.slice(0, 765)
+  const resp = await fetch('https://api.termii.com/api/sms/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey, to, from: '274Lab', sms: truncated, type: 'plain', channel: 'generic' }),
+  })
+  const result = await resp.json()
+  if (!resp.ok) return { ok: false, error: `Termii HTTP ${resp.status}: ${JSON.stringify(result)}` }
+  if (result?.message?.err || result?.error) return { ok: false, error: result?.message?.err || result?.error }
+  return { ok: true, result }
+}
+
+exports.advanceWeek = onSchedule(
+  {
+    schedule: '0 19 * * 6',
+    timeZone: 'Africa/Lagos',
+    secrets: ['TERMII_API_KEY'],
+  },
+  async () => {
+    const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
+    const current = await getActiveWeek()
+    const match = current.match(/^Week\s+(\d+)$/i)
+    if (!match) {
+      console.log(`[AdvanceWeek] Could not parse current week: "${current}"`)
+      return
+    }
+    const num = parseInt(match[1], 10)
+    if (num >= 26) {
+      console.log(`[AdvanceWeek] Already at Week 26 — not advancing`)
+      return
+    }
+    const next = `Week ${num + 1}`
+    const activeWeekRef = db.collection('settings').doc('activeWeek')
+    const activeWeekSnap = await activeWeekRef.get()
+    if (!activeWeekSnap.exists) {
+      console.log('[AdvanceWeek] No activeWeek doc found')
+      return
+    }
+    await activeWeekRef.update({ value: next, updatedAt: admin.firestore.FieldValue.serverTimestamp() })
+    console.log(`[AdvanceWeek] Advanced from ${current} → ${next}`)
+
+    // ── Track missed streaks ──
+    if (!TERMII_API_KEY) {
+      console.log('[AdvanceWeek] TERMII_API_KEY not set — skipping missed streak tracking')
+      return
+    }
+
+    const scoresSnap = await db.collection('scores').get()
+    const studentsWithScores = new Set()
+    scoresSnap.forEach((d) => {
+      const s = d.data()
+      if (s.week === current && s.studentId) studentsWithScores.add(s.studentId)
+    })
+
+    const allStudents = await db.collection('students').get()
+    let suspended = 0
+    let appealed = 0
+
+    for (const doc of allStudents.docs) {
+      const studentId = doc.id
+      const student = doc.data()
+      let missedStreak = student.missedStreak || 0
+
+      if (studentsWithScores.has(studentId)) {
+        if (missedStreak > 0) {
+          await doc.ref.update({ missedStreak: 0 })
+          appealed++
+        }
+      } else {
+        missedStreak++
+        const update = { missedStreak }
+
+        // TEMP: testing period threshold (3 = red). Revert to 6 after test.
+        if (missedStreak >= 3 && !student.suspended) {
+          update.suspended = true
+          suspended++
+
+          // Send suspension SMS to accountability partners
+          const phones = [
+            normalizePhone(student.parentPhone),
+            normalizePhone(student.teacherPhone),
+          ].filter(Boolean)
+
+          if (phones.length > 0 && student.recoveryCode) {
+            const suspendText = [
+              'Hi,',
+              '',
+              `${student.name} account was suspended for missing ${missedStreak} weekly tests.`,
+              '',
+              `To recover account, let him enter the code: ${student.recoveryCode}. But don't give them until they show readiness to study.`,
+              '',
+              'Powered by 274Lab',
+            ].join('\n')
+
+            for (const phone of phones) {
+              try {
+                const r = await sendSmsTermii(TERMII_API_KEY, phone, suspendText)
+                if (!r.ok) console.error(`[AdvanceWeek] Suspension SMS failed for ${phone}:`, r.error)
+              } catch (e) { console.error('[AdvanceWeek] Suspension SMS error:', e?.message || e) }
+            }
+          }
+        }
+
+        await doc.ref.update(update)
+      }
+    }
+
+    console.log(`[AdvanceWeek] Missed streaks: ${appealed} reset, ${allStudents.docs.length - appealed - suspended + (allStudents.docs.filter(d => !studentsWithScores.has(d.id)).length)} incremented, ${suspended} suspended`)
+  }
+)
 
 exports.sendQuizSmsReport = onDocumentCreated(
   {
@@ -951,11 +1184,12 @@ exports.sendQuizSmsReport = onDocumentCreated(
     // Get all scores for this student + week
     const scoresSnap = await db.collection('scores')
       .where('studentId', '==', studentId)
+      .where('week', '==', week)
       .get()
 
     if (scoresSnap.empty) { console.log('[SmsReport] No scores found'); return }
 
-    const weekScores = scoresSnap.docs.map((d) => d.data()).filter((s) => s.week === week)
+    const weekScores = scoresSnap.docs.map((d) => d.data())
     const submittedSubjects = new Set(weekScores.map((s) => s.subject))
 
     // Only send if ALL student subjects are represented in this week's scores
@@ -973,18 +1207,13 @@ exports.sendQuizSmsReport = onDocumentCreated(
 
     // Build report
     const name = student.name || 'Student'
-    const total = weekScores.reduce((a, s) => a + (s.score || 0), 0)
-    const maxTotal = weekScores.length * 100
-    const pct = maxTotal > 0 ? Math.round((total / maxTotal) * 100) : 0
-
-    const lines = []
-    weekScores.forEach((s) => {
-      const sp = s.score || 0
-      const flag = sp < 50 ? '⚠️' : ''
-      lines.push(`${s.subject} ${sp}%${flag}`)
+    const topicNames = await getWeekTopicNames(week)
+    const subjectsWithScore = studentSubjects.map((subject) => {
+      const found = weekScores.find((s) => s.subject === subject)
+      return { subject, score: found ? found.score : null }
     })
 
-    const smsText = `274Lab — ${week}\n${name}: ${total}/${maxTotal} (${pct}%)\n${lines.join(', ')}\nKeep going!`
+    const smsText = buildSmsBody(name, week, subjectsWithScore, topicNames)
     const truncated = smsText.slice(0, 765)
 
     const phones = [
@@ -997,25 +1226,12 @@ exports.sendQuizSmsReport = onDocumentCreated(
     let sentCount = 0
     for (const { label, phone } of phones) {
       try {
-        const body = {
-          api_key: TERMII_API_KEY,
-          to: phone,
-          from: '274Lab',
-          sms: truncated,
-          type: 'plain',
-          channel: 'generic',
-        }
-        const resp = await fetch('https://api.termii.com/api/sms/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-        const result = await resp.json()
-        if (result?.message?.err || result?.error) {
-          console.error(`[SmsReport] Termii error for ${label} (${phone}):`, result?.message?.err || result?.error)
-        } else {
+        const r = await sendSmsTermii(TERMII_API_KEY, phone, truncated)
+        if (r.ok) {
           sentCount++
           console.log(`[SmsReport] Sent to ${label} (${phone})`)
+        } else {
+          console.error(`[SmsReport] Error for ${label} (${phone}):`, r.error)
         }
       } catch (e) {
         console.error(`[SmsReport] Failed to send to ${label} (${phone}):`, e?.message || e)
@@ -1028,8 +1244,6 @@ exports.sendQuizSmsReport = onDocumentCreated(
         studentId,
         week,
         sentTo: phones.map((p) => p.label),
-        total,
-        pct,
         sentCount,
       })
       console.log(`[SmsReport] ${studentId} ${week}: sent to ${sentCount} recipient(s)`)

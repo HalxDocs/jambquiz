@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { HeartAddIcon, Mail01Icon } from '@hugeicons/core-free-icons'
 import {
   listenActiveWeek, listenScores, getTopics, normalizeTopic,
   getAccessStatus, getConsistencyRank, listenQuizDates, WEEKS, logEvent,
 } from '../store/useStore'
+import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED } from '../store/constants'
 import { registerPushNotifications, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
 import RankToast from '../components/dashboard/RankToast'
@@ -18,6 +19,8 @@ import ScoreHero from '../components/dashboard/ScoreHero'
 import TopicsList from '../components/dashboard/TopicsList'
 import SubjectCard from '../components/dashboard/SubjectCard'
 import QuizCard from '../components/dashboard/QuizCard'
+import AppealOverlay from '../components/dashboard/AppealOverlay'
+import { getCurrentRevisionBatch, revisionTopicKey, isRevisionCompleted } from '../lib/revisionQueue'
 
 const RANK_BADGES = {
   gray: 'bg-[#1C1C1C] text-[#AAA] border-[#333]',
@@ -76,7 +79,7 @@ function getTimeUntilQuiz(quizDates) {
   }
 }
 
-export default function Dashboard({ student, setView, setStudent, setSelectedSubjectDetail }) {
+export default function Dashboard({ student, setView, setStudent, setSelectedSubjectDetail, setRetakeData }) {
   const [quizDates, setQuizDates] = useState(null)
   const [quizTime, setQuizTime] = useState(false)
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, mins: 0 })
@@ -86,6 +89,8 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const [rankUpToast, setRankUpToast] = useState(null)
   const prevRankRef = useRef(null)
   const firstLoadRef = useRef(true)
+  const rankToastRef = useRef(null)
+  const patchesToastRef = useRef(null)
 
   const [patchesActive, setPatchesActive] = useState(() => localStorage.getItem('patches_active') === '1')
   const [currentPatchIdx, setCurrentPatchIdx] = useState(0)
@@ -96,6 +101,21 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const [kpDismissed, setKpDismissed] = useState(false)
   const [patchesToast, setPatchesToast] = useState(false)
 
+
+  const missedStreak = student.missedStreak || 0
+  const isSuspended = student.suspended || false
+  const isRedCard = missedStreak >= CARD_RED || isSuspended
+  const [showAppeal, setShowAppeal] = useState(() => isRedCard)
+  const [appealResolved, setAppealResolved] = useState(false)
+
+  const handleAppealed = () => {
+    setShowAppeal(false)
+    setAppealResolved(true)
+    if (setStudent) {
+      setStudent({ ...student, missedStreak: 0, suspended: false })
+    }
+  }
+
   const [pushPermission, setPushPermission] = useState(() =>
     typeof Notification !== 'undefined' ? Notification.permission : 'denied'
   )
@@ -103,13 +123,17 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   useEffect(() => {
     const unsubWeek = listenActiveWeek((week) => setCurrentWeek(week))
     const unsubScores = listenScores((allScores) => {
-      const mine = [...allScores].sort((a, b) => new Date(b.date) - new Date(a.date))
+      const mine = [...allScores].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       setScores(mine)
       const { rank } = getConsistencyRank(mine)
       if (firstLoadRef.current) { prevRankRef.current = rank; firstLoadRef.current = false }
-      else if (prevRankRef.current && rank !== prevRankRef.current) { setRankUpToast(rank); prevRankRef.current = rank; setTimeout(() => setRankUpToast(null), 5000) }
+      else if (prevRankRef.current && rank !== prevRankRef.current) {
+        setRankUpToast(rank); prevRankRef.current = rank
+        clearTimeout(rankToastRef.current)
+        rankToastRef.current = setTimeout(() => setRankUpToast(null), 5000)
+      }
     }, student.id)
-    return () => { unsubWeek(); unsubScores() }
+    return () => { unsubWeek(); unsubScores(); clearTimeout(rankToastRef.current) }
   }, [student])
 
   useEffect(() => {
@@ -119,7 +143,12 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     return () => { unsubDates(); clearInterval(t) }
   }, [currentWeek])
 
-  useEffect(() => { getTopics(currentWeek).then((t) => setWeekTopics(t || {})); setKpDismissed(false); setKeyPointIdx(0) }, [currentWeek])
+  useEffect(() => {
+    let active = true
+    getTopics(currentWeek).then((t) => { if (active) setWeekTopics(t || {}) }).catch(() => {})
+    setKpDismissed(false); setKeyPointIdx(0)
+    return () => { active = false }
+  }, [currentWeek])
 
   useEffect(() => { logEvent(student.id, 'page_view', { page: 'dashboard' }) }, [])
 
@@ -193,7 +222,8 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
       }
       document.documentElement.classList.add('patches-mode')
       setPatchesToast(true)
-      setTimeout(() => setPatchesToast(false), 5000)
+      clearTimeout(patchesToastRef.current)
+      patchesToastRef.current = setTimeout(() => setPatchesToast(false), 5000)
     } else {
       document.documentElement.classList.remove('patches-mode')
       if (existing) existing.remove()
@@ -202,6 +232,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
       document.documentElement.classList.remove('patches-mode')
       const s = document.getElementById('patches-mode-styles')
       if (s) s.remove()
+      clearTimeout(patchesToastRef.current)
     }
   }, [patchesActive])
 
@@ -224,7 +255,37 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   const allKeyPoints = student.subjects.flatMap((sub) => { const topic = normalizeTopic(weekTopics[sub]); if (!topic?.keyPoints) return []; return topic.keyPoints.filter((kp) => kp?.trim()).map((kp) => ({ subject: sub, point: kp })) })
   const weakSubjects = student.subjects.filter((sub) => { const pct = getSubjectPct(sub); return pct === null || pct < 50 })
-  const patchKeyPoints = weakSubjects.flatMap((sub) => { const topic = normalizeTopic(weekTopics[sub]); if (!topic?.keyPoints) return []; return topic.keyPoints.filter((kp) => kp?.trim()).map((kp) => ({ subject: sub, point: kp })) })
+  const currentWeekWeakKeyPoints = weakSubjects.flatMap((sub) => { const topic = normalizeTopic(weekTopics[sub]); if (!topic?.keyPoints) return []; return topic.keyPoints.filter((kp) => kp?.trim()).map((kp) => ({ subject: sub, point: kp })) })
+
+  // Revision queue — automatically cycles through all weak topics, 2 per week
+  const revisionBatch = useMemo(() => getCurrentRevisionBatch(scores), [scores])
+
+
+  // Fetch key points from revision batch topics (may span different weeks)
+  const [revisionKeyPoints, setRevisionKeyPoints] = useState([])
+  useEffect(() => {
+    if (!patchesActive || !revisionBatch.length) { setRevisionKeyPoints([]); return }
+    let active = true
+    const weeks = [...new Set(revisionBatch.map((item) => item.week))]
+    Promise.all(weeks.map((w) => getTopics(w))).then((results) => {
+      if (!active) return
+      const points = []
+      results.forEach((topicsData, i) => {
+        if (!topicsData) return
+        const week = weeks[i]
+        revisionBatch.filter((item) => item.week === week).forEach((item) => {
+          const topic = normalizeTopic(topicsData[item.subject])
+          if (topic?.keyPoints) {
+            topic.keyPoints.filter((kp) => kp?.trim()).forEach((kp) => points.push({ subject: item.subject, point: kp }))
+          }
+        })
+      })
+      setRevisionKeyPoints(points)
+    }).catch(() => {})
+    return () => { active = false }
+  }, [patchesActive, revisionBatch])
+
+  const patchKeyPoints = revisionKeyPoints.length > 0 ? revisionKeyPoints : currentWeekWeakKeyPoints
 
   useEffect(() => { if (!allKeyPoints.length || kpDismissed) return; const t = setInterval(() => setKeyPointIdx((i) => (i + 1) % allKeyPoints.length), 5000); return () => clearInterval(t) }, [allKeyPoints.length, kpDismissed])
   useEffect(() => { if (!patchesActive || !patchKeyPoints.length) return; const t = setInterval(() => setCurrentPatchIdx((i) => (i + 1) % patchKeyPoints.length), 6000); return () => clearInterval(t) }, [patchesActive, patchKeyPoints.length])
@@ -303,6 +364,10 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         />
       )}
 
+      {showAppeal && !appealResolved && (
+        <AppealOverlay student={student} onAppealed={handleAppealed} onPay={() => { setView('subscribe') }} />
+      )}
+
       {showPatchesModal && (
         <PatchesModal
           subjects={weakSubjects.length > 0 ? weakSubjects : student.subjects}
@@ -328,16 +393,25 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                   <span className="text-[9px]">⚡</span>{rankData.rank}
                 </span>
               </div>
+              
             </div>
-            <button onClick={() => { if (setStudent) setStudent(null); setView('home') }}
-              className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0 ml-2">Log out</button>
+            <div className="flex flex-col items-end gap-2">
+              <button onClick={() => { if (setStudent) setStudent(null); setView('home') }}
+                className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0 ml-2">Log out</button>
+              <div className="flex items-center gap-1.5">
+                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${missedStreak >= CARD_YELLOW_1 ? 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]' : 'bg-yellow-100'}`} />
+                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${missedStreak >= CARD_YELLOW_2 ? 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]' : 'bg-yellow-100'}`} />
+                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${missedStreak >= CARD_RED ? 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.4)]' : 'bg-red-100'}`} />
+              </div>
+            </div>
           </div>
+
           <MedalTrack weeklyMedals={weeklyMedals} currentWeekIdx={currentWeekIdx} />
         </div>
 
         <SubscriptionBanner student={student} onSubscribe={() => setView('subscribe')} />
 
-        {allKeyPoints.length > 0 && !kpDismissed && !patchesActive && (
+        {allKeyPoints.length > 0 && !kpDismissed && !patchesActive && !isRedCard && (
           <KeyPointsCard point={allKeyPoints[keyPointIdx]} current={keyPointIdx} total={allKeyPoints.length} theme={P} onDismiss={() => setKpDismissed(true)} />
         )}
 
@@ -364,7 +438,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         <QuizCard
           currentWeek={currentWeek} quizTime={quizTime} quizDates={quizDates} timeLeft={timeLeft} theme={P}
           hasAttemptedAllSubjects={hasAttemptedAllSubjects} todaySubjectsAttempted={todaySubjectsAttempted}
-          onStartQuiz={() => { const access = getAccessStatus(student); if (access.status === 'expired') setView('subscribe'); else setView('quiz') }}
+          onStartQuiz={() => { if (isRedCard) { setView('subscribe'); return }; const access = getAccessStatus(student); if (access.status === 'expired') setView('subscribe'); else setView('quiz') }}
           onSubscribe={() => setView('subscribe')}
         />
 

@@ -108,32 +108,6 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
     setGrantOpenFor(null)
   }
 
-  const sendWhatsAppReport = (student, recipient, myScores) => {
-    const phone = recipient === 'parent' ? student.parentPhone : student.teacherPhone
-    if (!phone) return
-    const cleanPhone = phone.replace(/[^0-9]/g, '')
-    const best = {}
-    myScores.forEach((sc) => {
-      if (!best[sc.subject] || sc.score > best[sc.subject].score) best[sc.subject] = sc
-    })
-    const bestList = Object.values(best)
-    const total = bestList.reduce((a, sc) => a + sc.score, 0)
-    const totalOut = bestList.reduce((a, sc) => a + (sc.outOf || 100), 0)
-    const overallPct = totalOut ? Math.round((total / totalOut) * 100) : 0
-    const subjectLines = bestList.length
-      ? bestList.map((sc) => {
-          const pct = Math.round((sc.score / (sc.outOf || 100)) * 100)
-          const tag = pct >= 70 ? '🟢' : pct >= 50 ? '🟡' : '🔴'
-          return `${tag} ${sc.subject}: ${sc.score}/${sc.outOf || 100} (${pct}%)`
-        }).join('\n')
-      : 'No tests taken yet.'
-    const greeting = recipient === 'parent'
-      ? `Hello, this is a weekly performance update for *${student.name}* from 274Lab.`
-      : `Hello, weekly performance update for your student *${student.name}* from 274Lab.`
-    const message = `${greeting}\n\n📊 *JAMB Total:* ${total}/${totalOut || 400} (${overallPct}%)\n📝 *Tests taken:* ${myScores.length}\n\n*Best score per subject:*\n${subjectLines}\n\n— 274Lab · Supported by A.M.C`
-    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener')
-  }
-
   const toggleExpand = (studentId) => {
     if (expandedId === studentId) { setExpandedId(null); return }
     setExpandedId(studentId)
@@ -273,6 +247,16 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
                       })()}
                     </div>
 
+                    <div className="flex items-center gap-2 mb-2">
+                      {(student.parentPhone || student.teacherPhone) && (
+                        <span className="text-[9px] text-[#AAA] font-label flex items-center gap-2">
+                          {student.parentPhone && <span>📱Parent: {student.parentPhone}</span>}
+                          {student.parentPhone && student.teacherPhone && <span className="text-[#DDD]">·</span>}
+                          {student.teacherPhone && <span>📱Teacher: {student.teacherPhone}</span>}
+                        </span>
+                      )}
+                    </div>
+
                     <p className="text-[10px] text-[#AAA] font-label mb-2">
                       Joined {new Date(student.joinedAt).toLocaleDateString('en-NG')}
                     </p>
@@ -345,27 +329,7 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
                           </div>
                         )}
 
-                        {(student.parentPhone || student.teacherPhone) && (
-                          <div className="border-t border-[#F3F3F2] pt-3 mb-3">
-                            <p className="text-[10px] text-[#AAA] font-label mb-1.5">Send weekly report via WhatsApp</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {student.parentPhone && (
-                                <button onClick={() => sendWhatsAppReport(student, 'parent', scores)}
-                                  className="inline-flex items-center gap-1 text-[11px] font-bold bg-green-50 text-green-700 border border-green-100 px-2.5 py-1 rounded-lg font-label hover:bg-green-100 transition-colors">
-                                  💬 Parent
-                                </button>
-                              )}
-                              {student.teacherPhone && (
-                                <button onClick={() => sendWhatsAppReport(student, 'teacher', scores)}
-                                  className="inline-flex items-center gap-1 text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-1 rounded-lg font-label hover:bg-blue-100 transition-colors">
-                                  💬 Teacher
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="border-t border-[#F3F3F2] pt-3">
+                        <div className="pt-3">
                           <p className="text-[10px] text-[#AAA] font-label mb-2">Score history</p>
                           <div className="space-y-1 max-h-48 overflow-y-auto">
                             {[...scores].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 20).map((sc, i) => (

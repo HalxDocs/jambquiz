@@ -56,7 +56,7 @@ export const useUserNotificationStore = create(
 
       advanceCycle: (totalPoints) =>
         set((s) => ({
-          currentCycleIndex: (s.currentCycleIndex + 1) % totalPoints,
+          currentCycleIndex: totalPoints > 0 ? (s.currentCycleIndex + 1) % totalPoints : 0,
         })),
 
       resetSeenPoints: (pointIds) => {

@@ -1,19 +1,20 @@
-import { db, writeBatch, collection, doc, getDoc, setDoc, getDocs, onSnapshot } from '../firebase'
+import { db, writeBatch, collection, doc, getDoc, setDoc, getDocs, onSnapshot, query, where } from '../firebase'
 
 function sanitizeTopic(t) {
   if (!t) return null
   const raw = typeof t === 'string' ? { name: t, video: '', keyPoints: [] } : t
   const name = (raw.name || '').toString().slice(0, 200).trim()
+  const smsName = (raw.smsName || '').toString().slice(0, 30).trim()
   const video = (raw.video || '').toString().slice(0, 500).trim()
   const kpsIn = Array.isArray(raw.keyPoints) ? raw.keyPoints : []
   const keyPoints = kpsIn.slice(0, 10).map((k) => (k == null ? '' : String(k).slice(0, 1000)))
-  return { name, video, keyPoints }
+  return { name, smsName, video, keyPoints }
 }
 
 function normalizeTopic(t) {
   if (!t) return null
-  if (typeof t === 'string') return { name: t, video: '', keyPoints: [] }
-  return { name: t.name || '', video: t.video || '', keyPoints: Array.isArray(t.keyPoints) ? t.keyPoints : [] }
+  if (typeof t === 'string') return { name: t, smsName: '', video: '', keyPoints: [] }
+  return { name: t.name || '', smsName: t.smsName || '', video: t.video || '', keyPoints: Array.isArray(t.keyPoints) ? t.keyPoints : [] }
 }
 
 function sanitizeTopicsMap(raw) {
@@ -32,15 +33,14 @@ function topicDocId(week) {
 async function setTopics(week, topics) {
   const clean = sanitizeTopicsMap(topics)
   const targetId = topicDocId(week)
-  const all = await getDocs(collection(db, 'topics'))
+  const weekQuery = query(collection(db, 'topics'), where('week', '==', week))
+  const all = await getDocs(weekQuery)
   const batch = writeBatch(db)
   let hasDelete = false
   all.docs.forEach((d) => {
     if (d.id === targetId) return
-    if (d.data().week === week) {
-      batch.delete(doc(db, 'topics', d.id))
-      hasDelete = true
-    }
+    batch.delete(doc(db, 'topics', d.id))
+    hasDelete = true
   })
   batch.set(doc(db, 'topics', targetId), {
     week,

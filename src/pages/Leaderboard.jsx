@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { MedalFirstPlaceIcon, MedalSecondPlaceIcon, MedalThirdPlaceIcon, CrownIcon, Award01Icon, BookOpen01Icon, StarIcon, StarCircleIcon, Search01Icon } from '@hugeicons/core-free-icons'
 import { db, collection, doc, onSnapshot, getDoc, getDocs, query, where } from '../firebase'
-import { getStudentScores } from '../store/scores'
+import { WEEKS, logEvent } from '../store/useStore'
+import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED } from '../store/constants'
 import SEO from '../components/seo/SEO'
-import { logEvent } from '../store/useStore'
 
 
 const MEDAL_ICONS = [MedalFirstPlaceIcon, MedalSecondPlaceIcon, MedalThirdPlaceIcon]
@@ -58,10 +58,28 @@ export default function Leaderboard({ student, setView }) {
   const [friendResults, setFriendResults] = useState([])
   const [overallBoard, setOverallBoard] = useState([])
   const [myRank, setMyRank] = useState(null)
+  const [selectedWeek, setSelectedWeek] = useState('')
 
   const [subjectBoards, setSubjectBoards] = useState([])
 
   useEffect(() => { logEvent(student.id, 'page_view', { page: 'leaderboard' }) }, [])
+
+  // Per-week scores — fetched on-demand instead of subscribing to all scores
+  const [weekScores, setWeekScores] = useState([])
+  const [weekScoresLoading, setWeekScoresLoading] = useState(false)
+
+  useEffect(() => {
+    if (!selectedWeek) { setWeekScores([]); return }
+    let cancelled = false
+    setWeekScoresLoading(true)
+    const q = query(collection(db, 'scores'), where('week', '==', selectedWeek))
+    getDocs(q).then((snap) => {
+      if (cancelled) return
+      setWeekScores(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      setWeekScoresLoading(false)
+    }).catch(() => { if (!cancelled) setWeekScoresLoading(false) })
+    return () => { cancelled = true }
+  }, [selectedWeek])
 
   useEffect(() => {
     let unsubLeaderboard
@@ -99,20 +117,39 @@ export default function Leaderboard({ student, setView }) {
     return () => { unsubLeaderboard?.() }
   }, [student])
 
+  // Per-week leaderboard (memoized)
+  const weekBoard = useMemo(() => {
+    if (!selectedWeek) return null
+    const byStudent = {}
+    weekScores.forEach((s) => {
+      if (!byStudent[s.studentId]) byStudent[s.studentId] = { id: s.studentId, name: s.studentName || '', scores: [], total: 0, subjects: new Set() }
+      if (!byStudent[s.studentId].scores.find((x) => x.subject === s.subject)) {
+        byStudent[s.studentId].scores.push(s)
+        byStudent[s.studentId].total += s.score
+        byStudent[s.studentId].subjects.add(s.subject)
+      }
+    })
+    return Object.values(byStudent)
+      .filter((s) => s.subjects.size >= 4)
+      .sort((a, b) => b.total - a.total)
+      .map((s, i) => ({ ...s, rank: i + 1 }))
+  }, [selectedWeek, weekScores])
+
   // Use aggregated board if available
-  const finalBoard = overallBoard
+  const finalBoard = selectedWeek ? weekBoard : overallBoard
 
   const activeSubjectBoards = subjectBoards
 
-  const myRow = finalBoard.findIndex((s) => s.id === student.id)
+  const myRow = useMemo(() => finalBoard?.findIndex((s) => s.id === student.id) ?? -1, [finalBoard, student.id])
 
   useEffect(() => {
     const q = friendSearch.trim()
     if (q.length < 2) { setFriendResults([]); return }
     let cancelled = false
-    const searchTerm = q.toLowerCase().trim()
-    const nameQuery = query(
-      collection(db, 'students'),
+    const timer = setTimeout(() => {
+      const searchTerm = q.toLowerCase().trim()
+      const nameQuery = query(
+        collection(db, 'students'),
       where('nameLower', '>=', searchTerm),
       where('nameLower', '<', searchTerm + '~')
     )
@@ -174,7 +211,8 @@ export default function Leaderboard({ student, setView }) {
       }
       setFriendResults([...results])
     })
-    return () => { cancelled = true }
+    }, 300)
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [friendSearch])
 
   const TABS = [
@@ -220,12 +258,69 @@ export default function Leaderboard({ student, setView }) {
         {/* ── OVERALL ── */}
         {activeTab === 'overall' && (
           <div>
+            {/* Week selector */}
+            <div className="mb-4">
+              <select
+                value={selectedWeek}
+                onChange={(e) => setSelectedWeek(e.target.value)}
+                className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white"
+              >
+                <option value="">All-time leaderboard</option>
+                {WEEKS.map((w) => <option key={w} value={w}>{w} scores</option>)}
+              </select>
+            </div>
+
             {finalBoard.length === 0 ? (
               <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
                 <p className="text-[#CCC] text-sm font-label">No scores yet</p>
               </div>
             ) : (
               <div className="bg-white border border-[#EBEBEB] rounded-2xl overflow-hidden">
+                {/* User's position card — above the podium */}
+                {myRow !== -1 && (() => {
+                  const s = finalBoard[myRow]
+                  const i = myRow
+                  const bar = scoreBar(s.total || 0)
+                  const pct = Math.min(100, ((s.total || 0) / 400) * 100)
+                  const cr = s.sessionCount != null ? getConsistencyFromCount(s.sessionCount) : null
+                  const title = getTitle(s.total || 0)
+                  return (
+                    <div className="mx-4 mt-4 mb-3 bg-[#FFF8E7] border border-amber-200 rounded-2xl p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-[10px] font-bold text-amber-600 font-label uppercase tracking-wider">Your Position</span>
+                        <span className="text-[10px] text-[#F59E0B] font-bold font-label bg-amber-100 px-1.5 py-0.5 rounded-full">YOU</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`w-12 h-12 flex items-center justify-center rounded-xl text-lg font-bold font-display shrink-0 ${i < 3 ? 'bg-gradient-to-br from-yellow-400 to-amber-600 text-white shadow-md shadow-yellow-200' : 'bg-white text-[#888] border border-[#EBEBEB]'}`}>
+                          {i < 3 ? <HugeiconsIcon icon={MEDAL_ICONS[i]} size={22} color="currentColor" /> : `#${i + 1}`}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-[#111] font-display truncate">{s.name}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            {s.nickname && <span className="text-[10px] text-[#999] font-label">@{s.nickname}</span>}
+                            {cr && <span className={`inline-flex items-center gap-0.5 text-[9px] font-bold font-label ${cr.color}`}><HugeiconsIcon icon={StarCircleIcon} size={10} color="currentColor" />{cr.label}</span>}
+                            <span className={`text-[9px] font-bold font-label ${title.color}`}>{title.label}</span>
+                            {(student.missedStreak || 0) >= CARD_YELLOW_1 && (
+                              <div className="flex items-center gap-0.5 ml-0.5">
+                                <div className={`w-2 h-3 rounded-[1px] ${(student.missedStreak || 0) >= CARD_YELLOW_1 ? 'bg-yellow-400' : 'bg-yellow-100'}`} />
+                                <div className={`w-2 h-3 rounded-[1px] ${(student.missedStreak || 0) >= CARD_YELLOW_2 ? 'bg-yellow-400' : 'bg-yellow-100'}`} />
+                                <div className={`w-2 h-3 rounded-[1px] ${(student.missedStreak || 0) >= CARD_RED ? 'bg-red-500' : 'bg-red-100'}`} />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-lg font-bold font-display text-[#111]">{s.total || 0}<span className="text-[10px] text-[#AAA] font-label">/400</span></p>
+                          <span className="text-xs shrink-0">{getScoreEmoji(pct)}</span>
+                        </div>
+                      </div>
+                      <div className="mt-2.5 w-full bg-white rounded-full h-2 overflow-hidden border border-[#EBEBEB]">
+                        <div className={`h-full rounded-full transition-all ${bar.color}`} style={{ width: `${bar.pct}%` }} />
+                      </div>
+                    </div>
+                  )
+                })()}
+
                 {/* Top 3 podium */}
                 {finalBoard.length >= 2 && (
                   <div className="bg-gradient-to-b from-[#1a1a1a] to-[#111] p-5 flex items-end justify-center gap-3 mb-0">
@@ -262,7 +357,7 @@ export default function Leaderboard({ student, setView }) {
                   </div>
                 )}
 
-                {/* Full list */}
+                {/* Full list — user highlighted at their rank */}
                 <div className="divide-y divide-[#F3F3F2]">
                   {finalBoard.map((s, i) => {
                     const isMe = s.id === student.id
@@ -273,21 +368,18 @@ export default function Leaderboard({ student, setView }) {
                     return (
                       <div key={s.id} className={`px-4 py-3 ${isMe ? 'bg-[#FFF8E7]' : ''}`}>
                         <div className="flex items-center gap-3">
-                          <span className={`w-10 h-10 flex items-center justify-center rounded-xl text-lg font-bold font-display shrink-0 ${i < 3 ? 'bg-gradient-to-br from-yellow-400 to-amber-600 text-white shadow-md shadow-yellow-200' : 'bg-[#F3F3F2] text-[#888]'}`}>
+                          <span className={`w-10 h-10 flex items-center justify-center rounded-xl text-lg font-bold font-display shrink-0 ${i < 3 ? 'bg-gradient-to-br from-yellow-400 to-amber-600 text-white shadow-md shadow-yellow-200' : isMe ? 'bg-amber-100 text-amber-700' : 'bg-[#F3F3F2] text-[#888]'}`}>
                             {i < 3 ? <HugeiconsIcon icon={MEDAL_ICONS[i]} size={20} color="currentColor" /> : `#${i + 1}`}
                           </span>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <p className={`text-sm font-bold font-body truncate ${isMe ? 'text-[#111]' : 'text-[#333]'}`}>
-                                {s.name}
-                              </p>
-                              {isMe && <span className="text-[10px] text-[#F59E0B] font-bold font-label bg-amber-100 px-1.5 py-0.5 rounded-full">YOU</span>}
+                              <p className={`text-sm font-body truncate ${isMe ? 'font-bold text-[#111]' : 'font-semibold text-[#333]'}`}>{s.name}</p>
+                              {isMe && <span className="text-[10px] text-[#F59E0B] font-bold font-label bg-amber-100 px-1.5 py-0.5 rounded-full shrink-0">YOU</span>}
                               <span className="text-xs shrink-0">{getScoreEmoji(pct)}</span>
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                               {s.nickname && <span className="text-[10px] text-[#999] font-label">@{s.nickname}</span>}
                               {cr && <span className={`inline-flex items-center gap-0.5 text-[9px] font-bold font-label ${cr.color}`}><HugeiconsIcon icon={StarCircleIcon} size={10} color="currentColor" />{cr.label}</span>}
-                              {s.year && <span className="text-[9px] font-bold text-white bg-[#555] px-1.5 py-0.5 rounded font-label">{s.year}</span>}
                             </div>
                           </div>
                           <div className="text-right shrink-0">
@@ -407,6 +499,13 @@ export default function Leaderboard({ student, setView }) {
                             <div className="flex items-center gap-1.5">
                               <p className="text-sm font-bold text-[#111] font-display truncate">{s.name}</p>
                               {isMe && <span className="text-[10px] text-[#F59E0B] font-bold font-label bg-amber-100 px-1.5 py-0.5 rounded-full shrink-0">YOU</span>}
+                              {(s.missedStreak || 0) >= CARD_YELLOW_1 && (
+                                <div className="flex items-center gap-0.5 ml-0.5">
+                                  <div className={`w-2 h-3 rounded-[1px] ${(s.missedStreak || 0) >= CARD_YELLOW_1 ? 'bg-yellow-400' : 'bg-yellow-100'}`} />
+                                  <div className={`w-2 h-3 rounded-[1px] ${(s.missedStreak || 0) >= CARD_YELLOW_2 ? 'bg-yellow-400' : 'bg-yellow-100'}`} />
+                                  <div className={`w-2 h-3 rounded-[1px] ${(s.missedStreak || 0) >= CARD_RED ? 'bg-red-500' : 'bg-red-100'}`} />
+                                </div>
+                              )}
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                               {s.nickname ? <span className="text-[10px] text-[#999] font-label">@{s.nickname}</span> : null}

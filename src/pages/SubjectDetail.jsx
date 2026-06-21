@@ -59,6 +59,8 @@ export default function SubjectDetail({ student, subject, setView, setRetakeData
   const [allTopics, setAllTopics] = useState({})
   const [expandedId, setExpandedId] = useState(null)
 
+  const patchesOn = typeof window !== 'undefined' && localStorage.getItem('patches_active') === '1'
+
   useEffect(() => { logEvent(student.id, 'page_view', { page: 'subject_detail', subject }) }, [])
 
   useEffect(() => {
@@ -221,13 +223,10 @@ export default function SubjectDetail({ student, subject, setView, setRetakeData
                       )}
                       {score.questions && setRetakeData && (
                         <button
-                          onClick={() => {
-                            setRetakeData({ subject, week: score.week, questions: score.questions })
-                            setView('quiz')
-                          }}
-                          className="flex-1 text-xs font-bold py-2 rounded-lg border border-[#E5E5E5] text-[#555] bg-white hover:border-[#111] hover:text-[#111] transition-colors font-label"
+                          onClick={() => { if (!patchesOn) return; setRetakeData({ subject, week: score.week, questions: score.questions }); setView('quiz') }}
+                          className={`flex-1 text-xs font-bold py-2 rounded-lg border transition-colors font-label ${patchesOn ? 'border-[#E5E5E5] text-[#555] bg-white hover:border-[#111] hover:text-[#111] cursor-pointer' : 'border-[#EBEBEB] text-[#CCC] bg-[#F8F8F7] cursor-not-allowed'}`}
                         >
-                          ↺ Retake
+                          {patchesOn ? '↺ Retake' : '↺ Patches Retake'}
                         </button>
                       )}
                     </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Cancel01Icon } from '@hugeicons/core-free-icons'
 import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, copyQuestionsToWeek, saveQuestionLimit, setQuizDates, getQuizDates } from '../../store/useStore'
@@ -219,6 +219,15 @@ export default function QuestionForm({
         <div className="flex justify-between items-center">
           <div>
             <p className="text-xs font-bold text-[#111] font-body">{questions.length} questions in pool</p>
+            {(() => {
+              const counts = [0, 0, 0, 0]
+              questions.forEach((q) => { if (q.answer >= 0 && q.answer <= 3) counts[q.answer]++ })
+              return counts.some((c) => c > 0) ? (
+                <p className="text-[10px] text-[#888] font-label mt-0.5">
+                  A-{counts[0]} B-{counts[1]} C-{counts[2]} D-{counts[3]}
+                </p>
+              ) : null
+            })()}
             <p className="text-[11px] text-[#AAA] font-label mt-0.5">
               Each student gets {Math.min(localQuestionLimit, questions.length)} random questions
               <span className="text-[#CCC]"> · default {defaultLimit}</span>

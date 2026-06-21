@@ -22,7 +22,7 @@ async function getStudentScores(studentId) {
   const snapshot = await getDocs(q)
   return snapshot.docs
     .map((d) => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 }
 
 export { addScore, listenScores, getStudentScores }

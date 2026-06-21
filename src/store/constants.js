@@ -25,4 +25,9 @@ const RANK_TIERS = [
   { name: 'ELITE',   min: 21, color: 'green' },
 ]
 
-export { SUBJECTS, WEEKS, SUBSCRIPTION_PRICE_NGN, RANK_TIERS }
+// TEMP: Testing period — card thresholds lowered (1 miss = yellow). Revert to 2,4,6 after test.
+const CARD_YELLOW_1 = 1
+const CARD_YELLOW_2 = 2
+const CARD_RED = 3
+
+export { SUBJECTS, WEEKS, SUBSCRIPTION_PRICE_NGN, RANK_TIERS, CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED }

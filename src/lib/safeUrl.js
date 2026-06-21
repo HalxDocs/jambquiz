@@ -4,7 +4,7 @@ export function safeUrl(url) {
   const trimmed = url.trim()
   try {
     const parsed = new URL(trimmed)
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'mailto:' || parsed.protocol === 'tel:' || parsed.protocol === 'whatsapp:') {
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'mailto:' || parsed.protocol === 'tel:') {
       return trimmed
     }
     return ''

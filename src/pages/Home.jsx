@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect } from 'react'
-import { registerStudent, findStudent, hashPassword, verifyPassword, stripSensitive, updateStudent } from '../store/useStore'
-import { doc, getDoc, setDoc, db } from '../firebase'
-
-const LOGIN_COOLDOWN_MS = 30000
-const MAX_ATTEMPTS = 5
-
+import { HugeiconsIcon } from '@hugeicons/react'
+import {
+  BookOpen01Icon, ChartLineData01Icon, Notification01Icon,
+  RankingIcon, UserGroupIcon, CreditCardIcon,
+  Clock01Icon, Target01Icon, ArrowRight01Icon,
+  MedalFirstPlaceIcon, StarIcon, CheckmarkCircle02Icon,
+  PlayCircleIcon,
+} from '@hugeicons/core-free-icons'
 import SEO from '../components/seo/SEO'
 
 const ORG_JSONLD = {
@@ -15,708 +16,303 @@ const ORG_JSONLD = {
   "url": "https://fitness-gym-fc040.web.app",
 }
 
-export default function Home({ setView, setStudent, setAdminAuthed }) {
-  const [tab, setTab] = useState('student')
-  const [mode, setMode] = useState('login')
-  const [name, setName] = useState('')
-  const [password, setPassword] = useState('')
-  const [currentPassword, setCurrentPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [nickname, setNickname] = useState('')
-  const [year, setYear] = useState(String(new Date().getFullYear()))
-  const [email, setEmail] = useState('')
-  const [adminPw, setAdminPw] = useState('')
-  const [err, setErr] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [recoveredPassword, setRecoveredPassword] = useState('')
-  const [showForgot, setShowForgot] = useState(false)
-  const [resetStudentId, setResetStudentId] = useState(null)
-  const [showResetPassword, setShowResetPassword] = useState(false)
-  const [showResetConfirm, setShowResetConfirm] = useState(false)
-  const [adminSetupMode, setAdminSetupMode] = useState(false)
-  const [adminSetupConfirm, setAdminSetupConfirm] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
-  const [showConfirm, setShowConfirm] = useState(false)
-  const [showAdminPw, setShowAdminPw] = useState(false)
-  const [showSetupPw, setShowSetupPw] = useState(false)
-  const [showSetupConfirm, setShowSetupConfirm] = useState(false)
+function DashboardMockup() {
+  return (
+    <div className="relative w-full max-w-[320px]">
+      <div className="absolute inset-0 bg-gradient-to-br from-amber-400/20 via-orange-400/10 to-transparent rounded-[3rem] blur-3xl scale-110" />
 
-  const RATE_LIMIT_KEY = 'jamb_login_ratelimit'
-  const attemptsRef = useRef(0)
-  const cooldownUntilRef = useRef(0)
+      <div className="relative bg-[#111] rounded-[2.5rem] p-[6px] shadow-2xl shadow-black/40 ring-1 ring-white/10">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-[#111] rounded-b-2xl z-10" />
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(RATE_LIMIT_KEY)
-      if (raw) {
-        const { attempts, cooldownUntil } = JSON.parse(raw)
-        if (Number.isFinite(attempts)) attemptsRef.current = attempts
-        if (Number.isFinite(cooldownUntil)) cooldownUntilRef.current = cooldownUntil
-      }
-    } catch {}
-  }, [])
+        <div className="bg-[#F8F8F7] rounded-[2rem] overflow-hidden pt-7">
+          <div className="px-5 pb-2 flex justify-between items-center">
+            <span className="text-[9px] text-[#555] font-label font-semibold">9:41</span>
+            <div className="flex items-center gap-1">
+              <svg width="12" height="8" viewBox="0 0 12 8" fill="none"><rect x="0" y="4" width="2" height="4" rx="0.5" fill="#111" opacity="0.3"/><rect x="3" y="2.5" width="2" height="5.5" rx="0.5" fill="#111" opacity="0.5"/><rect x="6" y="1" width="2" height="7" rx="0.5" fill="#111" opacity="0.7"/><rect x="9" y="0" width="2" height="8" rx="0.5" fill="#111"/></svg>
+              <div className="w-5 h-2.5 border border-[#111] rounded-[3px] relative"><div className="absolute inset-[1.5px] bg-green-500 rounded-[1px]" style={{width:'70%'}} /></div>
+            </div>
+          </div>
 
-  const persistRateLimit = () => {
-    try {
-      localStorage.setItem(RATE_LIMIT_KEY, JSON.stringify({
-        attempts: attemptsRef.current,
-        cooldownUntil: cooldownUntilRef.current,
-      }))
-    } catch {}
-  }
+          <div className="px-4 pb-3">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-[8px] text-[#888] font-label uppercase tracking-[0.15em]">Welcome back</p>
+                <p className="text-[13px] font-bold text-[#111] font-display leading-tight">Chukwuemeka</p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="text-[6px] px-1.5 py-[2px] bg-green-100 text-green-700 rounded-full font-bold font-label flex items-center gap-0.5">
+                    <HugeiconsIcon icon={StarIcon} size={7} color="currentColor" /> ELITE
+                  </span>
+                  <span className="text-[7px] text-[#AAA] font-label">32 sessions</span>
+                </div>
+              </div>
+              <div className="w-8 h-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center">
+                <HugeiconsIcon icon={MedalFirstPlaceIcon} size={16} color="white" />
+              </div>
+            </div>
 
-  const checkOnline = () => {
-    if (!navigator.onLine) {
-      setErr('No internet connection. Please check your network and try again.')
-      return false
-    }
-    return true
-  }
+            <div className="bg-[#111] rounded-2xl p-3 mb-2.5">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="text-[7px] text-[#666] font-label uppercase tracking-wider">Total Score</p>
+                  <p className="text-[20px] font-bold text-white font-display leading-none">312<span className="text-[10px] text-[#555]">/400</span></p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[7px] text-[#666] font-label uppercase tracking-wider">Rank</p>
+                  <div className="flex items-center gap-1">
+                    <HugeiconsIcon icon={MedalFirstPlaceIcon} size={12} color="#F59E0B" />
+                    <p className="text-[16px] font-bold text-yellow-400 font-display">#3</p>
+                  </div>
+                </div>
+              </div>
+              <div className="w-full bg-[#222] rounded-full h-1.5 mb-1.5">
+                <div className="bg-gradient-to-r from-yellow-400 via-amber-400 to-orange-400 h-1.5 rounded-full" style={{ width: '78%' }} />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[7px] text-[#555] font-label">78% of 400</span>
+                <span className="text-[7px] text-green-400 font-label flex items-center gap-0.5">
+                  <HugeiconsIcon icon={CheckmarkCircle02Icon} size={7} color="currentColor" /> 4/4 subjects done
+                </span>
+              </div>
+            </div>
 
-  const years = Array.from({ length: 10 }, (_, i) => String(new Date().getFullYear() + i))
+            <div className="grid grid-cols-2 gap-2 mb-2.5">
+              {[
+                { name: 'Mathematics', abbr: 'MTH', pct: 85, color: 'from-green-400 to-emerald-500', trend: '+8' },
+                { name: 'Physics', abbr: 'PHY', pct: 72, color: 'from-blue-400 to-cyan-500', trend: '+5' },
+                { name: 'Chemistry', abbr: 'CHM', pct: 65, color: 'from-purple-400 to-violet-500', trend: '+12' },
+                { name: 'English', abbr: 'ENG', pct: 90, color: 'from-amber-400 to-orange-500', trend: '+3' },
+              ].map((s) => (
+                <div key={s.name} className="bg-white rounded-xl p-2.5 border border-[#EBEBEB]">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[7px] font-bold text-[#888] font-label">{s.abbr}</span>
+                    <span className="text-[6px] text-green-600 font-bold font-label">+{s.trend}</span>
+                  </div>
+                  <p className="text-[14px] font-bold text-[#111] font-display leading-none">{s.pct}<span className="text-[8px] text-[#CCC]">%</span></p>
+                  <div className="mt-1.5 w-full bg-[#F3F3F2] rounded-full h-[3px]">
+                    <div className={`bg-gradient-to-r ${s.color} h-[3px] rounded-full transition-all`} style={{ width: `${s.pct}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
 
-  const checkRateLimit = () => {
-    const now = Date.now()
-    if (now < cooldownUntilRef.current) {
-      const secs = Math.ceil((cooldownUntilRef.current - now) / 1000)
-      setErr(`Too many attempts. Try again in ${secs}s.`)
-      return false
-    }
-    return true
-  }
+            <div className="bg-gradient-to-r from-[#111] to-[#222] rounded-xl p-3 flex items-center justify-between">
+              <div>
+                <p className="text-[8px] text-[#888] font-label uppercase tracking-wider">Next Quiz</p>
+                <p className="text-[10px] font-bold text-white font-display">Friday 5:00 PM</p>
+              </div>
+              <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center">
+                <HugeiconsIcon icon={PlayCircleIcon} size={16} color="white" />
+              </div>
+            </div>
+          </div>
 
-  const recordAttempt = () => {
-    attemptsRef.current++
-    if (attemptsRef.current >= MAX_ATTEMPTS) {
-      cooldownUntilRef.current = Date.now() + LOGIN_COOLDOWN_MS
-      attemptsRef.current = 0
-    }
-    persistRateLimit()
-  }
+          <div className="bg-white border-t border-[#EBEBEB] px-4 py-2 flex justify-between items-center">
+            {[
+              { icon: BookOpen01Icon, label: 'Home', active: true },
+              { icon: ChartLineData01Icon, label: 'Scores', active: false },
+              { icon: RankingIcon, label: 'Ranks', active: false },
+              { icon: Notification01Icon, label: 'Alerts', active: false },
+            ].map((n) => (
+              <div key={n.label} className="flex flex-col items-center gap-0.5">
+                <HugeiconsIcon icon={n.icon} size={14} color={n.active ? '#111' : '#CCC'} />
+                <span className={`text-[6px] font-label font-semibold ${n.active ? 'text-[#111]' : 'text-[#CCC]'}`}>{n.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
 
-  const handleLogin = async () => {
-    const trimmed = name.trim()
-    if (trimmed.length < 3) { setErr('Enter your full name'); return }
-    if (!password) { setErr('Enter your password'); return }
-    if (!checkRateLimit()) return
-    if (!checkOnline()) return
-    setLoading(true); setErr('')
-    try {
-      const existing = await findStudent(trimmed)
-      if (!existing) { setErr('Name not found. Please register first.'); recordAttempt(); setLoading(false); return }
-      const valid = await verifyPassword(password, existing.password)
-      if (!valid) { setErr('Wrong password. Try again.'); recordAttempt(); setLoading(false); return }
-      attemptsRef.current = 0
-      cooldownUntilRef.current = 0
-      persistRateLimit()
-      const safe = stripSensitive(existing)
-      setStudent(safe)
-      setView('dashboard')
-    } catch {
-      if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Could not sign in. Server error — please try again.')
-    }
-    setLoading(false)
-  }
+      <div className="absolute top-8 -right-6 bg-white rounded-2xl px-3 py-2 shadow-xl shadow-black/10 border border-[#EBEBEB] z-20">
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-6 bg-green-100 rounded-lg flex items-center justify-center">
+            <HugeiconsIcon icon={Target01Icon} size={12} color="#16A34A" />
+          </div>
+          <div>
+            <p className="text-[8px] font-bold text-green-600 font-label">+12 today</p>
+            <p className="text-[6px] text-[#AAA] font-label">Best streak</p>
+          </div>
+        </div>
+      </div>
+      <div className="absolute bottom-16 -left-6 bg-white rounded-2xl px-3 py-2 shadow-xl shadow-black/10 border border-[#EBEBEB] z-20">
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-6 bg-blue-100 rounded-lg flex items-center justify-center">
+            <HugeiconsIcon icon={Clock01Icon} size={12} color="#2563EB" />
+          </div>
+          <div>
+            <p className="text-[8px] font-bold text-[#111] font-label">Week 3 active</p>
+            <p className="text-[6px] text-[#AAA] font-label">23 weeks left</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
-  const handleRegister = async () => {
-    const trimmed = name.trim()
-    if (trimmed.length < 3) { setErr('Enter your full name (at least 3 characters)'); return }
-    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setErr('Enter a valid email'); return }
-    if (password.length < 4) { setErr('Password must be at least 4 characters'); return }
-    if (password !== confirmPassword) { setErr('Passwords do not match'); return }
-    if (!checkOnline()) return
-    setLoading(true); setErr('')
-    try {
-      const existing = await findStudent(trimmed)
-      if (existing) { setErr('This name is already registered. Please lock in.'); setLoading(false); return }
-      const newStudent = {
-        name: trimmed,
-        nickname: nickname.trim(),
-        password,
-        year,
-        email: email.trim().toLowerCase(),
-        parentPhone: '',
-        teacherPhone: '',
-        subjects: [],
-        joinedAt: new Date().toISOString(),
-      }
-      const saved = await registerStudent(newStudent)
-      if (!saved) { setErr('Name already exists. Please lock in.'); setLoading(false); return }
-      setStudent(saved)
-      setView('supporters')
-    } catch {
-      if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Could not create account. Server error — please try again.')
-    }
-    setLoading(false)
-  }
-
-  const handleAdmin = async () => {
-    if (!adminPw) { setErr('Enter the admin password'); return }
-    if (!checkOnline()) return
-    setLoading(true); setErr('')
-    try {
-      const snap = await getDoc(doc(db, 'admin_settings', 'admin_auth'))
-      if (!snap.exists()) {
-        setAdminSetupMode(true)
-        setErr('No admin password set. Enter a new password to configure.')
-        setLoading(false)
-        return
-      }
-      const data = snap.data()
-      const valid = await verifyPassword(adminPw, data.passwordHash)
-      if (!valid) { setErr('Wrong password'); setLoading(false); return }
-      setAdminAuthed(true); setView('admin')
-    } catch {
-      if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Could not verify admin. Server error — please try again.')
-    }
-    setLoading(false)
-  }
-
-  const handleAdminSetup = async () => {
-    if (!adminPw) { setErr('Enter a password'); return }
-    if (adminPw.length < 4) { setErr('Password must be at least 4 characters'); return }
-    if (adminPw !== adminSetupConfirm) { setErr('Passwords do not match'); return }
-    if (!checkOnline()) return
-    setLoading(true); setErr('')
-    try {
-      const passwordHash = await hashPassword(adminPw)
-      await setDoc(doc(db, 'admin_settings', 'admin_auth'), { passwordHash })
-      setAdminSetupMode(false)
-      setAdminSetupConfirm('')
-      setAdminPw('')
-      setErr('')
-    } catch {
-      if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Something went wrong. Please try again.')
-    }
-    setLoading(false)
-  }
-
-  const handleForgotPassword = async () => {
-    if (resetStudentId) {
-      if (!currentPassword) { setErr('Enter your current password to confirm'); return }
-      if (!password) { setErr('Enter a new password'); return }
-      if (password.length < 4) { setErr('Password must be at least 4 characters'); return }
-      if (password !== confirmPassword) { setErr('Passwords do not match'); return }
-      if (!checkOnline()) return
-      setLoading(true); setErr('')
-      try {
-        const studentDoc = await findStudent(name.trim())
-        if (!studentDoc) { setErr('Student not found.'); setLoading(false); return }
-        const valid = await verifyPassword(currentPassword, studentDoc.password)
-        if (!valid) { setErr('Current password is incorrect.'); recordAttempt(); setLoading(false); return }
-        const passwordHash = await hashPassword(password)
-        await updateStudent(resetStudentId, { password: passwordHash })
-        setRecoveredPassword('done')
-        setPassword('')
-        setCurrentPassword('')
-        setConfirmPassword('')
-        setResetStudentId(null)
-        attemptsRef.current = 0
-        cooldownUntilRef.current = 0
-        persistRateLimit()
-      } catch {
-        if (!navigator.onLine) setErr('No internet connection. Check your network.')
-        else setErr('Failed to reset password. Please try again.')
-      }
-      setLoading(false)
-      return
-    }
-
-    const trimmed = name.trim()
-    if (trimmed.length < 3) { setErr('Enter your full name'); return }
-    if (!checkOnline()) return
-    setLoading(true); setErr(''); setRecoveredPassword('')
-    try {
-      const existing = await findStudent(trimmed)
-      if (!existing) { setErr('Name not found. Please register first.'); setLoading(false); return }
-      setResetStudentId(existing.id)
-      setRecoveredPassword('reset')
-    } catch {
-      if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Something went wrong. Please try again.')
-    }
-    setLoading(false)
-  }
-
+export default function Home({ setView, setHomeMode }) {
   return (
     <>
       <SEO title="Home" jsonLd={ORG_JSONLD} />
-    <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
-
-        {/* Header */}
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 mx-auto bg-[#111] rounded-2xl flex flex-col items-center justify-center mb-2 shadow-md">
-              <span className="text-xl font-bold text-white font-display leading-none tracking-tighter">274</span>
-              <span className="text-[9px] font-bold text-white/50 font-display leading-none tracking-widest uppercase mt-0.5">Lab</span>
+    <div className="min-h-screen bg-white">
+      {/* ── Navbar ── */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-[#EBEBEB]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-[#111] rounded-lg flex items-center justify-center">
+              <span className="text-xs font-bold text-white font-display leading-none">274</span>
             </div>
-            <p className="text-xs text-[#888] font-label leading-relaxed">
-              274days to identify weaknesses and fix them to ace JAMB
-            </p>
-          {mode !== 'register' && (
-            <p className="text-xs text-[#AAA] font-label">
-              Weekly Mock: Fri & Sat · 5:00 pm – 6:00 pm
-            </p>
-          )}
+            <span className="text-sm font-bold text-[#111] font-display hidden sm:block">274Lab</span>
+          </div>
+          <div className="hidden md:flex items-center gap-8">
+            <a href="#features" className="text-xs text-[#666] hover:text-[#111] font-label transition-colors">Features</a>
+            <a href="#how-it-works" className="text-xs text-[#666] hover:text-[#111] font-label transition-colors">How it Works</a>
+          </div>
+          <button
+            onClick={() => setView('home')}
+            className="bg-[#111] text-white text-xs font-bold font-label px-4 py-2 rounded-lg hover:bg-[#222] transition-colors"
+          >
+            Sign In
+          </button>
         </div>
+      </nav>
 
-        {/* Card */}
-        <div className="bg-white rounded-2xl border border-[#EBEBEB] shadow-sm overflow-hidden">
+      {/* ── Hero ── */}
+      <section className="pt-24 pb-12 sm:pt-32 sm:pb-20 px-4">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex flex-col lg:flex-row items-center gap-12 lg:gap-16">
+            <div className="flex-1 text-center lg:text-left">
+              <div className="inline-flex items-center gap-2 bg-[#F3F3F2] rounded-full px-3 py-1.5 mb-6">
+                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                <span className="text-[11px] font-semibold text-[#666] font-label">Week 3 is live — Fri & Sat 5PM</span>
+              </div>
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-[#111] font-display leading-[1.15] tracking-tight">
+                Ace JAMB with<br />
+                <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">274 days</span> of<br />
+                smart practice
+              </h1>
+              <p className="mt-5 text-sm sm:text-base text-[#666] font-body leading-relaxed max-w-lg mx-auto lg:mx-0">
+                Weekly mock tests, real-time leaderboards, and targeted revision — everything you need to identify weaknesses and fix them before the real exam.
+              </p>
+              <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
+          <button
+            onClick={() => { setHomeMode?.('register'); setView('home') }}
+            className="bg-[#111] text-white text-sm font-bold font-display px-6 py-3 rounded-xl hover:bg-[#222] active:scale-[0.98] transition-all"
+          >
+            Start Free
+          </button>
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('how-it-works')
+                    el?.scrollIntoView({ behavior: 'smooth' })
+                  }}
+                  className="bg-white border border-[#E5E5E5] text-[#555] text-sm font-bold font-label px-6 py-3 rounded-xl hover:border-[#111] hover:text-[#111] transition-all"
+                >
+                  See How it Works
+                </button>
+              </div>
+              <div className="mt-8 flex items-center gap-6 justify-center lg:justify-start">
+                <div>
+                  <p className="text-lg font-bold text-[#111] font-display">2,400+</p>
+                  <p className="text-[10px] text-[#888] font-label">Students</p>
+                </div>
+                <div className="w-px h-8 bg-[#EBEBEB]" />
+                <div>
+                  <p className="text-lg font-bold text-[#111] font-display">12,000+</p>
+                  <p className="text-[10px] text-[#888] font-label">Tests Taken</p>
+                </div>
+                <div className="w-px h-8 bg-[#EBEBEB]" />
+                <div>
+                  <p className="text-lg font-bold text-[#111] font-display">98%</p>
+                  <p className="text-[10px] text-[#888] font-label">Improvement</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex-1 flex justify-center">
+              <DashboardMockup />
+            </div>
+          </div>
+        </div>
+      </section>
 
-          {/* Tab bar */}
-          <div className="flex border-b border-[#EBEBEB]">
-            {['student', 'admin'].map((t) => (
-              <button
-                key={t}
-                onClick={() => { setTab(t); setErr('') }}
-                className={`flex-1 py-3.5 text-xs font-semibold tracking-wide uppercase transition-all font-label ${
-                  tab === t
-                    ? 'text-[#111] border-b-2 border-[#111]'
-                    : 'text-[#AAA] hover:text-[#666]'
-                }`}
-              >
-                {t === 'student' ? 'Student' : 'Admin'}
-              </button>
+      {/* ── Features ── */}
+      <section id="features" className="py-16 sm:py-20 bg-[#F8F8F7]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="text-center mb-12">
+            <p className="text-[11px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-2">Features</p>
+            <h2 className="text-2xl sm:text-3xl font-bold text-[#111] font-display">Everything you need to score higher</h2>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[
+              { icon: BookOpen01Icon, title: 'Weekly Mock Tests', desc: 'Every Friday & Saturday at 5PM. Real JAMB-style questions with instant grading.', color: 'bg-blue-50 text-blue-600' },
+              { icon: RankingIcon, title: 'Live Leaderboard', desc: 'Compete with thousands of students. Track your rank and consistency in real time.', color: 'bg-amber-50 text-amber-600' },
+              { icon: ChartLineData01Icon, title: 'Weak Spot Analysis', desc: 'Automatically identifies your weak subjects and serves targeted revision content.', color: 'bg-purple-50 text-purple-600' },
+              { icon: Notification01Icon, title: 'Smart Notifications', desc: 'Daily key points and reminders delivered via push notifications and SMS.', color: 'bg-green-50 text-green-600' },
+              { icon: UserGroupIcon, title: 'Accountability Partners', desc: 'Add parents or teachers who receive your weekly performance reports via SMS.', color: 'bg-orange-50 text-orange-600' },
+              { icon: CreditCardIcon, title: 'Patch & Retake', desc: 'Activate Patches mode to revisit weak topics and retake missed questions.', color: 'bg-red-50 text-red-600' },
+            ].map((f) => (
+              <div key={f.title} className="bg-white border border-[#EBEBEB] rounded-2xl p-5 hover:shadow-md hover:border-[#D5D5D5] transition-all">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${f.color}`}>
+                  <HugeiconsIcon icon={f.icon} size={20} color="currentColor" />
+                </div>
+                <h3 className="text-sm font-bold text-[#111] font-display mt-3">{f.title}</h3>
+                <p className="text-xs text-[#666] font-body leading-relaxed mt-1.5">{f.desc}</p>
+              </div>
             ))}
           </div>
+        </div>
+      </section>
 
-          <div className="p-6">
-            {tab === 'student' && (
-              <div>
-                {/* Mode toggle */}
-                <div className="flex gap-1 p-1 bg-[#F3F3F2] rounded-xl mb-5">
-                  {['login', 'register'].map((m) => (
-                    <button
-                      key={m}
-                      onClick={() => { setMode(m); setErr('') }}
-                      className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all font-label ${
-                        mode === m
-                          ? 'bg-white text-[#111] shadow-sm'
-                          : 'text-[#999] hover:text-[#555]'
-                      }`}
-                    >
-                      {m === 'login' ? 'Lock In' : 'Register'}
-                    </button>
-                  ))}
+      {/* ── How it works ── */}
+      <section id="how-it-works" className="py-16 sm:py-20">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="text-center mb-12">
+            <p className="text-[11px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-2">How it Works</p>
+            <h2 className="text-2xl sm:text-3xl font-bold text-[#111] font-display">Three steps to JAMB success</h2>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-8">
+            {[
+              { icon: CheckmarkCircle02Icon, title: 'Register Free', desc: 'Create your account in 30 seconds. Choose your subjects and set your JAMB year.' },
+              { icon: Clock01Icon, title: 'Take Weekly Tests', desc: 'Every Friday & Saturday at 5PM. 4 subjects, 100 questions each, timed and graded.' },
+              { icon: Target01Icon, title: 'Improve & Repeat', desc: 'Get instant feedback, track weak spots, and use Patches to retake until you master it.' },
+            ].map((s) => (
+              <div key={s.title} className="text-center">
+                <div className="w-12 h-12 bg-[#111] rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <HugeiconsIcon icon={s.icon} size={22} color="white" />
                 </div>
-
-                <div className="space-y-3.5">
-                  <div>
-                    <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                      Full Name
-                    </label>
-                    <input
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      maxLength={50}
-                      placeholder="e.g. Chukwuemeka Okafor"
-                      className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                    />
-                  </div>
-
-                  {mode === 'register' && (
-                    <div>
-                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                        Nickname <span className="text-[#CCC] normal-case tracking-normal">(Name friends call you)</span>
-                      </label>
-                      <input
-                        value={nickname}
-                        onChange={(e) => setNickname(e.target.value)}
-                        placeholder="e.g. Emeka, ChiChi"
-                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                      />
-                    </div>
-                  )}
-                  {mode === 'register' && (
-                    <div>
-                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                        Email <span className="text-[#CCC] normal-case tracking-normal">for payment receipts · optional</span>
-                      </label>
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="you@example.com"
-                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                      />
-                    </div>
-                  )}
-
-                  {mode === 'register' && (
-                    <div>
-                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                        JAMB Year
-                      </label>
-                      <select
-                        value={year}
-                        onChange={(e) => setYear(e.target.value)}
-                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white transition-colors"
-                      >
-                        {years.map((y) => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                      Password
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && mode === 'login' && handleLogin()}
-                        maxLength={64}
-                        placeholder={mode === 'register' ? 'Minimum 4 characters' : '••••••••'}
-                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                      />
-                      <button type="button" onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                        {showPassword ? (
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                            <line x1="1" y1="1" x2="23" y2="23"/>
-                          </svg>
-                        ) : (
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                            <circle cx="12" cy="12" r="3"/>
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                    {mode === 'login' && (
-                      <button onClick={() => { setShowForgot(true); setErr(''); setRecoveredPassword('') }}
-                        className="text-[11px] text-[#888] hover:text-[#111] mt-1.5 font-label underline underline-offset-2 transition-colors">
-                        Forgot password?
-                      </button>
-                    )}
-                  </div>
-
-                  {mode === 'register' && (
-                    <div>
-                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                        Confirm Password
-                      </label>
-                      <div className="relative">
-                        <input
-                          type={showConfirm ? 'text' : 'password'}
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
-                          placeholder="Repeat your password"
-                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                        />
-                        <button type="button" onClick={() => setShowConfirm(!showConfirm)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                          {showConfirm ? (
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                              <line x1="1" y1="1" x2="23" y2="23"/>
-                            </svg>
-                          ) : (
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                              <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {showForgot && (
-                  <div className="bg-[#F8F8F7] border border-[#EBEBEB] rounded-xl p-4 mt-3 space-y-3">
-                    {recoveredPassword === 'done' ? (
-                      <>
-                        <p className="text-xs font-semibold text-green-700 font-label">✓ Password reset successful</p>
-                        <p className="text-[11px] text-[#888] font-label">You can now lock in with your new password.</p>
-                        <button onClick={() => { setShowForgot(false); setErr(''); setRecoveredPassword('') }}
-                          className="w-full mt-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] transition-all font-display">
-                          Back to Login
-                        </button>
-                      </>
-                    ) : recoveredPassword === 'reset' ? (
-                      <>
-                        <p className="text-xs font-semibold text-[#111] font-label">Reset Password</p>
-                        <p className="text-[11px] text-[#888] font-label">Set a new password for <strong>{name.trim()}</strong></p>
-                        <div>
-                          <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">Current Password <span className="text-red-500">*</span></label>
-                          <div className="relative">
-                            <input type={showPassword ? 'text' : 'password'} value={currentPassword}
-                              onChange={(e) => setCurrentPassword(e.target.value)}
-                              maxLength={64}
-                              placeholder="Your current password"
-                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
-                            <button type="button" onClick={() => setShowPassword(!showPassword)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                              {showPassword ? (
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                                  <line x1="1" y1="1" x2="23" y2="23"/>
-                                </svg>
-                              ) : (
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                  <circle cx="12" cy="12" r="3"/>
-                                </svg>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">New Password</label>
-                          <div className="relative">
-                            <input type={showResetPassword ? 'text' : 'password'} value={password}
-                              onChange={(e) => setPassword(e.target.value)}
-                              maxLength={64}
-                              placeholder="Minimum 4 characters"
-                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
-                            <button type="button" onClick={() => setShowResetPassword(!showResetPassword)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                              {showResetPassword ? (
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                                  <line x1="1" y1="1" x2="23" y2="23"/>
-                                </svg>
-                              ) : (
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                  <circle cx="12" cy="12" r="3"/>
-                                </svg>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">Confirm Password</label>
-                          <div className="relative">
-                            <input type={showResetConfirm ? 'text' : 'password'} value={confirmPassword}
-                              onChange={(e) => setConfirmPassword(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && handleForgotPassword()}
-                              placeholder="Repeat your password"
-                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
-                            <button type="button" onClick={() => setShowResetConfirm(!showResetConfirm)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                              {showResetConfirm ? (
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                                  <line x1="1" y1="1" x2="23" y2="23"/>
-                                </svg>
-                              ) : (
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                  <circle cx="12" cy="12" r="3"/>
-                                </svg>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={handleForgotPassword} disabled={loading}
-                            className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40">
-                            {loading ? 'Resetting…' : 'Reset Password →'}
-                          </button>
-                          <button onClick={() => { setShowForgot(false); setErr(''); setRecoveredPassword(''); setResetStudentId(null); setPassword(''); setConfirmPassword('') }}
-                            className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold hover:text-[#111] hover:border-[#CCC] transition-all font-label">
-                            Cancel
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-xs font-semibold text-[#111] font-label">Recover Password</p>
-                        <p className="text-[11px] text-[#888] font-label">Enter your full name to find your account, then set a new password.</p>
-                        <input value={name}
-                          onChange={(e) => setName(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleForgotPassword()}
-                          maxLength={50}
-                          placeholder="Enter your full name"
-                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
-                        <div className="flex gap-2">
-                          <button onClick={handleForgotPassword} disabled={loading}
-                            className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] transition-all font-display disabled:opacity-40">
-                            {loading ? 'Searching…' : 'Find Account'}
-                          </button>
-                          <button onClick={() => { setShowForgot(false); setErr(''); setRecoveredPassword(''); setResetStudentId(null) }}
-                            className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold hover:text-[#111] hover:border-[#CCC] transition-all font-label">
-                            Back
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {err && (
-                  <div className="mt-3 px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
-                    <p className="text-red-600 text-xs font-label">{err}</p>
-                  </div>
-                )}
-
-                {!showForgot && (
-                  <button
-                    onClick={mode === 'login' ? handleLogin : handleRegister}
-                    disabled={loading}
-                    className={`w-full mt-4 rounded-xl py-3.5 text-sm font-bold tracking-wide transition-all active:scale-[0.99] font-display ${
-                      loading
-                        ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
-                        : 'bg-[#111] text-white hover:bg-[#222]'
-                    }`}
-                  >
-                    {loading ? 'Please wait…' : mode === 'login' ? 'Lock In →' : 'Create Account →'}
-                  </button>
-                )}
-
-                <p className="text-xs text-[#AAA] text-center mt-3 font-label">
-                  {mode === 'login' ? 'No account? ' : 'Already registered? '}
-                  <button
-                    onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setErr('') }}
-                    className="text-[#111] font-semibold underline underline-offset-2"
-                  >
-                    {mode === 'login' ? 'Register here' : 'Lock in'}
-                  </button>
-                </p>
+                <h3 className="text-sm font-bold text-[#111] font-display">{s.title}</h3>
+                <p className="text-xs text-[#666] font-body leading-relaxed mt-2 max-w-xs mx-auto">{s.desc}</p>
               </div>
-            )}
-
-            {tab === 'admin' && (
-              <div>
-                {adminSetupMode ? (
-                  <div className="space-y-3.5">
-                    <p className="text-xs font-bold text-[#111] font-label">Set Admin Password</p>
-                    <p className="text-[11px] text-[#888] font-label">This is a one-time setup. The password will be stored securely in the database.</p>
-                    <div>
-                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">New Password</label>
-                      <div className="relative">
-                        <input type={showSetupPw ? 'text' : 'password'} value={adminPw}
-                          onChange={(e) => setAdminPw(e.target.value)}
-                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
-                        <button type="button" onClick={() => setShowSetupPw(!showSetupPw)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                          {showSetupPw ? (
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                              <line x1="1" y1="1" x2="23" y2="23"/>
-                            </svg>
-                          ) : (
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                              <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">Confirm Password</label>
-                      <div className="relative">
-                        <input type={showSetupConfirm ? 'text' : 'password'} value={adminSetupConfirm}
-                          onChange={(e) => setAdminSetupConfirm(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleAdminSetup()}
-                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
-                        <button type="button" onClick={() => setShowSetupConfirm(!showSetupConfirm)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                          {showSetupConfirm ? (
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                              <line x1="1" y1="1" x2="23" y2="23"/>
-                            </svg>
-                          ) : (
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                              <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                    {err && (
-                      <div className="px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
-                        <p className="text-red-600 text-xs font-label">{err}</p>
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <button onClick={handleAdminSetup} disabled={loading}
-                        className="flex-1 bg-[#111] text-white rounded-xl py-3 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40">
-                        {loading ? 'Saving…' : 'Set Password →'}
-                      </button>
-                      <button onClick={() => { setAdminSetupMode(false); setErr(''); setAdminPw(''); setAdminSetupConfirm('') }}
-                        className="flex-1 border border-[#E5E5E5] text-[#888] rounded-xl py-3 text-sm font-bold hover:text-[#111] transition-colors font-label">
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="mb-4">
-                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                        Admin Password
-                      </label>
-                      <div className="relative">
-                        <input
-                          type={showAdminPw ? 'text' : 'password'}
-                          value={adminPw}
-                          onChange={(e) => setAdminPw(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleAdmin()}
-                          placeholder="••••••••"
-                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                        />
-                        <button type="button" onClick={() => setShowAdminPw(!showAdminPw)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                          {showAdminPw ? (
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                              <line x1="1" y1="1" x2="23" y2="23"/>
-                            </svg>
-                          ) : (
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                              <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                    {err && (
-                      <div className="mb-3 px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
-                        <p className="text-red-600 text-xs font-label">{err}</p>
-                      </div>
-                    )}
-                    <button
-                      onClick={handleAdmin}
-                      disabled={loading}
-                      className="w-full bg-[#111] text-white rounded-xl py-3.5 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40"
-                    >
-                      {loading ? 'Verifying...' : 'Access Admin →'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+            ))}
           </div>
         </div>
+      </section>
 
-        <p className="text-center text-[11px] text-[#AAA] mt-6 font-label">
-          Supported by <span className="text-[#555] font-semibold">A.M.C</span>
-        </p>
-      </div>
+      {/* ── CTA ── */}
+      <section className="py-16 sm:py-20 bg-[#F8F8F7]">
+        <div className="max-w-lg mx-auto px-4 text-center">
+          <p className="text-lg font-bold text-[#111] font-display mb-1">Ready to start?</p>
+          <p className="text-xs text-[#555] font-label mb-5">Join students preparing the smart way.</p>
+          <button
+            onClick={() => { setHomeMode?.('register'); setView('home') }}
+            className="bg-[#111] text-white rounded-xl px-8 py-3.5 text-sm font-bold font-display hover:bg-[#222] active:scale-[0.98] transition-all inline-flex items-center gap-2"
+          >
+            Create Your Account
+            <HugeiconsIcon icon={ArrowRight01Icon} size={16} color="currentColor" />
+          </button>
+        </div>
+      </section>
+
+      {/* ── Footer ── */}
+      <footer className="py-8 border-t border-[#EBEBEB]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-[#111] rounded-md flex items-center justify-center">
+              <span className="text-[8px] font-bold text-white font-display leading-none">274</span>
+            </div>
+            <span className="text-xs text-[#888] font-label">Supported by A.M.C</span>
+          </div>
+          <p className="text-[10px] text-[#AAA] font-label">contact@274lab.com</p>
+        </div>
+      </footer>
     </div>
     </>
   )

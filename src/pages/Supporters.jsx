@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { updateStudent } from '../store/useStore'
+import { functions, httpsCallable } from '../firebase'
 
 import SEO from '../components/seo/SEO'
 
@@ -18,10 +19,20 @@ export default function Supporters({ student, setStudent, setView }) {
     setLoading(true); setErr('')
     try {
       const updates = {}
-      if (p) updates.parentPhone = `+234${p}`
-      if (t) updates.teacherPhone = `+234${t}`
+      const phones = []
+      if (p) { const full = `+234${p}`; updates.parentPhone = full; phones.push(full) }
+      if (t) { const full = `+234${t}`; updates.teacherPhone = full; phones.push(full) }
       await updateStudent(student.id, updates)
       setStudent({ ...student, ...updates })
+
+      // Send accountability intro SMS with recovery code
+      try {
+        const fn = httpsCallable(functions, 'sendAccountabilityIntro')
+        await fn({ studentId: student.id, phones })
+      } catch (e) {
+        console.error('[Supporters] Failed to send intro SMS:', e?.message || e)
+      }
+
       setView('subjects')
     } catch {
       setErr('Failed to save. Check your connection.')
@@ -116,7 +127,7 @@ export default function Supporters({ student, setStudent, setView }) {
         </button>
 
         <p className="text-center text-[11px] text-[#AAA] mt-4 font-label leading-relaxed">
-          Their numbers are only used to send your weekly progress report via WhatsApp. Nothing else.
+          Their numbers are only used to send your weekly progress report via SMS. Nothing else.
         </p>
 
       </div>

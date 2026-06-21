@@ -11,6 +11,8 @@ export default function AdminNotifications() {
   const [broadcastTarget, setBroadcastTarget] = useState('all')
   const [broadcastStatus, setBroadcastStatus] = useState(null)
   const [pushTestStatus, setPushTestStatus] = useState(null)
+  const [smsPhone, setSmsPhone] = useState('')
+  const [smsStatus, setSmsStatus] = useState(null)
 
   const adminName = 'Admin'
 
@@ -42,6 +44,24 @@ export default function AdminNotifications() {
       setPushTestStatus('Error: ' + (err.message || 'Unknown'))
     }
     setTimeout(() => setPushTestStatus(null), 8000)
+  }
+
+  const handleTestSms = async () => {
+    const phone = smsPhone.trim()
+    if (!phone) return
+    setSmsStatus('Sending...')
+    try {
+      const fn = httpsCallable(functions, 'testSms')
+      const result = await fn({ phone })
+      if (result.data.ok) {
+        setSmsStatus(result.data.message)
+      } else {
+        setSmsStatus('Failed: ' + result.data.message)
+      }
+    } catch (err) {
+      setSmsStatus('Error: ' + (err.message || 'Unknown'))
+    }
+    setTimeout(() => setSmsStatus(null), 8000)
   }
 
   const handleTestNotification = () => {
@@ -152,6 +172,25 @@ export default function AdminNotifications() {
         >
           {pushTestStatus && pushTestStatus !== 'Sending...' ? pushTestStatus : (pushTestStatus === 'Sending...' ? 'Sending...' : 'Send Real Push to All Devices')}
         </button>
+        <div className="mt-3 p-3 border border-[#EBEBEB] rounded-xl">
+          <p className="text-[11px] font-semibold text-[#888] font-label mb-1.5">Test SMS (Termii)</p>
+          <div className="flex gap-2">
+            <input
+              value={smsPhone}
+              onChange={(e) => setSmsPhone(e.target.value)}
+              placeholder="2348012345678"
+              className="flex-1 border border-[#E5E5E5] rounded-lg px-3 py-2 text-xs font-label text-[#111] placeholder-[#BBB] outline-none focus:border-[#111]"
+            />
+            <button
+              onClick={handleTestSms}
+              disabled={!smsPhone.trim() || smsStatus === 'Sending...'}
+              className="bg-purple-600 text-white rounded-lg px-4 py-2 text-xs font-bold font-label hover:bg-purple-700 disabled:opacity-50 transition-colors shrink-0"
+            >
+              {smsStatus && smsStatus !== 'Sending...' ? 'Sent' : (smsStatus === 'Sending...' ? '...' : 'Send SMS')}
+            </button>
+          </div>
+          {smsStatus && <p className="text-[10px] text-[#888] font-label mt-1">{smsStatus}</p>}
+        </div>
       </div>
 
       <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">

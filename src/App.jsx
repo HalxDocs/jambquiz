@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
+import Landing from './pages/Landing'
 import Home from './pages/Home'
+import Auth from './pages/Auth'
 import Intro from './pages/Intro'
 import SubjectSelect from './pages/SubjectSelect'
 import Dashboard from './pages/Dashboard'
@@ -41,7 +43,8 @@ export default function App() {
     } catch { return null }
   })()
 
-  const [view, setView] = useState(savedSession ? 'dashboard' : (introSeen ? 'home' : 'intro'))
+  const [view, setView] = useState(savedSession ? 'dashboard' : 'landing')
+  const [homeMode, setHomeMode] = useState('login')
   const [student, setStudentState] = useState(savedSession)
   const [lastScore, setLastScore] = useState(null)
   const [adminAuthed, setAdminAuthed] = useState(false)
@@ -136,11 +139,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8F8F7]">
+      {view === 'landing' && (
+        <Home setView={setView} setHomeMode={setHomeMode} />
+      )}
       {view === 'intro' && (
         <Intro onContinue={dismissIntro} />
       )}
       {view === 'home' && (
-        <Home setView={setView} setStudent={setStudent} setAdminAuthed={setAdminAuthed} />
+        <Auth setView={setView} setStudent={setStudent} setAdminAuthed={setAdminAuthed} defaultMode={homeMode} />
       )}
       {view === 'supporters' && student && (
         <Supporters student={student} setStudent={setStudent} setView={setView} />
@@ -154,6 +160,7 @@ export default function App() {
           setView={setView}
           setStudent={setStudent}
           setSelectedSubjectDetail={setSelectedSubjectDetail}
+          setRetakeData={setRetakeData}
         />
       )}
       {view === 'subject-detail' && student && selectedSubjectDetail && (

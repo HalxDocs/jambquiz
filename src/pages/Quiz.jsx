@@ -7,6 +7,7 @@ import QuizTimer from '../components/quiz/QuizTimer'
 import QuestionCard from '../components/quiz/QuestionCard'
 import QuestionNav from '../components/quiz/QuestionNav'
 import QuizResults from '../components/quiz/QuizResults'
+import { markRevisionCompleted, revisionTopicKey } from '../lib/revisionQueue'
 
 function isInQuizWindow(quizDates) {
   const now = new Date()
@@ -42,6 +43,8 @@ const ABBR = {
 export default function Quiz({ student, setView, setLastScore, retakeData, setRetakeData }) {
   const [step, setStep] = useState('init') // init | loading | quiz | done | locked | expired | error
   const [quizData, setQuizData] = useState({}) // { [subject]: { questions, answers, currentQ } }
+  const quizDataRef = useRef(quizData)
+  quizDataRef.current = quizData
   const [activeSubject, setActiveSubject] = useState(null)
   const [timeLeft, setTimeLeft] = useState(60 * 60)
   const [submitting, setSubmitting] = useState(false)
@@ -54,6 +57,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   const [paymentPrompt, setPaymentPrompt] = useState(null)
   const [err, setErr] = useState('')
   const timerRef = useRef(null)
+  const paymentTimerRef = useRef(null)
 
   const weekLabel = retakeData?.week || currentWeek || 'Week 1'
   const subjects = retakeData ? [retakeData.subject] : (student.subjects || [])
@@ -92,6 +96,11 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     logEvent(student.id, 'quiz_loaded', { retake: !!retakeData })
     setStep('loading')
   }, [quizDatesReady, currentWeek])
+
+  // Clear question cache when week changes
+  useEffect(() => {
+    return () => { questionCache.clear() }
+  }, [weekLabel])
 
   // Load questions when step becomes 'loading'
   useEffect(() => {
@@ -159,9 +168,10 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     setSubmitting(true)
     clearInterval(timerRef.current)
 
+    const qd = quizDataRef.current
     const results = []
-    for (const subj of Object.keys(quizData)) {
-      const { questions, answers } = quizData[subj]
+    for (const subj of Object.keys(qd)) {
+      const { questions, answers } = qd[subj]
       let correct = 0, wrong = 0, unanswered = 0
       questions.forEach((q, i) => {
         if (answers[i] === null) unanswered++
@@ -210,6 +220,9 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
 
     if (results.length > 0) setLastScore(results[0])
     if (setRetakeData) setRetakeData(null)
+    if (retakeData && results.length > 0) {
+      results.forEach((r) => markRevisionCompleted(revisionTopicKey(r.subject, r.week)))
+    }
 
     const total = results.reduce((a, r) => a + r.score, 0)
     const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
@@ -219,7 +232,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     const newFreeCount = (student.freeAttemptsUsed || 0) + 1
     if (newFreeCount >= 2 && !student.subscriptionUntil && !retakeData) {
       setPaymentPrompt('show')
-      setTimeout(() => {
+      paymentTimerRef.current = setTimeout(() => {
         setPaymentPrompt(null)
         setStep('done')
       }, 3500)
@@ -228,6 +241,8 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     }
     setSubmitting(false)
   }
+
+  useEffect(() => { return () => clearTimeout(paymentTimerRef.current) }, [])
 
   // ── GATE SCREENS ───────────────────────────────────────────────────────────
   if (step === 'init' || step === 'loading') {

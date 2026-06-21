@@ -155,6 +155,12 @@ export default function TopicEditor({
                   className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] mb-1.5"
                 />
                 <input
+                  value={cur.smsName || ''}
+                  onChange={(e) => updateTopic(subject, 'smsName', e.target.value)}
+                  placeholder="SMS short name (optional) — e.g. Vectors"
+                  className="w-full border border-[#E5E5E5] rounded-lg px-3 py-1.5 text-xs text-[#555] focus:outline-none focus:border-[#111] placeholder:text-[#CCC] mb-1.5"
+                />
+                <input
                   type="url"
                   value={cur.video || ''}
                   onChange={(e) => updateTopic(subject, 'video', e.target.value)}
@@ -212,7 +218,7 @@ export default function TopicEditor({
               <div key={subject} className="flex justify-between items-center gap-2">
                 <p className="text-xs text-[#555] font-body shrink-0">{subject}</p>
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <p className="text-xs font-semibold text-[#111] bg-white border border-[#E5E5E5] px-2.5 py-1 rounded-lg font-label truncate">{t.name}</p>
+                  <p className="text-xs font-semibold text-[#111] bg-white border border-[#E5E5E5] px-2.5 py-1 rounded-lg font-label truncate">{t.name}{t.smsName ? <span className="text-[#999] font-normal ml-1">SMS: {t.smsName}</span> : null}</p>
                   {t.video && (
                     <a href={safeUrl(t.video)} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg font-label hover:bg-red-100 shrink-0" title={safeUrl(t.video)}>
                       ▶ Video
