@@ -1,11 +1,16 @@
 import { useState } from 'react'
 import { functions, httpsCallable } from '../../firebase'
+import { addPayment, updateStudent } from '../../store/useStore'
 
-export default function AppealOverlay({ student, onAppealed, onPay }) {
+const PAYSTACK_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ''
+const RESUME_PRICE = 800
+
+export default function AppealOverlay({ student, onAppealed }) {
   const [step, setStep] = useState('notice')
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [paying, setPaying] = useState(false)
 
   const handleVerify = async () => {
     if (!code.trim() || code.trim().length !== 4) { setError('Enter the 4-digit code from your accountability partner'); return }
@@ -25,6 +30,65 @@ export default function AppealOverlay({ student, onAppealed, onPay }) {
     setLoading(false)
   }
 
+  const handlePay = async () => {
+    if (!PAYSTACK_KEY) {
+      setError('Online payment not configured. Please contact admin.')
+      return
+    }
+    if (typeof window.PaystackPop === 'undefined') {
+      setError('Payment library not loaded. Refresh and try again.')
+      return
+    }
+    const email = student.email || `${student.name.toLowerCase().replace(/\s+/g, '.')}@274lab.com`
+
+    setPaying(true)
+    setError('')
+
+    const handler = window.PaystackPop.setup({
+      key: PAYSTACK_KEY,
+      email,
+      amount: RESUME_PRICE * 100,
+      currency: 'NGN',
+      ref: `274LAB-RESUME-${student.id}-${Date.now()}`,
+      metadata: {
+        studentId: student.id,
+        studentName: student.name,
+        type: 'account_resume',
+        custom_fields: [
+          { display_name: 'Student Name', variable_name: 'student_name', value: student.name },
+          { display_name: 'Payment Type', variable_name: 'payment_type', value: 'Account Resume' },
+        ],
+      },
+      callback: async (response) => {
+        setTimeout(async () => {
+          try {
+            await updateStudent(student.id, { missedStreak: 0, suspended: false })
+            await addPayment({
+              studentId: student.id,
+              studentName: student.name,
+              email,
+              amount: RESUME_PRICE,
+              currency: 'NGN',
+              method: 'paystack',
+              reference: response.reference,
+              type: 'account_resume',
+              paidAt: new Date().toISOString(),
+            })
+            onAppealed()
+          } catch (e) {
+            console.error(e)
+            setError('Payment received but failed to update. Contact admin with reference: ' + response.reference)
+          }
+          setPaying(false)
+        }, 0)
+      },
+      onClose: () => {
+        setPaying(false)
+      },
+    })
+    handler.openIframe()
+  }
+
   return (
     <div className="fixed inset-0 z-[100] bg-[#0a0a0a] flex flex-col items-center justify-center p-6" style={{ overscrollBehavior: 'none' }}>
       {step === 'notice' && (
@@ -34,7 +98,7 @@ export default function AppealOverlay({ student, onAppealed, onPay }) {
           </div>
           <h2 className="text-xl font-bold text-white font-display mb-3">Account Suspended</h2>
           <p className="text-sm text-[#888] font-label leading-relaxed mb-2">
-            You've missed 6 weekly quizzes. Weekly tests and key points are paused until you reactivate.
+            You've missed 3 weekly quizzes. Weekly tests and key points are paused until you reactivate.
           </p>
           <div className="bg-[#161616] border border-[#333] rounded-xl p-3 mb-6 text-left space-y-2">
             <p className="text-xs text-[#888] font-label">Choose how to reactivate:</p>
@@ -60,11 +124,13 @@ export default function AppealOverlay({ student, onAppealed, onPay }) {
             Enter Recovery Code
           </button>
           <button
-            onClick={onPay}
-            className="w-full bg-green-600 text-white rounded-xl py-3.5 text-sm font-bold hover:bg-green-700 active:scale-[0.99] transition-all font-display"
+            onClick={handlePay}
+            disabled={paying}
+            className="w-full bg-green-600 text-white rounded-xl py-3.5 text-sm font-bold hover:bg-green-700 active:scale-[0.99] transition-all font-display disabled:opacity-50"
           >
-            Pay N800 to Resume
+            {paying ? 'Processing...' : 'Pay N800 to Resume'}
           </button>
+          {error && <p className="text-xs text-red-400 font-label mt-2">{error}</p>}
         </div>
       )}
 

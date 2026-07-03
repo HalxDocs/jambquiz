@@ -196,8 +196,6 @@ export default function Landing({ setView, setHomeMode, deferredPrompt, handleIn
               <span className="text-[2.5px] font-bold text-white/50 font-display leading-none tracking-widest">Lab</span>
             </div>
             <span className="text-[11px] text-[#AAA] font-label">274Lab</span>
-            <span className="text-[#DDD] text-[11px]">·</span>
-            <span className="text-[11px] text-[#AAA] font-label">Supported by A.M.C</span>
           </div>
           <p className="text-[9px] text-[#CCC] font-label">JAMB Weekly Quiz & Revision</p>
         </footer>

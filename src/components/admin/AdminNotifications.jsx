@@ -13,6 +13,7 @@ export default function AdminNotifications() {
   const [pushTestStatus, setPushTestStatus] = useState(null)
   const [smsPhone, setSmsPhone] = useState('')
   const [smsStatus, setSmsStatus] = useState(null)
+  const [guardStatus, setGuardStatus] = useState(null)
 
   const adminName = 'Admin'
 
@@ -62,6 +63,18 @@ export default function AdminNotifications() {
       setSmsStatus('Error: ' + (err.message || 'Unknown'))
     }
     setTimeout(() => setSmsStatus(null), 8000)
+  }
+
+  const handleClearGuards = async () => {
+    setGuardStatus('Clearing...')
+    try {
+      const fn = httpsCallable(functions, 'clearSmsGuards')
+      const result = await fn()
+      setGuardStatus(`Cleared ${result.data.deleted} guard(s)`)
+    } catch (err) {
+      setGuardStatus('Error: ' + (err.message || 'Unknown'))
+    }
+    setTimeout(() => setGuardStatus(null), 5000)
   }
 
   const handleTestNotification = () => {
@@ -191,6 +204,12 @@ export default function AdminNotifications() {
           </div>
           {smsStatus && <p className="text-[10px] text-[#888] font-label mt-1">{smsStatus}</p>}
         </div>
+        <button
+          onClick={handleClearGuards}
+          className="w-full bg-orange-500 text-white rounded-xl py-3 text-sm font-bold hover:bg-orange-600 active:scale-[0.99] transition-all font-display mt-2"
+        >
+          {guardStatus || 'Clear SMS Guard Docs'}
+        </button>
       </div>
 
       <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">

@@ -15,6 +15,7 @@ import Leaderboard from './pages/Leaderboard'
 import Supporters from './pages/Supporters'
 import Contact from './pages/Contact'
 import GlobalToast from './components/ui/GlobalToast'
+import CardWarningPopup from './components/dashboard/CardWarningPopup'
 import { findStudent, stripSensitive } from './store/useStore'
 
 function isIos() {
@@ -53,6 +54,8 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [showInstallToast, setShowInstallToast] = useState(false)
   const [showIosHint, setShowIosHint] = useState(() => isIos() && !isInStandaloneMode())
+  const [showRegCardWarning, setShowRegCardWarning] = useState(false)
+  const prevViewRef = useRef(view)
 
   const setStudent = (s) => {
     const safe = s ? stripSensitive(s) : null
@@ -70,6 +73,14 @@ export default function App() {
     localStorage.setItem(INTRO_KEY, '1')
     setView('home')
   }
+
+  // Detect registration completion (navigate from auth to supporters)
+  useEffect(() => {
+    if (prevViewRef.current === 'home' && view === 'supporters') {
+      setShowRegCardWarning(true)
+    }
+    prevViewRef.current = view
+  }, [view])
 
   // Intercept hardware back button — go to dashboard instead of closing the app
   useEffect(() => {
@@ -288,6 +299,14 @@ export default function App() {
       )}
 
       <GlobalToast />
+
+      {showRegCardWarning && (
+        <CardWarningPopup
+          missedStreak={0}
+          isNewRegistration={true}
+          onDismiss={() => setShowRegCardWarning(false)}
+        />
+      )}
     </div>
   )
 }

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { registerStudent, findStudent, hashPassword, verifyPassword, stripSensitive, updateStudent } from '../store/useStore'
 import { doc, getDoc, setDoc, db } from '../firebase'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { ArrowLeft01Icon } from '@hugeicons/core-free-icons'
+import { ArrowLeft01Icon, Sun01Icon, Moon01Icon } from '@hugeicons/core-free-icons'
 import SEO from '../components/seo/SEO'
 
 const LOGIN_COOLDOWN_MS = 30000
@@ -35,6 +35,55 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
   const [showSetupConfirm, setShowSetupConfirm] = useState(false)
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [showTerms, setShowTerms] = useState(false)
+
+  const [isDark, setIsDark] = useState(() => localStorage.getItem('app_theme') !== 'light')
+
+  useEffect(() => {
+    const existing = document.getElementById('auth-dark-styles')
+    if (isDark) {
+      if (!existing) {
+        const style = document.createElement('style')
+        style.id = 'auth-dark-styles'
+        style.textContent = `
+          body.auth-dark { background: #0A0A0A !important; }
+          body.auth-dark .bg-\\[\\#F8F8F7\\] { background: #0A0A0A !important; }
+          body.auth-dark .bg-white { background-color: #161616 !important; }
+          body.auth-dark .border-\\[\\#EBEBEB\\] { border-color: #2A2A2A !important; }
+          body.auth-dark .border-\\[\\#E5E5E5\\] { border-color: #2A2A2A !important; }
+          body.auth-dark .text-\\[\\#111\\] { color: #EDEDED !important; }
+          body.auth-dark .text-\\[\\#333\\] { color: #DDD !important; }
+          body.auth-dark .text-\\[\\#555\\] { color: #AAA !important; }
+          body.auth-dark .text-\\[\\#666\\] { color: #999 !important; }
+          body.auth-dark .text-\\[\\#888\\] { color: #888 !important; }
+          body.auth-dark .text-\\[\\#AAA\\] { color: #777 !important; }
+          body.auth-dark .text-\\[\\#CCC\\] { color: #666 !important; }
+          body.auth-dark .bg-\\[\\#F3F3F2\\] { background-color: #1A1A1A !important; }
+          body.auth-dark .bg-\\[\\#FAFAF9\\] { background-color: #1A1A1A !important; }
+          body.auth-dark input { background-color: #1A1A1A !important; color: #EDEDED !important; border-color: #2A2A2A !important; }
+          body.auth-dark select { background-color: #1A1A1A !important; color: #EDEDED !important; border-color: #2A2A2A !important; }
+          body.auth-dark textarea { background-color: #1A1A1A !important; color: #EDEDED !important; border-color: #2A2A2A !important; }
+        `
+        document.head.appendChild(style)
+      }
+      document.body.classList.add('auth-dark')
+    } else {
+      document.body.classList.remove('auth-dark')
+      if (existing) existing.remove()
+    }
+    return () => {
+      document.body.classList.remove('auth-dark')
+      const s = document.getElementById('auth-dark-styles')
+      if (s) s.remove()
+    }
+  }, [isDark])
+
+  const toggleTheme = () => {
+    setIsDark((prev) => {
+      const next = !prev
+      localStorage.setItem('app_theme', next ? 'dark' : 'light')
+      return next
+    })
+  }
 
   const RATE_LIMIT_KEY = 'jamb_login_ratelimit'
   const attemptsRef = useRef(0)
@@ -266,6 +315,10 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
             <span className="text-xs font-label font-semibold">Back</span>
           </button>
           <div className="flex items-center gap-2">
+            <button onClick={toggleTheme} className="flex items-center gap-1.5 text-xs text-[#888] hover:text-[#111] transition-colors font-label">
+              <HugeiconsIcon icon={isDark ? Sun01Icon : Moon01Icon} size={14} color="currentColor" />
+              <span>{isDark ? 'Lightmode' : 'Darkmode'}</span>
+            </button>
             <div className="w-7 h-7 bg-[#111] rounded-lg flex items-center justify-center">
               <span className="text-[9px] font-bold text-white font-display leading-none">274</span>
             </div>
@@ -680,7 +733,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
           </div>
         </div>
       </div>
-    </div>
+      </div>
     </>
   )
 }

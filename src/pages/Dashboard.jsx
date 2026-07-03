@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { HeartAddIcon, Mail01Icon } from '@hugeicons/core-free-icons'
+import { HeartAddIcon, Mail01Icon, Sun01Icon, Moon01Icon } from '@hugeicons/core-free-icons'
 import {
   listenActiveWeek, listenScores, getTopics, normalizeTopic,
   getAccessStatus, getConsistencyRank, listenQuizDates, WEEKS, logEvent,
 } from '../store/useStore'
 import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED } from '../store/constants'
+import { db, doc, onSnapshot } from '../firebase'
 import { registerPushNotifications, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
 import RankToast from '../components/dashboard/RankToast'
@@ -20,6 +21,8 @@ import TopicsList from '../components/dashboard/TopicsList'
 import SubjectCard from '../components/dashboard/SubjectCard'
 import QuizCard from '../components/dashboard/QuizCard'
 import AppealOverlay from '../components/dashboard/AppealOverlay'
+import CardWarningPopup from '../components/dashboard/CardWarningPopup'
+import { notificationScheduler } from '../services/notificationSchedular'
 import { getCurrentRevisionBatch, revisionTopicKey, isRevisionCompleted } from '../lib/revisionQueue'
 
 const RANK_BADGES = {
@@ -101,12 +104,69 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const [kpDismissed, setKpDismissed] = useState(false)
   const [patchesToast, setPatchesToast] = useState(false)
 
+  const [isDark, setIsDark] = useState(() => localStorage.getItem('app_theme') !== 'light')
+
+  // Inject/remove dark mode styles
+  useEffect(() => {
+    const existing = document.getElementById('dashboard-dark-styles')
+    if (isDark) {
+      if (!existing) {
+        const style = document.createElement('style')
+        style.id = 'dashboard-dark-styles'
+        style.textContent = `
+          body.dashboard-dark { background: #0A0A0A !important; }
+          body.dashboard-dark .bg-\\[\\#F8F8F7\\] { background: #0A0A0A !important; }
+          body.dashboard-dark .bg-white { background-color: #161616 !important; }
+          body.dashboard-dark .border-\\[\\#EBEBEB\\] { border-color: #2A2A2A !important; }
+          body.dashboard-dark .border-\\[\\#E5E5E5\\] { border-color: #2A2A2A !important; }
+          body.dashboard-dark .border-\\[\\#F3F3F2\\] { border-color: #2A2A2A !important; }
+          body.dashboard-dark .text-\\[\\#111\\] { color: #EDEDED !important; }
+          body.dashboard-dark .text-\\[\\#333\\] { color: #DDD !important; }
+          body.dashboard-dark .text-\\[\\#555\\] { color: #AAA !important; }
+          body.dashboard-dark .text-\\[\\#666\\] { color: #999 !important; }
+          body.dashboard-dark .text-\\[\\#888\\] { color: #888 !important; }
+          body.dashboard-dark .text-\\[\\#AAA\\] { color: #777 !important; }
+          body.dashboard-dark .text-\\[\\#CCC\\] { color: #666 !important; }
+          body.dashboard-dark .bg-\\[\\#F3F3F2\\] { background-color: #1A1A1A !important; }
+          body.dashboard-dark .bg-\\[\\#FAFAF9\\] { background-color: #1A1A1A !important; }
+          body.dashboard-dark .bg-\\[\\#F5F5F5\\] { background-color: #1A1A1A !important; }
+          body.dashboard-dark select { background-color: #161616 !important; color: #DDD !important; border-color: #2A2A2A !important; }
+          body.dashboard-dark input { background-color: #161616 !important; color: #DDD !important; border-color: #2A2A2A !important; }
+        `
+        document.head.appendChild(style)
+      }
+      document.body.classList.add('dashboard-dark')
+    } else {
+      document.body.classList.remove('dashboard-dark')
+      if (existing) existing.remove()
+    }
+    return () => {
+      document.body.classList.remove('dashboard-dark')
+      const s = document.getElementById('dashboard-dark-styles')
+      if (s) s.remove()
+    }
+  }, [isDark])
+
+  const toggleTheme = () => {
+    setIsDark((prev) => {
+      const next = !prev
+      localStorage.setItem('app_theme', next ? 'dark' : 'light')
+      return next
+    })
+  }
 
   const missedStreak = student.missedStreak || 0
   const isSuspended = student.suspended || false
   const isRedCard = missedStreak >= CARD_RED || isSuspended
   const [showAppeal, setShowAppeal] = useState(() => isRedCard)
   const [appealResolved, setAppealResolved] = useState(false)
+  const [showCardWarning, setShowCardWarning] = useState(false)
+
+  useEffect(() => {
+    if (missedStreak > 0 && !isRedCard) {
+      setShowCardWarning(true)
+    }
+  }, [missedStreak, isRedCard])
 
   const handleAppealed = () => {
     setShowAppeal(false)
@@ -137,6 +197,13 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   }, [student])
 
   useEffect(() => {
+    if (currentWeek && student?.subjects?.length) {
+      notificationScheduler.start(currentWeek, student.subjects, scores, student.id)
+    }
+    return () => notificationScheduler.stop()
+  }, [currentWeek, student.id])
+
+  useEffect(() => {
     if (!currentWeek) return
     const unsubDates = listenQuizDates(currentWeek, (dates) => { setQuizDates(dates); setQuizTime(isQuizTime(dates)); setTimeLeft(getTimeUntilQuiz(dates)) })
     const t = setInterval(() => { setQuizDates((prev) => { const qd = prev; setQuizTime(isQuizTime(qd)); setTimeLeft(getTimeUntilQuiz(qd)); return qd }) }, 10000)
@@ -151,6 +218,16 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   }, [currentWeek])
 
   useEffect(() => { logEvent(student.id, 'page_view', { page: 'dashboard' }) }, [])
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'students', student.id), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data()
+        setStudent({ ...student, ...data })
+      }
+    }, () => {})
+    return () => unsub()
+  }, [student.id])
 
   const handleEnableNotifications = async () => {
     const sub = await registerPushNotifications()
@@ -365,7 +442,14 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
       )}
 
       {showAppeal && !appealResolved && (
-        <AppealOverlay student={student} onAppealed={handleAppealed} onPay={() => { setView('subscribe') }} />
+        <AppealOverlay student={student} onAppealed={handleAppealed} />
+      )}
+
+      {showCardWarning && (
+        <CardWarningPopup
+          missedStreak={missedStreak}
+          onDismiss={() => setShowCardWarning(false)}
+        />
       )}
 
       {showPatchesModal && (
@@ -396,8 +480,16 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               
             </div>
             <div className="flex flex-col items-end gap-2">
-              <button onClick={() => { if (setStudent) setStudent(null); setView('home') }}
-                className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0 ml-2">Log out</button>
+              <div className="flex items-center gap-1.5">
+                <button onClick={toggleTheme}
+                  className="flex items-center gap-1.5 text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-2.5 py-2 font-label transition-colors shrink-0"
+                >
+                  <HugeiconsIcon icon={isDark ? Sun01Icon : Moon01Icon} size={14} color="currentColor" />
+                  <span>{isDark ? 'Lightmode' : 'Darkmode'}</span>
+                </button>
+                <button onClick={() => { if (setStudent) setStudent(null); setView('home') }}
+                  className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0">Log out</button>
+              </div>
               <div className="flex items-center gap-1.5">
                 <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${missedStreak >= CARD_YELLOW_1 ? 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]' : 'bg-yellow-100'}`} />
                 <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${missedStreak >= CARD_YELLOW_2 ? 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]' : 'bg-yellow-100'}`} />
