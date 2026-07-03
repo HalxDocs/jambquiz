@@ -4,6 +4,7 @@ import { HeartAddIcon, Mail01Icon, Sun01Icon, Moon01Icon } from '@hugeicons/core
 import {
   listenActiveWeek, listenScores, getTopics, normalizeTopic,
   getAccessStatus, getConsistencyRank, listenQuizDates, WEEKS, logEvent,
+  getStudentScores,
 } from '../store/useStore'
 import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED } from '../store/constants'
 import { db, doc, onSnapshot } from '../firebase'
@@ -24,6 +25,7 @@ import AppealOverlay from '../components/dashboard/AppealOverlay'
 import CardWarningPopup from '../components/dashboard/CardWarningPopup'
 import { notificationScheduler } from '../services/notificationSchedular'
 import { getCurrentRevisionBatch, revisionTopicKey, isRevisionCompleted } from '../lib/revisionQueue'
+import { prefetch } from '../lib/prefetch'
 
 const RANK_BADGES = {
   gray: 'bg-[#1C1C1C] text-[#AAA] border-[#333]',
@@ -551,7 +553,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         </div>
 
         <div className="flex gap-2">
-          <button onClick={() => setView('results')} className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label">My Results</button>
+          <button onMouseEnter={() => prefetch('student-scores', () => getStudentScores(student.id))} onClick={() => setView('results')} className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label">My Results</button>
           <button onClick={() => setView('leaderboard')} className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label">🏆 Leaderboard</button>
           <button onClick={() => setView('contact')} className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label inline-flex items-center justify-center gap-1"><HugeiconsIcon icon={Mail01Icon} size={14} color="currentColor" /> Contact</button>
         </div>

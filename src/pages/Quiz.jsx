@@ -163,7 +163,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     setQuizData((prev) => ({ ...prev, [subj]: { ...prev[subj], currentQ: idx } }))
   }
 
-  const handleSubmitAll = async () => {
+  const handleSubmitAll = () => {
     if (submitting) return
     setSubmitting(true)
     clearInterval(timerRef.current)
@@ -196,39 +196,16 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       })
     }
 
-    try {
-      await Promise.all(results.map((r) => addScore(r)))
-      const cached = load('jamb_scores_cache', [])
-      const trimmed = cached.slice(-50)
-      save('jamb_scores_cache', [...trimmed, ...results])
-    } catch (e) {
-      console.error('Failed to save scores')
-      setErr('Scores saved locally but could not sync. They will be saved when your connection is restored.')
-      try {
-        const cached = load('jamb_scores_cache', [])
-        const trimmed = cached.slice(-50)
-        save('jamb_scores_cache', [...trimmed, ...results])
-      } catch {}
-    }
-
-    incrementFreeAttempts(student.id)
-    logEvent(student.id, 'quiz_completed', {
-      subjects: results.map((r) => r.subject),
-      scores: results.map((r) => r.score),
-      total: results.reduce((a, r) => a + r.score, 0),
-    })
-
+    // ── show results immediately (optimistic) ──
     if (results.length > 0) setLastScore(results[0])
     if (setRetakeData) setRetakeData(null)
     if (retakeData && results.length > 0) {
       results.forEach((r) => markRevisionCompleted(revisionTopicKey(r.subject, r.week)))
     }
-
     const total = results.reduce((a, r) => a + r.score, 0)
     const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
     setAllResults(results)
     setMedalToast({ medal, total, max: results.length * 100 })
-
     const newFreeCount = (student.freeAttemptsUsed || 0) + 1
     if (newFreeCount >= 2 && !student.subscriptionUntil && !retakeData) {
       setPaymentPrompt('show')
@@ -240,6 +217,26 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       setStep('done')
     }
     setSubmitting(false)
+
+    // ── persist to Firestore in background ──
+    Promise.all(results.map((r) => addScore(r))).then(() => {
+      const cached = load('jamb_scores_cache', [])
+      const trimmed = cached.slice(-50)
+      save('jamb_scores_cache', [...trimmed, ...results])
+    }).catch(() => {
+      console.error('Failed to save scores')
+      try {
+        const cached = load('jamb_scores_cache', [])
+        const trimmed = cached.slice(-50)
+        save('jamb_scores_cache', [...trimmed, ...results])
+      } catch {}
+    })
+    incrementFreeAttempts(student.id).catch(() => {})
+    logEvent(student.id, 'quiz_completed', {
+      subjects: results.map((r) => r.subject),
+      scores: results.map((r) => r.score),
+      total: results.reduce((a, r) => a + r.score, 0),
+    }).catch(() => {})
   }
 
   useEffect(() => { return () => clearTimeout(paymentTimerRef.current) }, [])
