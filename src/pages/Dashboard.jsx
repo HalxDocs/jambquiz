@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { HeartAddIcon, Mail01Icon, Sun01Icon, Moon01Icon } from '@hugeicons/core-free-icons'
+import { HeartAddIcon, Mail01Icon, Sun01Icon, Moon01Icon, Target01Icon } from '@hugeicons/core-free-icons'
 import {
   listenActiveWeek, listenScores, getTopics, normalizeTopic,
   getAccessStatus, getConsistencyRank, listenQuizDates, WEEKS, logEvent,
   getStudentScores,
 } from '../store/useStore'
-import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED } from '../store/constants'
+import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED, computeCardLevel } from '../store/constants'
 import { db, doc, onSnapshot } from '../firebase'
 import { registerPushNotifications, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
@@ -320,6 +320,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const currentWeekIdx = WEEKS.indexOf(currentWeek)
   const rankData = getConsistencyRank(scores)
   const weeklyMedals = WEEKS.map((week) => scores.some((s) => s.week === week) ? 'gold' : null)
+  const cardLevel = computeCardLevel(weeklyMedals)
 
   const todaySubjectsAttempted = scores.filter((s) => s.week === currentWeek && new Date(s.date).toDateString() === new Date().toDateString()).map((s) => s.subject)
   const hasAttemptedAllSubjects = student.subjects.length > 0 && student.subjects.every((sub) => todaySubjectsAttempted.includes(sub))
@@ -493,9 +494,9 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                   className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0">Log out</button>
               </div>
               <div className="flex items-center gap-1.5">
-                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${missedStreak >= CARD_YELLOW_1 ? 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]' : 'bg-yellow-100'}`} />
-                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${missedStreak >= CARD_YELLOW_2 ? 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]' : 'bg-yellow-100'}`} />
-                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${missedStreak >= CARD_RED ? 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.4)]' : 'bg-red-100'}`} />
+                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${cardLevel >= 1 ? 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]' : 'bg-yellow-100'}`} />
+                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${cardLevel >= 2 ? 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]' : 'bg-yellow-100'}`} />
+                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${cardLevel >= 3 ? 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.4)]' : 'bg-red-100'}`} />
               </div>
             </div>
           </div>
@@ -550,6 +551,27 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               {!patchesUnlocked && <p className="text-center text-[10px] text-[#CCC] font-label mt-1.5">Unlocks on June 21</p>}
             </>
           )}
+        </div>
+
+        {/* My Topics to Master */}
+        <div className="mb-4">
+          <button
+            onClick={patchesActive ? handleOpenPatchesModal : undefined}
+            className={`w-full rounded-xl py-3 px-4 text-sm font-bold transition-all font-display flex items-center justify-between ${
+              patchesActive
+                ? 'bg-white border border-[#EBEBEB] text-[#111] hover:border-[#111] active:scale-[0.99]'
+                : 'bg-[#F3F3F2] text-[#AAA] cursor-default'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <HugeiconsIcon icon={Target01Icon} size={16} color={patchesActive ? 'currentColor' : '#AAA'} />
+              My Topics to Master
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="text-xs font-bold">{weakSubjects.length}</span>
+              <span className="text-[10px]">▶️</span>
+            </span>
+          </button>
         </div>
 
         <div className="flex gap-2">

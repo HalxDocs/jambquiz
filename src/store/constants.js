@@ -30,4 +30,18 @@ const CARD_YELLOW_1 = 1
 const CARD_YELLOW_2 = 2
 const CARD_RED = 3
 
-export { SUBJECTS, WEEKS, SUBSCRIPTION_PRICE_NGN, RANK_TIERS, CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED }
+// Card level from consecutive black medal pairs (2 consecutive misses = 1 level)
+function computeCardLevel(weeklyMedals) {
+  let consecutive = 0, pairs = 0
+  for (const m of weeklyMedals) {
+    if (m === null) {
+      consecutive++
+      if (consecutive === 2) { pairs++; consecutive = 0 }
+    } else {
+      consecutive = 0
+    }
+  }
+  return Math.min(pairs, 3)
+}
+
+export { SUBJECTS, WEEKS, SUBSCRIPTION_PRICE_NGN, RANK_TIERS, CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED, computeCardLevel }
