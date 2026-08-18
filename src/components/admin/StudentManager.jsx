@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon, ArrowRight01Icon, ArrowLeft01Icon, UserAdd01Icon, UserGroupIcon } from '@hugeicons/core-free-icons'
-import { getAccessStatus, updateStudent, deleteStudent, registerStudent } from '../../store/useStore'
+import { getAccessStatus, updateStudent, registerStudent } from '../../store/useStore'
+import { functions, httpsCallable } from '../../firebase'
 import { useToastStore } from '../../store/toast'
 
 const ACCESS_OPTIONS = [
@@ -34,7 +35,7 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
   const [addLoading, setAddLoading] = useState(false)
 
   const currentYear = new Date().getFullYear()
-  const jamb_years = ['SS3', ...Array.from({ length: 10 }, (_, i) => String(currentYear + i))]
+  const jamb_years = Array.from({ length: 10 }, (_, i) => String(currentYear + i))
   const filterYears = ['all', ...jamb_years]
 
   const handleAddStudent = async () => {
@@ -63,7 +64,12 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
 
   const handleDeleteStudent = async (studentId, studentName) => {
     if (!window.confirm(`Delete "${studentName}"? This cannot be undone.`)) return
-    try { await deleteStudent(studentId); useToastStore.getState().showToast(`Deleted "${studentName}"`, 'success'); onCountChange && onCountChange() } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to delete student. They may have existing quiz data.') }
+    try {
+      const fn = httpsCallable(functions, 'adminDeleteStudent')
+      await fn({ studentId })
+      useToastStore.getState().showToast(`Deleted "${studentName}"`, 'success')
+      onCountChange && onCountChange()
+    } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to delete student.') }
   }
 
   const startEditName = (student) => {
@@ -102,7 +108,8 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
       expiry = endOfMonth(nextMonth).toISOString()
     }
     try {
-      await updateStudent(student.id, { subscriptionUntil: expiry })
+      const fn = httpsCallable(functions, 'adminGrantSubscription')
+      await fn({ studentId: student.id, expiry })
       useToastStore.getState().showToast(`${student.name} granted access until ${new Date(expiry).toLocaleDateString('en-NG')}`, 'success')
     } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to grant access. Check connection and try again.') }
     setGrantOpenFor(null)
@@ -173,7 +180,7 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
             placeholder="Password (min 4 chars)" className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111]" />
           <select value={addForm.year} onChange={(e) => setAddForm({...addForm, year: e.target.value})}
             className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white">
-            {['SS3', ...Array.from({ length: 10 }, (_, i) => String(currentYear + i))].map((y) => (
+            {Array.from({ length: 10 }, (_, i) => String(currentYear + i)).map((y) => (
               <option key={y} value={y}>{y}</option>
             ))}
           </select>

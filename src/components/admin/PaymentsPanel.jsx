@@ -71,7 +71,7 @@ export default function PaymentsPanel({ payments, loading, search, onSearch, pag
                     <p className="text-[10px] text-[#AAA] font-label mt-0.5">
                       {new Date(p.paidAt).toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       {' · '}
-                      <span className={p.method === 'paystack' ? 'text-blue-600' : 'text-[#888]'}>{p.method || 'unknown'}</span>
+                      <span className={p.method === 'bachs' ? 'text-blue-600' : 'text-[#888]'}>{p.method || 'unknown'}</span>
                     </p>
                     {p.reference && <p className="text-[9px] text-[#CCC] font-label truncate mt-0.5">{p.reference}</p>}
                   </div>

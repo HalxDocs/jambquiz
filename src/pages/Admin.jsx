@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon, Notification02Icon } from '@hugeicons/core-free-icons'
 import { db, getDoc, doc, httpsCallable, functions } from '../firebase'
-import { SUBJECTS, WEEKS, listenQuestions, getStudentsPage, getStudentsCount, getPaymentsPage, getStudentScores, getActiveWeek, getQuestionLimit, setActiveWeek } from '../store/useStore'
+import { SUBJECTS, WEEKS, listenQuestions, getStudentsPage, getStudentsCount, getPaymentsPage, getStudentScoresAdmin, getActiveWeek, getQuestionLimit, setActiveWeek } from '../store/useStore'
 import StudentManager from '../components/admin/StudentManager'
 import StatsPanel from '../components/admin/StatsPanel'
 import PaymentsPanel from '../components/admin/PaymentsPanel'
@@ -10,6 +10,7 @@ import QuestionForm from '../components/admin/QuestionForm'
 import TopicEditor from '../components/admin/TopicEditor'
 import AdminNotifications from '../components/admin/AdminNotifications'
 import AnalyticsPanel from '../components/admin/AnalyticsPanel'
+import TeachersPanel from '../components/admin/TeachersPanel'
 import { useToastStore } from '../store/toast'
 import SEO from '../components/seo/SEO'
 
@@ -141,7 +142,7 @@ export default function Admin({ setView }) {
   const loadStudentScores = async (studentId) => {
     if (studentScoreCache[studentId]) return
     try {
-      const scores = await getStudentScores(studentId)
+      const scores = await getStudentScoresAdmin(studentId)
       setStudentScoreCache(prev => ({ ...prev, [studentId]: scores }))
     } catch { console.error('Failed to load student scores') }
   }
@@ -174,6 +175,7 @@ export default function Admin({ setView }) {
   const TABS = [
     { key: 'students',  icon: UserGroupIcon,    label: 'Students' },
     { key: 'stats',     icon: Analytics01Icon,  label: 'Stats' },
+    { key: 'teachers',  icon: UserGroupIcon,    label: 'Teachers' },
     { key: 'payments',  icon: Wallet01Icon,     label: 'Payments' },
     { key: 'questions', icon: HelpCircleIcon,   label: 'Questions' },
     { key: 'topics',    icon: Book01Icon,       label: 'Topics' },
@@ -259,6 +261,7 @@ export default function Admin({ setView }) {
     ),
     notifications: <AdminNotifications />,
     usage: <AnalyticsPanel />,
+    teachers: <TeachersPanel />,
   }
 
   return (

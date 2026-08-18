@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { db, collection, getDocs, query, limit as fbLimit } from '../../firebase'
+import { db, collection, getDocs, query, orderBy, limit as fbLimit } from '../../firebase'
 
 const RANGES = [
   { key: '7d', label: '7 days' },
@@ -66,12 +66,14 @@ function summarize(events, rangeKey) {
 export default function AnalyticsPanel() {
   const [loading, setLoading] = useState(true)
   const [rawEvents, setRawEvents] = useState([])
+  const [loadError, setLoadError] = useState('')
   const [range, setRange] = useState('14d')
 
   const loadAnalytics = async () => {
     setLoading(true)
+    setLoadError('')
     try {
-      const q = query(collection(db, 'usage_logs'), fbLimit(5000))
+      const q = query(collection(db, 'usage_logs'), orderBy('timestamp', 'desc'), fbLimit(5000))
       const snap = await getDocs(q)
       const events = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       events.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
@@ -79,9 +81,11 @@ export default function AnalyticsPanel() {
     } catch (e) {
       const msg = e?.message || ''
       if (msg.includes('index')) {
-        console.error('Analytics: missing Firestore index.')
+        setLoadError('Missing Firestore index — run: firebase deploy --only firestore:indexes')
+      } else if (msg.includes('permission') || msg.includes('denied')) {
+        setLoadError('Permission denied. Only an admin can view usage analytics.')
       } else {
-        console.error('Failed to load analytics:', msg)
+        setLoadError('Failed to load analytics: ' + msg)
       }
     }
     setLoading(false)
@@ -105,10 +109,23 @@ export default function AnalyticsPanel() {
     )
   }
 
+  if (loadError) {
+    return (
+      <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
+        <p className="text-xs font-bold text-red-500 font-label">{loadError}</p>
+        <button onClick={loadAnalytics} disabled={loading}
+          className="mt-3 text-[10px] font-bold text-[#888] hover:text-[#111] font-label transition-colors">
+          {loading ? 'Retrying…' : '↻ Retry'}
+        </button>
+      </div>
+    )
+  }
+
   if (!stats) {
     return (
       <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
         <p className="text-[#CCC] text-sm font-label">No usage data yet</p>
+        <p className="text-[10px] text-[#AAA] font-label mt-1">Events appear after students browse or take quizzes.</p>
       </div>
     )
   }

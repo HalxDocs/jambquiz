@@ -14,6 +14,8 @@ export default function AdminNotifications() {
   const [smsPhone, setSmsPhone] = useState('')
   const [smsStatus, setSmsStatus] = useState(null)
   const [guardStatus, setGuardStatus] = useState(null)
+  const [debugStatus, setDebugStatus] = useState(null)
+  const [debugData, setDebugData] = useState(null)
 
   const adminName = 'Admin'
 
@@ -75,6 +77,20 @@ export default function AdminNotifications() {
       setGuardStatus('Error: ' + (err.message || 'Unknown'))
     }
     setTimeout(() => setGuardStatus(null), 5000)
+  }
+
+  const handleDebugSms = async () => {
+    setDebugStatus('Diagnosing...')
+    setDebugData(null)
+    try {
+      const fn = httpsCallable(functions, 'debugSmsState')
+      const result = await fn()
+      setDebugData(JSON.stringify(result.data, null, 2))
+    } catch (err) {
+      setDebugStatus('Error: ' + (err.message || 'Unknown'))
+      setDebugData(null)
+    }
+    setTimeout(() => setDebugStatus(null), 5000)
   }
 
   const handleTestNotification = () => {
@@ -210,6 +226,17 @@ export default function AdminNotifications() {
         >
           {guardStatus || 'Clear SMS Guard Docs'}
         </button>
+        <button
+          onClick={handleDebugSms}
+          className="w-full bg-slate-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-slate-700 active:scale-[0.99] transition-all font-display mt-2"
+        >
+          {debugStatus && debugStatus.startsWith('Diagnosing') ? 'Diagnosing...' : 'Diagnose SMS'}
+        </button>
+        {debugData && (
+          <pre className="mt-3 bg-[#F5F5F5] border border-[#E5E5E5] rounded-xl p-3 text-[10px] font-label text-[#555] max-h-64 overflow-auto whitespace-pre-wrap">
+            {debugData}
+          </pre>
+        )}
       </div>
 
       <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
@@ -229,7 +256,7 @@ export default function AdminNotifications() {
             {
               emoji: '3️⃣',
               title: 'Patches Mode',
-              desc: 'When users activate Patches on Feb 14, notifications switch to only show key points from subjects where they scored below 50%. Laser-focused on weak areas.',
+              desc: 'When users activate Patches, notifications switch to only show key points from subjects where they scored below 50%. Laser-focused on weak areas.',
             },
             {
               emoji: '4️⃣',
