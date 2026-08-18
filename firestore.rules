@@ -3,152 +3,143 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ─── STUDENTS ───
-    // Public read for login lookup.
-    // Create: anyone can register (no PII abuse possible - just a name/password).
-    // Update: only safe fields (nickname, email, phones, subjects, password via reset).
-    //          Server-side fields (subscriptionUntil, freeAttemptsUsed, role) are protected.
-    // Delete: allowed for admin client (the admin app is the only UI that exposes this).
+    // Identity is Firebase Auth. The students doc stores `uid` (the Firebase UID).
+    // Read:  owner or admin.
+    // Create: owner (self-registration, uid must equal caller) or admin (who can
+    //         create accounts for others). Privileged fields are never client-writable.
+    // Update: owner (profile fields only) or admin (anything except `password`).
+    // Delete: admin only.
     match /students/{studentId} {
-      allow read: if true;
+      allow read: if request.auth.uid == resource.data.uid
+                  || request.auth.token.admin == true;
 
-      allow create: if request.resource.data.name is string
-                    && request.resource.data.name.size() >= 3
-                    && request.resource.data.name.size() <= 50
-                    && request.resource.data.password is string
-                    && request.resource.data.password.size() >= 4
-                    && request.resource.data.password.size() <= 200
-                    && (!('subscriptionUntil' in request.resource.data)
-                        || request.resource.data.subscriptionUntil == null
-                        || (request.resource.data.subscriptionUntil is string
-                            && request.resource.data.subscriptionUntil.size() <= 50))
-                    && (!('freeAttemptsUsed' in request.resource.data)
-                        || (request.resource.data.freeAttemptsUsed is int
-                            && request.resource.data.freeAttemptsUsed >= 0
-                            && request.resource.data.freeAttemptsUsed <= 1000))
-                    && (!('role' in request.resource.data) || request.resource.data.role == 'student');
-
-      allow update: if request.resource.data.diff(resource.data).affectedKeys()
-                      .hasOnly(['nickname', 'nicknameLower', 'email', 'parentPhone', 'teacherPhone',
-                                'subjects', 'password', 'name', 'nameLower',
-                                'subscriptionUntil', 'freeAttemptsUsed'])
+      allow create: if (request.auth.token.admin == true
+                        || request.auth.uid == request.resource.data.uid)
+                    && request.resource.data.uid is string
+                    && (request.auth.token.admin == true
+                        || request.auth.uid == request.resource.data.uid)
                     && request.resource.data.name is string
                     && request.resource.data.name.size() >= 3
                     && request.resource.data.name.size() <= 50
-                    && request.resource.data.password is string
-                    && request.resource.data.password.size() >= 4
-                    && request.resource.data.password.size() <= 200
+                    && !('password' in request.resource.data)
                     && (!('subscriptionUntil' in request.resource.data)
-                        || request.resource.data.subscriptionUntil == null
-                        || (request.resource.data.subscriptionUntil is string
-                            && request.resource.data.subscriptionUntil.size() <= 50))
+                        || request.resource.data.subscriptionUntil == null)
                     && (!('freeAttemptsUsed' in request.resource.data)
-                        || (request.resource.data.freeAttemptsUsed is int
-                            && request.resource.data.freeAttemptsUsed >= 0
-                            && request.resource.data.freeAttemptsUsed <= 1000))
-                    && (!('role' in request.resource.data) || request.resource.data.role == resource.data.role);
+                        || request.resource.data.freeAttemptsUsed == 0)
+                    && (!('suspended' in request.resource.data) || request.resource.data.suspended == false)
+                    && (!('missedStreak' in request.resource.data) || request.resource.data.missedStreak == 0)
+                    && (!('role' in request.resource.data) || request.resource.data.role == 'student');
 
-      allow delete: if true;
+      allow update: if (request.auth.uid == resource.data.uid
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                             .hasOnly(['nickname', 'nicknameLower', 'email', 'parentPhone',
+                                       'phone', 'teacherPhone', 'subjects', 'name', 'nameLower',
+                                       'nameLowerWords', 'freeAttemptsUsed', 'recoveryAttempts',
+                                       'lastRecoveryAttempt'])
+                        && (!('freeAttemptsUsed' in request.resource.data)
+                            || request.resource.data.freeAttemptsUsed == resource.data.freeAttemptsUsed + 1)
+                        && (!('role' in request.resource.data) || request.resource.data.role == resource.data.role))
+                      || (request.auth.token.admin == true
+                          && !('password' in request.resource.data));
+
+      allow delete: if request.auth.token.admin == true;
+    }
+
+    // ─── LEGACY AUTH (leftover password hashes) ───
+    // No longer used. Locked down completely; migration copies UIDs to students.
+    match /student_auth/{authId} {
+      allow read, write: if false;
     }
 
     // ─── SCORES ───
-    // Public read for leaderboards.
-    // Create: client submits on quiz completion. Must include studentId, score, subject, week, correct, wrong, unanswered, outOf, questions array.
-    // Update/Delete: blocked (immutable score history).
+    // Aggregates are public (leaderboards). Grading is done server-side, so the
+    // `submitQuiz` cloud function (Admin SDK) is the ONLY writer. No client writes.
     match /scores/{scoreId} {
       allow read: if true;
+      allow write: if false;
+    }
 
-      allow create: if request.resource.data.studentId is string
-                    && request.resource.data.studentId.size() > 0
+    // ─── SCORE DETAILS (answer key + student's chosen answers) ───
+    // Sensitive: readable only by the owner or an admin. Written only by the
+    // server (Admin SDK bypasses rules); never by a client.
+    match /scoreDetails/{detailId} {
+      allow read: if request.auth.uid == resource.data.uid
+                  || request.auth.token.admin == true;
+      allow write: if false;
+    }
+
+    // ─── QUESTIONS ───
+    // Public read (quiz) — but the correct answer is NOT stored here; it lives in
+    // `questionAnswers` (admin/function only). Writes are admin-only and the
+    // `answer` field is forbidden on the public doc.
+    match /questions/{questionId} {
+      allow read: if true;
+
+      allow create, update: if request.auth.token.admin == true
                     && request.resource.data.subject is string
                     && request.resource.data.subject.size() > 0
                     && request.resource.data.subject.size() <= 50
                     && request.resource.data.week is string
                     && request.resource.data.week.size() > 0
-                    && request.resource.data.score is number
-                    && request.resource.data.score >= 0
-                    && request.resource.data.score <= 400
-                    && request.resource.data.outOf is number
-                    && request.resource.data.outOf >= 1
-                    && request.resource.data.outOf <= 400
-                    && request.resource.data.date is string
-                    && request.resource.data.date.size() > 0
-                    && request.resource.data.correct is number
-                    && request.resource.data.correct >= 0
-                    && request.resource.data.wrong is number
-                    && request.resource.data.wrong >= 0
-                    && request.resource.data.unanswered is number
-                    && request.resource.data.unanswered >= 0
-                    && request.resource.data.answers is list
-                    && request.resource.data.answers.size() <= 100;
+                    && request.resource.data.question is string
+                    && request.resource.data.question.size() <= 2000
+                    && request.resource.data.options is list
+                    && request.resource.data.options.size() == 4
+                    && !('answer' in request.resource.data);
 
-      allow update, delete: if false;
+      allow delete: if request.auth.token.admin == true;
     }
 
-    // ─── QUESTIONS ───
-    // Public read+write (admin manages from client by app design).
-    match /questions/{questionId} {
-      allow read: if true;
-
-      allow create: if request.resource.data.subject is string
-                    && request.resource.data.subject.size() > 0
-                    && request.resource.data.subject.size() <= 50
-                    && request.resource.data.week is string
-                    && request.resource.data.week.size() > 0
-                    && request.resource.data.question is string
-                    && request.resource.data.question.size() <= 2000
-                    && request.resource.data.options is list
-                    && request.resource.data.options.size() == 4
-                    && request.resource.data.answer is number
+    // ─── QUESTION ANSWERS (the answer key) ───
+    // The correct answer for each question, kept out of the public `questions`
+    // docs. Admin may write (via the editor). NO ONE may read from the client —
+    // grading happens server-side (Admin SDK bypasses rules).
+    match /questionAnswers/{questionId} {
+      allow read: if request.auth.token.admin == true;
+      allow create, update: if request.auth.token.admin == true
+                    && request.resource.data.answer is int
                     && request.resource.data.answer >= 0
                     && request.resource.data.answer <= 3;
-
-      allow update: if request.resource.data.subject is string
-                    && request.resource.data.subject.size() > 0
-                    && request.resource.data.subject.size() <= 50
-                    && request.resource.data.week is string
-                    && request.resource.data.week.size() > 0
-                    && request.resource.data.question is string
-                    && request.resource.data.question.size() <= 2000
-                    && request.resource.data.options is list
-                    && request.resource.data.options.size() == 4
-                    && request.resource.data.answer is number
-                    && request.resource.data.answer >= 0
-                    && request.resource.data.answer <= 3;
-
-      allow delete: if true;
+      allow delete: if request.auth.token.admin == true;
     }
 
     // ─── TOPICS ───
-    // Public read+write (admin manages from client). Doc ID is the week label (sanitized).
-    // Each value is a map of subjects → { name, video, keyPoints[10] }.
+    // Public read. Admin writes.
     match /topics/{topicId} {
       allow read: if true;
 
-      allow create, update: if request.resource.data.week is string
-                            && request.resource.data.week.size() > 0
-                            && request.resource.data.week.size() <= 50
-                            && request.resource.data.topics is map
-                            && request.resource.data.topics.size() <= 11
-                            && request.resource.data.updatedAt is string;
-      allow delete: if true;
+      allow create, update: if request.auth.token.admin == true
+                    && request.resource.data.week is string
+                    && request.resource.data.week.size() > 0
+                    && request.resource.data.week.size() <= 50
+                    && request.resource.data.topics is map
+                    && request.resource.data.topics.size() <= 11
+                    && request.resource.data.updatedAt is string;
+
+      allow delete: if request.auth.token.admin == true;
     }
 
     // ─── SETTINGS ───
-    // Public read. Writes allowed for known admin client doc IDs (activeWeek, quizDates_Week_*).
+    // Public read. Admin writes (activeWeek, quizDates_*).
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if settingId == 'activeWeek'
-                   || settingId.matches('quizDates_.*')
-                   || settingId.matches('quizDatesWeek_.*');
+      allow create, update: if request.auth.token.admin == true
+                    && (settingId == 'activeWeek'
+                        || settingId.matches('quizDates_.*')
+                        || settingId.matches('quizDatesWeek_.*'));
+      allow delete: if request.auth.token.admin == true;
     }
 
     // ─── PAYMENTS ───
-    // No public read. Client creates payment record on checkout.
-    // Update/Delete blocked (immutable).
+    // Owners (or admin) can read their own payments. Created by the verified
+    // server function (Admin SDK bypasses rules) or by an admin.
     match /payments/{paymentId} {
-      allow read: if false;
-      allow create: if request.resource.data.studentId is string
+      allow read: if request.auth.uid == resource.data.uid
+                  || request.auth.token.admin == true;
+      allow create: if request.auth.token.admin == true
+                    && request.resource.data.studentId is string
                     && request.resource.data.studentId.size() > 0
+                    && request.resource.data.uid is string
                     && request.resource.data.amount is number
                     && request.resource.data.amount > 0
                     && request.resource.data.amount <= 1000000;
@@ -156,63 +147,117 @@ service cloud.firestore {
     }
 
     // ─── PUSH SUBSCRIPTIONS ───
-    // Public write for device registration. Block read (privacy).
+    // Keyed by studentId. Only the owner of that student doc may write.
     match /push_subscriptions/{studentId} {
       allow read: if false;
-      allow write: if request.resource.data.endpoint is string
-                   && request.resource.data.endpoint.size() > 0
-                   && request.resource.data.keys is map
-                   && request.resource.data.keys.p256dh is string
-                   && request.resource.data.keys.auth is string;
+      allow create, update: if request.auth.uid == get(/databases/$(database)/documents/students/$(studentId)).data.uid
+                    && request.resource.data.endpoint is string
+                    && request.resource.data.endpoint.size() > 0
+                    && request.resource.data.keys is map
+                    && request.resource.data.keys.p256dh is string
+                    && request.resource.data.keys.auth is string;
+      allow delete: if false;
     }
 
     // ─── NOTIFICATION STATE ───
-    // Public write for user state. Block read (privacy).
+    // Keyed by studentId. Only the owner may write.
     match /notification_state/{studentId} {
       allow read: if false;
-      allow write: if request.resource.data.size() <= 20;
+      allow create, update: if request.auth.uid == get(/databases/$(database)/documents/students/$(studentId)).data.uid
+                    && request.resource.data.size() <= 20;
+      allow delete: if false;
     }
 
     // ─── ADMIN STATS ───
-    // Public read (for admin panel). Writes locked to cloud function.
+    // Admin-only read. Written by server function.
     match /admin_stats/{docId} {
-      allow read: if true;
+      allow read: if request.auth.token.admin == true;
       allow write: if false;
     }
 
     // ─── ADMIN SETTINGS ───
-    // Public read for notifications toggle UI. Writes allowed only for known admin client doc IDs.
+    // `notifications` readable publicly (UI toggle). ALL writes are admin-only —
+    // a public write here could flip the global push/SMS toggle (P0-5).
     match /admin_settings/{docId} {
-      allow read: if docId == 'notifications' || docId == 'admin_auth';
-      allow write: if docId == 'notifications' || docId == 'admin_auth';
+      allow read: if docId == 'notifications' || request.auth.token.admin == true;
+      allow create, update, delete: if request.auth.token.admin == true;
+    }
+
+    // ─── STUDENT PROFILES (friend-search) ───
+    // Public read so the leaderboard's friend-search can query by name/nickname.
+    // Only a safe subset of fields is stored — never uid/password/subscription
+    // state/suspended/role. Written by the cloud function (Admin SDK) and by the
+    // owner via the server `syncStudentProfile` endpoint (or self-service write
+    // guarded to the safe fields only).
+    match /student_profiles/{studentId} {
+      allow read: if true;
+      allow create, update: if (request.auth.token.admin == true
+                              || request.auth.uid == get(/databases/$(database)/documents/students/$(studentId)).data.uid)
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() >= 3
+                    && request.resource.data.name.size() <= 50
+                    && request.resource.data.nickname is string
+                    && request.resource.data.nickname.size() <= 30
+                    && request.resource.data.nameLowerWords is list
+                    && request.resource.data.nameLowerWords.size() <= 20
+                    && request.resource.data.nicknameLower is string
+                    && request.resource.data.nicknameLower.size() <= 30
+                    && (request.resource.data.year is string
+                        || (request.resource.data.year is int
+                            && request.resource.data.year >= 2020
+                            && request.resource.data.year <= 2035))
+                    && !('uid' in request.resource.data
+                        || 'password' in request.resource.data
+                        || 'subscriptionUntil' in request.resource.data
+                        || 'suspended' in request.resource.data
+                        || 'role' in request.resource.data);
+      allow delete: if request.auth.token.admin == true;
     }
 
     // ─── QUESTION LIMITS ───
-    // Public read+write for admin client. Doc ID format: "<subject>__<week>".
+    // Public read. Admin writes.
     match /question_limits/{docId} {
       allow read: if true;
-      allow create, update: if request.resource.data.subject is string
-                            && request.resource.data.subject.size() > 0
-                            && request.resource.data.subject.size() <= 50
-                            && request.resource.data.week is string
-                            && request.resource.data.week.size() > 0
-                            && request.resource.data.week.size() <= 50
-                            && request.resource.data.limit is int
-                            && request.resource.data.limit >= 1
-                            && request.resource.data.limit <= 200;
-      allow delete: if true;
+      allow create, update: if request.auth.token.admin == true
+                    && request.resource.data.subject is string
+                    && request.resource.data.subject.size() > 0
+                    && request.resource.data.subject.size() <= 50
+                    && request.resource.data.week is string
+                    && request.resource.data.week.size() > 0
+                    && request.resource.data.week.size() <= 50
+                    && request.resource.data.limit is int
+                    && request.resource.data.limit >= 1
+                    && request.resource.data.limit <= 200;
+      allow delete: if request.auth.token.admin == true;
     }
 
     // ─── ADMIN BROADCASTS ───
-    // Public read for in-app display. Create allowed (admin client). Update/delete blocked.
+    // Public read. Admin creates.
     match /admin_broadcasts/{broadcastId} {
       allow read: if true;
-      allow create: if request.resource.data.title is string
+      allow create: if request.auth.token.admin == true
+                    && request.resource.data.title is string
                     && request.resource.data.title.size() <= 100
                     && request.resource.data.message is string
                     && request.resource.data.message.size() <= 500
                     && request.resource.data.target is string;
       allow update, delete: if false;
+    }
+
+    // ─── TEACHERS ───
+    // Teacher identity is Firebase Auth. Registration (with SMS OTP) is handled
+    // server-side (Admin SDK bypasses these rules). A teacher reads only their
+    // own doc; admins read all. No client writes.
+    match /teachers/{teacherId} {
+      allow read: if request.auth.token.admin == true
+                  || request.auth.uid == resource.data.uid;
+      allow create, update, delete: if false;
+    }
+
+    // ─── TEACHER OTP CODES ───
+    // Server-only: issued and consumed inside the cloud functions.
+    match /teacher_otps/{phone} {
+      allow read, write: if false;
     }
 
     // ─── LEADERBOARD (aggregated) ───
@@ -229,10 +274,13 @@ service cloud.firestore {
     }
 
     // ─── USAGE LOGS ───
-    // Public read (for admin analytics panel). Client creates events. Update/delete blocked.
+    // Admin read. Any signed-in student may log lightweight analytics events
+    // (covers students whose docs predate the uid migration). Payload shape is
+    // validated so the collection stays small and well-formed.
     match /usage_logs/{logId} {
-      allow read: if true;
-      allow create: if request.resource.data.studentId is string
+      allow read: if request.auth.token.admin == true;
+      allow create: if request.auth != null
+                    && request.resource.data.studentId is string
                     && request.resource.data.studentId.size() > 0
                     && request.resource.data.eventType is string
                     && request.resource.data.eventType.size() > 0

@@ -1,0 +1,53 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "subject", "order": "ASCENDING" },
+        { "fieldPath": "week", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "students",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "year", "order": "ASCENDING" },
+        { "fieldPath": "nameLower", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "studentName", "order": "ASCENDING" },
+        { "fieldPath": "paidAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "scores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "week", "order": "ASCENDING" },
+        { "fieldPath": "score", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "scores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "studentId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "leaderboard_week_ranks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "week", "order": "ASCENDING" },
+        { "fieldPath": "total", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
