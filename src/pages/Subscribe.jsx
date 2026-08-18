@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react'
-import { addPayment, extendSubscription, listenPayments, getAccessStatus, SUBSCRIPTION_PRICE_NGN, findStudent, updateStudent, logEvent } from '../store/useStore'
-
-const PAYSTACK_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ''
+import { useState, useEffect, useRef } from 'react'
+import { functions, httpsCallable } from '../firebase'
+import { listenPayments, getAccessStatus, SUBSCRIPTION_PRICE_NGN, getStudentById, updateStudent, logEvent } from '../store/useStore'
 
 import SEO from '../components/seo/SEO'
 
@@ -11,6 +10,14 @@ export default function Subscribe({ student, setStudent, setView }) {
   const [success, setSuccess] = useState('')
   const [history, setHistory] = useState([])
   const [email, setEmail] = useState(student.email || '')
+  const bachsInit = useRef(false)
+
+  useEffect(() => {
+    if (typeof window.Bachs !== 'undefined' && !bachsInit.current) {
+      window.Bachs.Initialize({ onEvent: () => {} })
+      bachsInit.current = true
+    }
+  }, [])
 
   useEffect(() => { logEvent(student.id, 'page_view', { page: 'subscribe' }) }, [])
 
@@ -24,22 +31,19 @@ export default function Subscribe({ student, setStudent, setView }) {
   const status = getAccessStatus(student)
 
   const refreshStudent = async () => {
-    const fresh = await findStudent(student.name)
+    const fresh = await getStudentById(student.id)
     if (fresh) setStudent(fresh)
   }
 
   const handlePay = async () => {
-    if (!PAYSTACK_KEY) {
-      setErr('Online payment not configured. Please contact admin to record a manual payment.')
-      return
-    }
-    if (typeof window.PaystackPop === 'undefined') {
-      setErr('Payment library not loaded. Refresh and try again.')
-      return
-    }
     const cleanEmail = email.trim().toLowerCase()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       setErr('Enter a valid email address for your receipt')
+      return
+    }
+
+    if (typeof window.Bachs === 'undefined') {
+      setErr('Payment library not loaded. Refresh and try again.')
       return
     }
 
@@ -47,55 +51,43 @@ export default function Subscribe({ student, setStudent, setView }) {
     setErr('')
     setSuccess('')
 
-    // Persist the email on the student record so we don't ask again
     if (cleanEmail !== student.email) {
       try { await updateStudent(student.id, { email: cleanEmail }) } catch { /* non-fatal */ }
     }
 
-    const handler = window.PaystackPop.setup({
-      key: PAYSTACK_KEY,
-      email: cleanEmail,
-      amount: SUBSCRIPTION_PRICE_NGN * 100, // kobo
-      currency: 'NGN',
-      ref: `274LAB-${student.id}-${Date.now()}`,
-      metadata: {
-        studentId: student.id,
-        studentName: student.name,
-        custom_fields: [
-          { display_name: 'Student Name', variable_name: 'student_name', value: student.name },
-          { display_name: 'JAMB Year', variable_name: 'jamb_year', value: student.year || 'N/A' },
-        ],
-      },
-      callback: (response) => {
-        // Paystack callback runs in the inline iframe context; use Promise + setTimeout(0)
-        setTimeout(async () => {
-          try {
-            const newExpiry = await extendSubscription(student.id, 1)
-            await addPayment({
-              studentId: student.id,
-              studentName: student.name,
-              email: cleanEmail,
-              amount: SUBSCRIPTION_PRICE_NGN,
-              currency: 'NGN',
-              method: 'paystack',
-              reference: response.reference,
-              paidAt: new Date().toISOString(),
-              extendsTo: newExpiry,
-            })
-            setSuccess('Payment received — access extended by 1 month!')
-            await refreshStudent()
-          } catch (e) {
-            console.error(e)
-            setErr('Payment received but failed to update. Contact admin with reference: ' + response.reference)
+    try {
+      const fn = httpsCallable(functions, 'createBachsCheckout')
+      const result = await fn({ studentId: student.id, type: 'subscription' })
+      const { checkout_url, checkout_id } = result.data
+
+      window.Bachs.Checkout.open({
+        checkoutUrl: checkout_url,
+        onEvent: async (event) => {
+          if (event.type === 'checkout.completed') {
+            try {
+              const verifyFn = httpsCallable(functions, 'completeBachsCheckout')
+              await verifyFn({ checkoutId: checkout_id })
+              setSuccess('Payment received — access extended by 1 month!')
+              await refreshStudent()
+            } catch (e) {
+              console.error(e)
+              setErr('Payment received but failed to verify. Contact admin with checkout ID: ' + checkout_id)
+            }
+            setPaying(false)
           }
-          setPaying(false)
-        }, 0)
-      },
-      onClose: () => {
-        setPaying(false)
-      },
-    })
-    handler.openIframe()
+          if (event.type === 'checkout.failed' || event.type === 'checkout.expired') {
+            setErr('Payment was not completed. Please try again.')
+            setPaying(false)
+          }
+          if (event.type === 'checkout.closed') {
+            setPaying(false)
+          }
+        },
+      })
+    } catch (e) {
+      setErr(e?.message || 'Failed to start payment. Please try again.')
+      setPaying(false)
+    }
   }
 
   const statusBadge = {
@@ -199,7 +191,7 @@ export default function Subscribe({ student, setStudent, setView }) {
           </button>
 
           <p className="text-[10px] text-[#AAA] text-center mt-3 font-label">
-            Secured by Paystack · 2 free quizzes on signup
+            Secured by Bachs · 2 free quizzes on signup
           </p>
         </div>
 

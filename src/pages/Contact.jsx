@@ -39,7 +39,7 @@ export default function Contact({ student, setView }) {
           </button>
           <h2 className="text-lg sm:text-xl font-bold text-[#111] font-display">Contact / Feature Request</h2>
           <p className="text-xs text-[#888] font-label mt-1">
-            Have a suggestion or found a bug? Send us a message.
+            Let us tailor 274Lab for you. Send us a message.
           </p>
         </div>
 

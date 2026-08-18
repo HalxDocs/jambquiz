@@ -1,4 +1,4 @@
-import { db, collection, addDoc, getDocs, doc, updateDoc, getDoc, runTransaction, onSnapshot, query, where, orderBy, limit, startAfter } from '../firebase'
+import { db, auth, collection, addDoc, getDocs, doc, onSnapshot, query, where, orderBy, limit, startAfter } from '../firebase'
 
 async function addPayment(payment) {
   await addDoc(collection(db, 'payments'), {
@@ -8,32 +8,14 @@ async function addPayment(payment) {
 }
 
 function listenPayments(callback) {
-  return onSnapshot(collection(db, 'payments'), (snapshot) => {
+  const uid = auth.currentUser && auth.currentUser.uid
+  const q = uid
+    ? query(collection(db, 'payments'), where('uid', '==', uid), orderBy('paidAt', 'desc'))
+    : collection(db, 'payments')
+  return onSnapshot(q, (snapshot) => {
     const payments = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
     callback(payments)
   })
-}
-
-async function extendSubscription(studentId, months = 1) {
-  const ref = doc(db, 'students', studentId)
-  try {
-    const iso = await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(ref)
-      if (!snap.exists()) return null
-      const data = snap.data()
-      const now = Date.now()
-      const current = data.subscriptionUntil ? new Date(data.subscriptionUntil).getTime() : 0
-      const anchor = Math.max(now, current)
-      const next = new Date(anchor)
-      next.setMonth(next.getMonth() + months)
-      const iso = next.toISOString()
-      transaction.update(ref, { subscriptionUntil: iso })
-      return iso
-    })
-    return iso
-  } catch {
-    return null
-  }
 }
 
 async function getPaymentsPage(search, cursorDoc, pageSize = 20) {
@@ -55,4 +37,4 @@ async function getPaymentsPage(search, cursorDoc, pageSize = 20) {
   }
 }
 
-export { addPayment, listenPayments, extendSubscription, getPaymentsPage }
+export { addPayment, listenPayments, getPaymentsPage }

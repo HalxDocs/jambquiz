@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { updateStudent } from '../store/useStore'
 import { functions, httpsCallable } from '../firebase'
 
 import SEO from '../components/seo/SEO'
@@ -7,35 +6,44 @@ import SEO from '../components/seo/SEO'
 export default function Supporters({ student, setStudent, setView }) {
   const [parentPhone, setParentPhone] = useState('')
   const [teacherPhone, setTeacherPhone] = useState('')
+  const [myPhone, setMyPhone] = useState('')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
 
   const handleSave = async () => {
     const p = parentPhone.trim()
     const t = teacherPhone.trim()
-    if (!p && !t) { setErr('Enter at least one phone number'); return }
+    const m = myPhone.trim()
+    if (!p && !t && !m) { setErr('Enter at least one phone number'); return }
     if (p && p.length < 7) { setErr('Enter a valid phone number'); return }
     if (t && t.length < 7) { setErr('Enter a valid phone number'); return }
+    if (m && m.length < 7) { setErr('Enter a valid phone number'); return }
     setLoading(true); setErr('')
     try {
       const updates = {}
       const phones = []
-      if (p) { const full = `+234${p}`; updates.parentPhone = full; phones.push(full) }
-      if (t) { const full = `+234${t}`; updates.teacherPhone = full; phones.push(full) }
-      await updateStudent(student.id, updates)
+      if (m) { const cleaned = m.replace(/^0+/, ''); const full = `+234${cleaned}`; updates.phone = full }
+      if (p) { const cleaned = p.replace(/^0+/, ''); const full = `+234${cleaned}`; updates.parentPhone = full; phones.push(full) }
+      if (t) { const cleaned = t.replace(/^0+/, ''); const full = `+234${cleaned}`; updates.teacherPhone = full; phones.push(full) }
+      const fn = httpsCallable(functions, 'updateStudentProfile')
+      await fn({ studentId: student.id, ...updates })
       setStudent({ ...student, ...updates })
 
-      // Send accountability intro SMS with recovery code
+      // Send the intro SMS in the background so it never blocks the user —
+      // poor/invalid recipient numbers shouldn't stall the signup flow.
       try {
-        const fn = httpsCallable(functions, 'sendAccountabilityIntro')
-        await fn({ studentId: student.id, phones })
+        const fn2 = httpsCallable(functions, 'sendAccountabilityIntro')
+        fn2({ studentId: student.id, phones }).catch((e) => {
+          console.error('[Supporters] Background intro SMS failed:', e?.message || e)
+        })
       } catch (e) {
         console.error('[Supporters] Failed to send intro SMS:', e?.message || e)
       }
 
       setView('subjects')
-    } catch {
-      setErr('Failed to save. Check your connection.')
+    } catch (e) {
+      console.error('[Supporters] handleSave error:', e)
+      setErr(e?.message || 'Failed to save. Check your connection.')
     }
     setLoading(false)
   }
@@ -75,6 +83,22 @@ export default function Supporters({ student, setStudent, setView }) {
 
         {/* Inputs */}
         <div className="space-y-3.5 mb-4">
+          <div>
+            <label className="text-[11px] font-bold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+              YOUR PHONE <span className="text-[#CCC] normal-case tracking-normal">(so your teacher can add you)</span>
+            </label>
+            <div className="flex border border-[#E5E5E5] rounded-xl overflow-hidden focus-within:border-[#111] transition-colors bg-white">
+              <span className="px-3 py-3 text-sm font-semibold text-[#555] bg-[#F8F8F7] border-r border-[#E5E5E5] select-none font-label">+234</span>
+              <input
+                type="tel"
+                value={myPhone}
+                onChange={(e) => { setMyPhone(e.target.value.replace(/^\+?234/, '')); setErr('') }}
+                placeholder="803 000 0000"
+                className="flex-1 px-3 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none bg-white"
+              />
+            </div>
+          </div>
+
           <div>
             <label className="text-[11px] font-bold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
               PARENT / GUARDIAN / SIBLING PHONE
