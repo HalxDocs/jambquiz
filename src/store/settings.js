@@ -7,7 +7,7 @@ function quizDatesDocId(week) {
 
 async function setActiveWeek(week) {
   const value = String(week || 'Week 1').slice(0, 50)
-  await setDoc(doc(db, 'settings', activeWeekDocId()), { key: 'activeWeek', value, updatedAt: new Date().toISOString() })
+  await setDoc(doc(db, 'settings', activeWeekDocId()), { key: 'activeWeek', value, updatedAt: new Date().toISOString(), source: 'manual' })
 }
 
 async function getActiveWeek() {

@@ -2,14 +2,15 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
-  BookOpen01Icon, ChartLineData01Icon, Notification01Icon,
-  RankingIcon, CreditCardIcon,
-  Clock01Icon, Target01Icon, ArrowRight01Icon,
-  MedalFirstPlaceIcon, StarIcon, CheckmarkCircle02Icon,
-  PlayCircleIcon, Rocket01Icon,
+  BookOpen01Icon, Notification01Icon, RankingIcon,
+  Target01Icon, ArrowRight01Icon,
+  StarIcon, CheckmarkCircle02Icon,
+  Rocket01Icon,
   Mail01Icon, HeartAddIcon,
 } from '@hugeicons/core-free-icons'
 import SEO from '../components/seo/SEO'
+
+const PORTAL_STATS_URL = 'https://getportalstats-w7cojpp2aq-uc.a.run.app'
 
 const ORG_JSONLD = {
   "@context": "https://schema.org",
@@ -17,6 +18,55 @@ const ORG_JSONLD = {
   "name": "274Lab",
   "description": "JAMB Weekly Quiz and revision platform. 274 days to identify weaknesses and ace JAMB.",
   "url": "https://fitness-gym-fc040.web.app",
+}
+
+/* ───────────────────────────────────────────────
+   Real Portal Stats (live, from getPortalStats)
+   ─────────────────────────────────────────────── */
+function usePortalStats() {
+  const [stats, setStats] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    fetch(PORTAL_STATS_URL)
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setStats(d && d.stats) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+  return stats
+}
+
+function PortalStats() {
+  const stats = usePortalStats()
+
+  const items = stats
+    ? [
+        { val: String(stats.totalStudents || 0), lab: 'Students' },
+        { val: String(stats.totalQuizzesTaken || 0), lab: 'Tests Taken' },
+        { val: `${stats.averageScorePct ?? 0}%`, lab: 'Avg Score' },
+      ]
+    : [
+        { val: '—', lab: 'Students' },
+        { val: '—', lab: 'Tests Taken' },
+        { val: '—', lab: 'Avg Score' },
+      ]
+
+  return items.map((s) => (
+    <div key={s.lab} className="text-center">
+      <p className="text-lg sm:text-xl font-bold text-white font-display">{s.val}</p>
+      <p className="text-[10px] text-neutral-500 font-label mt-0.5">{s.lab}</p>
+    </div>
+  ))
+}
+
+/* ───────────────────────────────────────────────
+   Live Week Badge (real active week)
+   ─────────────────────────────────────────────── */
+function LiveWeekBadge() {
+  const stats = usePortalStats()
+
+  if (stats?.activeWeek) return `Week ${stats.activeWeek.replace(/^Week\s+/i, '')} is live — Friday & Saturday 5PM`
+  return 'Live — Friday & Saturday 5PM'
 }
 
 /* ───────────────────────────────────────────────
@@ -262,7 +312,7 @@ function SectionHeading({ label, title, subtitle }) {
 /* ───────────────────────────────────────────────
    Main Home Component
    ─────────────────────────────────────────────── */
-export default function Home({ setView, setHomeMode }) {
+export default function Home({ setView, setHomeMode, setHomeTab }) {
   const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {
@@ -314,7 +364,7 @@ export default function Home({ setView, setHomeMode }) {
           </div>
 
           <button
-            onClick={() => setView('home')}
+            onClick={() => { setHomeTab?.('student'); setView('home') }}
             className="bg-white text-neutral-950 text-xs font-bold font-label px-4 py-1.5 rounded-full hover:bg-neutral-200 active:scale-95 transition-all whitespace-nowrap"
           >
             Sign In
@@ -338,7 +388,7 @@ export default function Home({ setView, setHomeMode }) {
               >
                 <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
                 <span className="text-[10px] font-semibold text-neutral-300 font-label">
-                  Week 4 is live — Friday & Saturday 5PM
+                  <LiveWeekBadge />
                 </span>
               </motion.div>
 
@@ -352,7 +402,7 @@ export default function Home({ setView, setHomeMode }) {
               </h1>
 
               <p className="mt-5 text-sm sm:text-base text-neutral-400 font-body leading-relaxed max-w-xl mx-auto">
-                Weekly mock tests, real-time leaderboards, and targeted revision — everything you need to identify weaknesses and fix them before the real exam.
+                Weekly mock test on assigned topics, and targeted revision — everything you need to identify weaknesses and fix them before the real exam.
               </p>
 
               <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
@@ -380,21 +430,48 @@ export default function Home({ setView, setHomeMode }) {
                 transition={{ duration: 0.5, delay: 0.3 }}
                 className="mt-10 flex items-center justify-center gap-8"
               >
-                {[
-                  { val: '2,400+', lab: 'Students' },
-                  { val: '12,000+', lab: 'Tests Taken' },
-                  { val: '98%', lab: 'Improvement' },
-                ].map((s, i) => (
-                  <div key={s.lab} className="text-center">
-                    <p className="text-lg sm:text-xl font-bold text-white font-display">{s.val}</p>
-                    <p className="text-[10px] text-neutral-500 font-label mt-0.5">{s.lab}</p>
-                  </div>
-                ))}
+                <PortalStats />
               </motion.div>
             </motion.div>
 
             <div className="mt-14 sm:mt-20">
               <RealDashboardMockup />
+            </div>
+          </div>
+        </section>
+
+        {/* ─── How It Works ─── */}
+        <section className="relative py-20 sm:py-28">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6">
+            <SectionHeading
+              label="How It Works"
+              title="A Simple 3-step System"
+              subtitle="Diagnose weaknesses, build discipline, and patch gaps before exam day."
+            />
+            <div className="grid sm:grid-cols-3 gap-5 max-w-3xl mx-auto">
+              {[
+                { num: '1', title: 'Diagnose', period: 'Aug – Feb', desc: 'Weekly tests to identify strengths and weaknesses.' },
+                { num: '2', title: 'Discipline', period: 'Always', desc: 'Choose an accountability partner.' },
+                { num: '3', title: 'Patch', period: 'Mar – Apr', desc: 'Targeted key points on weak topics.' },
+              ].map((step, i) => (
+                <motion.div
+                  key={step.title}
+                  initial={{ y: 30, opacity: 0 }}
+                  whileInView={{ y: 0, opacity: 1 }}
+                  viewport={{ once: true, margin: '-60px' }}
+                  transition={{ duration: 0.5, delay: i * 0.12 }}
+                  className="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-5 flex items-start gap-3"
+                >
+                  <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shrink-0 text-xs font-bold text-neutral-950 font-display">{step.num}</div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <p className="text-sm font-bold text-white font-display">{step.title}</p>
+                      <span className="text-[10px] font-semibold text-neutral-500 bg-neutral-800 px-2 py-0.5 rounded font-label">{step.period}</span>
+                    </div>
+                    <p className="text-xs text-neutral-400 font-body leading-snug">{step.desc}</p>
+                  </div>
+                </motion.div>
+              ))}
             </div>
           </div>
         </section>
@@ -476,7 +553,7 @@ export default function Home({ setView, setHomeMode }) {
                 <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-widest font-label mb-1">Premium</p>
                 <p className="text-3xl font-bold text-white font-display">
                   <span className="text-lg text-neutral-400 font-label font-normal">₦</span>800
-                  <span className="text-xs text-neutral-500 font-label font-normal">/week</span>
+                  <span className="text-xs text-neutral-500 font-label font-normal">/month</span>
                 </p>
                 <p className="text-[10px] text-neutral-500 font-label mt-1">Cancel anytime</p>
                 <ul className="mt-5 space-y-2.5 flex-1">
@@ -529,6 +606,37 @@ export default function Home({ setView, setHomeMode }) {
                 className="mt-8 bg-white text-neutral-950 rounded-xl px-10 py-3.5 text-sm font-bold font-display shadow-lg shadow-black/30 hover:bg-neutral-200 transition-all inline-flex items-center gap-2"
               >
                 Create Your Account
+                <HugeiconsIcon icon={ArrowRight01Icon} size={16} color="currentColor" />
+              </motion.button>
+            </motion.div>
+          </div>
+        </section>
+
+        {/* ─── For Teachers ─── */}
+        <section className="relative py-16 sm:py-20">
+          <div className="max-w-2xl mx-auto px-4 text-center">
+            <motion.div
+              initial={{ y: 30, opacity: 0 }}
+              whileInView={{ y: 0, opacity: 1 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6 }}
+            >
+              <div className="w-12 h-12 bg-neutral-800 rounded-2xl flex items-center justify-center mx-auto mb-5">
+                <HugeiconsIcon icon={HeartAddIcon} size={22} color="white" />
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-bold text-white font-display tracking-tight">
+                Are you a teacher?
+              </h2>
+              <p className="mt-3 text-sm text-neutral-400 font-body max-w-sm mx-auto">
+                Track the students who chose you as their accountability partner, see their weekly test counts and scores, and earn up to N300 per student per month.
+              </p>
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => { setHomeTab?.('teacher'); setHomeMode?.('register'); setView('home') }}
+                className="mt-8 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl px-10 py-3.5 text-sm font-bold font-display shadow-lg shadow-black/30 hover:brightness-110 transition-all inline-flex items-center gap-2"
+              >
+                For Teachers
                 <HugeiconsIcon icon={ArrowRight01Icon} size={16} color="currentColor" />
               </motion.button>
             </motion.div>
