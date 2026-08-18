@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
-import Landing from './pages/Landing'
 import Home from './pages/Home'
 import Auth from './pages/Auth'
 import Intro from './pages/Intro'
@@ -14,9 +13,16 @@ import Subscribe from './pages/Subscribe'
 import Leaderboard from './pages/Leaderboard'
 import Supporters from './pages/Supporters'
 import Contact from './pages/Contact'
+import TeacherDashboard from './pages/TeacherDashboard'
 import GlobalToast from './components/ui/GlobalToast'
+import ErrorBoundary from './components/ui/ErrorBoundary'
 import CardWarningPopup from './components/dashboard/CardWarningPopup'
-import { findStudent, stripSensitive } from './store/useStore'
+import { stripSensitive, stripPersisted, getStudentByUid, getTeacherByUid } from './store/useStore'
+import { useThemeStore } from './store/theme'
+import { applyDarkTheme } from './lib/darkTheme'
+import { auth, onAuthStateChanged, getIdTokenResult } from './firebase'
+import { setStudentUid, clearStudentUid, isRegistering } from './store/studentSession'
+import { useUserNotificationStore } from './store/notificationStore'
 
 function isIos() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent)
@@ -29,6 +35,7 @@ const SESSION_KEY = 'jamb_session'
 const SESSION_TS_KEY = 'jamb_session_ts'
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 const INTRO_KEY = 'jamb_intro_seen'
+const TEACHER_SESSION_KEY = 'jamb_teacher_session'
 
 export default function App() {
   const introSeen = typeof window !== 'undefined' && localStorage.getItem(INTRO_KEY) === '1'
@@ -43,10 +50,18 @@ export default function App() {
       return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')
     } catch { return null }
   })()
+  const savedTeacherSession = (() => {
+    try {
+      return JSON.parse(localStorage.getItem(TEACHER_SESSION_KEY) || 'null')
+    } catch { return null }
+  })()
 
-  const [view, setView] = useState(savedSession ? 'dashboard' : 'landing')
+  const [view, setView] = useState(savedTeacherSession ? 'teacher-dashboard' : (savedSession ? 'dashboard' : 'landing'))
   const [homeMode, setHomeMode] = useState('login')
+  const [homeTab, setHomeTab] = useState('student')
+  const theme = useThemeStore((s) => s.theme)
   const [student, setStudentState] = useState(savedSession)
+  const [teacher, setTeacherState] = useState(savedTeacherSession)
   const [lastScore, setLastScore] = useState(null)
   const [adminAuthed, setAdminAuthed] = useState(false)
   const [selectedSubjectDetail, setSelectedSubjectDetail] = useState(null)
@@ -57,16 +72,32 @@ export default function App() {
   const [showRegCardWarning, setShowRegCardWarning] = useState(false)
   const prevViewRef = useRef(view)
 
+  // Global dark mode: applied to every view except the public landing page
+  // (which has its own dark styling and must stay untouched).
+  useEffect(() => {
+    applyDarkTheme(theme === 'dark' && view !== 'landing')
+    return () => applyDarkTheme(false)
+  }, [theme, view])
+
   const setStudent = (s) => {
     const safe = s ? stripSensitive(s) : null
     setStudentState(safe || s)
     if (safe) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(safe))
+      localStorage.setItem(SESSION_KEY, JSON.stringify(stripPersisted(safe)))
       localStorage.setItem(SESSION_TS_KEY, String(Date.now()))
     } else {
       localStorage.removeItem(SESSION_KEY)
       localStorage.removeItem(SESSION_TS_KEY)
+      clearStudentUid()
     }
+  }
+
+  const setTeacher = (t) => {
+    setTeacherState(t || null)
+    try {
+      if (t) localStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(t))
+      else localStorage.removeItem(TEACHER_SESSION_KEY)
+    } catch {}
   }
 
   const dismissIntro = () => {
@@ -74,9 +105,12 @@ export default function App() {
     setView('home')
   }
 
-  // Detect registration completion (navigate from auth to supporters)
+  // Show the registration card warning whenever the user lands on the
+  // Supporters step (fresh signup or returning), regardless of the preceding
+  // view. The strict `prevView==='home'` check broke because onAuthStateChanged
+  // re-routes home -> dashboard before the supporters transition.
   useEffect(() => {
-    if (prevViewRef.current === 'home' && view === 'supporters') {
+    if (view === 'supporters' && prevViewRef.current !== 'supporters') {
       setShowRegCardWarning(true)
     }
     prevViewRef.current = view
@@ -102,14 +136,62 @@ export default function App() {
     return () => window.removeEventListener('popstate', handler)
   }, [view])
 
-  // Refresh persisted student from server on mount (so subjects/year stay current)
+  // Drive the session from Firebase Auth. The signed-in user is the single
+  // source of truth: a student gets their profile loaded by UID; an admin
+  // (custom claim) gets adminAuthed set; a signed-out user drops to landing.
   useEffect(() => {
-    if (savedSession?.name) {
-      findStudent(savedSession.name).then((fresh) => {
-        if (fresh) setStudent(fresh)
-      }).catch(() => {})
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setStudentState(null)
+        setTeacherState(null)
+        setAdminAuthed(false)
+        localStorage.removeItem('jamb_admin')
+        localStorage.removeItem('jamb_teacher_session')
+        localStorage.removeItem('patches_active')
+        localStorage.removeItem('patches_selected_subjects')
+        useUserNotificationStore.getState().setPatchesActive(false)
+        useUserNotificationStore.getState().setSelectedPatchSubjects([])
+        useUserNotificationStore.getState().setPushPermission('default')
+        useUserNotificationStore.getState().setPushSubscription(null)
+        setView((v) =>
+          ['dashboard', 'supporters', 'subjects', 'quiz', 'results', 'subscribe', 'leaderboard', 'contact', 'subject-detail', 'admin', 'teacher-dashboard'].includes(v)
+            ? 'landing'
+            : v
+        )
+        return
+      }
+      try {
+        const token = await getIdTokenResult(user)
+        if (token.claims.admin) {
+          setAdminAuthed(true)
+          localStorage.setItem('jamb_admin', '1')
+          setView((v) => (v === 'landing' || v === 'home' ? 'admin' : v))
+        } else if (token.claims.teacher) {
+          const t = await getTeacherByUid(user.uid)
+          if (t) {
+            setTeacherState(t)
+            try { localStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(t)) } catch {}
+            if (!isRegistering()) {
+              setView((v) => (v === 'landing' || v === 'home' ? 'teacher-dashboard' : v))
+            }
+          }
+        } else {
+          const stu = await getStudentByUid(user.uid)
+          if (stu) {
+            setStudentUid(stu.uid)
+            setStudent(stu)
+            // During registration the Supporters step is in charge of routing;
+            // don't yank the new user to the dashboard and flash it briefly.
+            if (!isRegistering()) {
+              setView((v) => (v === 'landing' || v === 'home' ? 'dashboard' : v))
+            }
+          }
+        }
+      } catch {
+        setStudentState(null)
+      }
+    })
+    return () => unsub()
   }, [])
 
   const swIntervalRef = useRef(null)
@@ -150,14 +232,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8F8F7]">
-      {view === 'landing' && (
-        <Home setView={setView} setHomeMode={setHomeMode} />
+      <ErrorBoundary>
+        {view === 'landing' && (
+        <Home setView={setView} setHomeMode={setHomeMode} setHomeTab={setHomeTab} />
       )}
       {view === 'intro' && (
         <Intro onContinue={dismissIntro} />
       )}
       {view === 'home' && (
-        <Auth setView={setView} setStudent={setStudent} setAdminAuthed={setAdminAuthed} defaultMode={homeMode} />
+        <Auth setView={setView} setStudent={setStudent} setAdminAuthed={setAdminAuthed} defaultMode={homeMode} defaultTab={homeTab} />
       )}
       {view === 'supporters' && student && (
         <Supporters student={student} setStudent={setStudent} setView={setView} />
@@ -196,6 +279,9 @@ export default function App() {
       )}
       {view === 'admin' && adminAuthed && (
         <Admin setView={setView} />
+      )}
+      {view === 'teacher-dashboard' && teacher && (
+        <TeacherDashboard teacher={teacher} setTeacher={setTeacher} setView={setView} />
       )}
       {view === 'contact' && student && (
         <Contact student={student} setView={setView} />
@@ -307,6 +393,7 @@ export default function App() {
           onDismiss={() => setShowRegCardWarning(false)}
         />
       )}
+      </ErrorBoundary>
     </div>
   )
 }

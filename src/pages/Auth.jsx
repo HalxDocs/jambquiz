@@ -1,6 +1,27 @@
 import { useState, useRef, useEffect } from 'react'
-import { registerStudent, findStudent, hashPassword, verifyPassword, stripSensitive, updateStudent } from '../store/useStore'
-import { doc, getDoc, setDoc, db } from '../firebase'
+import {
+  registerStudent,
+  verifyAdminSession,
+  getStudentByUid,
+  studentAuthEmail,
+  ADMIN_EMAIL,
+  sendTeacherOtp,
+  registerTeacher,
+  teacherSignIn,
+  getTeacherByUid,
+} from '../store/useStore'
+import { setStudentUid, setRegistering } from '../store/studentSession'
+import { useUserNotificationStore } from '../store/notificationStore'
+import { useThemeStore } from '../store/theme'
+import {
+  auth,
+  functions,
+  httpsCallable,
+  signInWithEmailAndPassword,
+  signInWithCustomToken,
+  signOut,
+  updatePassword,
+} from '../firebase'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { ArrowLeft01Icon, Sun01Icon, Moon01Icon } from '@hugeicons/core-free-icons'
 import SEO from '../components/seo/SEO'
@@ -8,8 +29,8 @@ import SEO from '../components/seo/SEO'
 const LOGIN_COOLDOWN_MS = 30000
 const MAX_ATTEMPTS = 5
 
-export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode }) {
-  const [tab, setTab] = useState('student')
+export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode, defaultTab }) {
+  const [tab, setTab] = useState(defaultTab || 'student')
   const [mode, setMode] = useState(defaultMode || 'login')
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
@@ -36,54 +57,21 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [showTerms, setShowTerms] = useState(false)
 
-  const [isDark, setIsDark] = useState(() => localStorage.getItem('app_theme') !== 'light')
+  // Teacher tab state
+  const [tName, setTName] = useState('')
+  const [tEmail, setTEmail] = useState('')
+  const [tPhone, setTPhone] = useState('')
+  const [tCode, setTCode] = useState('')
+  const [tPass, setTPass] = useState('')
+  const [tConfirm, setTConfirm] = useState('')
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpSending, setOtpSending] = useState(false)
+  const [otpBusy, setOtpBusy] = useState(false)
+  const [otpCooldown, setOtpCooldown] = useState(0)
 
-  useEffect(() => {
-    const existing = document.getElementById('auth-dark-styles')
-    if (isDark) {
-      if (!existing) {
-        const style = document.createElement('style')
-        style.id = 'auth-dark-styles'
-        style.textContent = `
-          body.auth-dark { background: #0A0A0A !important; }
-          body.auth-dark .bg-\\[\\#F8F8F7\\] { background: #0A0A0A !important; }
-          body.auth-dark .bg-white { background-color: #161616 !important; }
-          body.auth-dark .border-\\[\\#EBEBEB\\] { border-color: #2A2A2A !important; }
-          body.auth-dark .border-\\[\\#E5E5E5\\] { border-color: #2A2A2A !important; }
-          body.auth-dark .text-\\[\\#111\\] { color: #EDEDED !important; }
-          body.auth-dark .text-\\[\\#333\\] { color: #DDD !important; }
-          body.auth-dark .text-\\[\\#555\\] { color: #AAA !important; }
-          body.auth-dark .text-\\[\\#666\\] { color: #999 !important; }
-          body.auth-dark .text-\\[\\#888\\] { color: #888 !important; }
-          body.auth-dark .text-\\[\\#AAA\\] { color: #777 !important; }
-          body.auth-dark .text-\\[\\#CCC\\] { color: #666 !important; }
-          body.auth-dark .bg-\\[\\#F3F3F2\\] { background-color: #1A1A1A !important; }
-          body.auth-dark .bg-\\[\\#FAFAF9\\] { background-color: #1A1A1A !important; }
-          body.auth-dark input { background-color: #1A1A1A !important; color: #EDEDED !important; border-color: #2A2A2A !important; }
-          body.auth-dark select { background-color: #1A1A1A !important; color: #EDEDED !important; border-color: #2A2A2A !important; }
-          body.auth-dark textarea { background-color: #1A1A1A !important; color: #EDEDED !important; border-color: #2A2A2A !important; }
-        `
-        document.head.appendChild(style)
-      }
-      document.body.classList.add('auth-dark')
-    } else {
-      document.body.classList.remove('auth-dark')
-      if (existing) existing.remove()
-    }
-    return () => {
-      document.body.classList.remove('auth-dark')
-      const s = document.getElementById('auth-dark-styles')
-      if (s) s.remove()
-    }
-  }, [isDark])
-
-  const toggleTheme = () => {
-    setIsDark((prev) => {
-      const next = !prev
-      localStorage.setItem('app_theme', next ? 'dark' : 'light')
-      return next
-    })
-  }
+  const theme = useThemeStore((s) => s.theme)
+  const isDark = theme === 'dark'
+  const toggleTheme = useThemeStore((s) => s.toggleTheme)
 
   const RATE_LIMIT_KEY = 'jamb_login_ratelimit'
   const attemptsRef = useRef(0)
@@ -117,6 +105,13 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
     return true
   }
 
+  const setTeacherSession = (t) => {
+    try {
+      if (t) localStorage.setItem('jamb_teacher_session', JSON.stringify(t))
+      else localStorage.removeItem('jamb_teacher_session')
+    } catch {}
+  }
+
   const years = Array.from({ length: 10 }, (_, i) => String(new Date().getFullYear() + i))
 
   const checkRateLimit = () => {
@@ -147,16 +142,42 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
     if (loading) return
     setLoading(true); setErr('')
     try {
-      const existing = await findStudent(trimmed)
-      if (!existing) { setErr('Name not found. Please register first.'); recordAttempt(); setLoading(false); return }
-      const valid = await verifyPassword(password, existing.password)
-      if (!valid) { setErr('Wrong password. Try again.'); recordAttempt(); setLoading(false); return }
+      const email = studentAuthEmail(trimmed.toLowerCase())
+      const spacedEmail = `${trimmed.toLowerCase().replace(/\s+/g, ' ')}@${'274lab.app'}`
+      let signedIn = false
+      const signInErrors = []
+      for (const attemptEmail of [email, spacedEmail]) {
+        try {
+          await signInWithEmailAndPassword(auth, attemptEmail, password)
+          signedIn = true
+          break
+        } catch (e) {
+          signInErrors.push(e && e.code)
+        }
+      }
+      if (!signedIn) {
+        const legacyCodes = ['auth/user-not-found', 'auth/wrong-password', 'auth/invalid-credential', 'auth/invalid-email']
+        if (signInErrors.some((c) => legacyCodes.includes(c))) {
+          const legacyFn = httpsCallable(functions, 'verifyLegacyLogin')
+          const res = await legacyFn({ name: trimmed, password })
+          if (res.data && res.data.ok && res.data.customToken) {
+            await signInWithCustomToken(auth, res.data.customToken)
+            // Migrate the account to a real Firebase password (only if ≥6 chars).
+            if (password.length >= 6) {
+              try { await updatePassword(auth.currentUser, password) } catch {}
+            }
+          } else {
+            setErr('Wrong name or password'); recordAttempt(); setLoading(false); return
+          }
+        } else {
+          setErr('Could not sign in. Please try again.'); setLoading(false); return
+        }
+      }
       attemptsRef.current = 0
       cooldownUntilRef.current = 0
       persistRateLimit()
-      const safe = stripSensitive(existing)
-      setStudent(safe)
-      setView('dashboard')
+      const stu = await getStudentByUid(auth.currentUser.uid)
+      if (stu) { setStudentUid(stu.uid); setStudent(stu); setView('dashboard') }
     } catch {
       if (!navigator.onLine) setErr('No internet connection. Check your network.')
       else setErr('Could not sign in. Server error — please try again.')
@@ -168,15 +189,16 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
     const trimmed = name.trim()
     if (trimmed.length < 3) { setErr('Enter your full name (at least 3 characters)'); return }
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setErr('Enter a valid email'); return }
-    if (password.length < 4) { setErr('Password must be at least 4 characters'); return }
+    if (password.length < 8) { setErr('Password must be at least 8 characters'); return }
     if (password !== confirmPassword) { setErr('Passwords do not match'); return }
     if (!acceptedTerms) { setErr('You must agree to the Terms and Conditions to create an account.'); return }
     if (!checkOnline()) return
     setLoading(true); setErr('')
     try {
-      const existing = await findStudent(trimmed)
-      if (existing) { setErr('This name is already registered. Please lock in.'); setLoading(false); return }
-      const newStudent = {
+      // Flag so onAuthStateChanged doesn't route the fresh account to the
+      // dashboard before the Supporters hand-off.
+      setRegistering(true)
+      const saved = await registerStudent({
         name: trimmed,
         nickname: nickname.trim(),
         password,
@@ -186,12 +208,21 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
         teacherPhone: '',
         subjects: [],
         joinedAt: new Date().toISOString(),
-      }
-      const saved = await registerStudent(newStudent)
-      if (!saved) { setErr('Name already exists. Please lock in.'); setLoading(false); return }
+      })
+      if (!saved) { setErr('This name is already registered. Please lock in.'); setLoading(false); setRegistering(false); return }
+      // Clear old persisted patches / notification state from previous sessions
+      localStorage.removeItem('patches_active')
+      localStorage.removeItem('patches_selected_subjects')
+      useUserNotificationStore.getState().setPatchesActive(false)
+      useUserNotificationStore.getState().setSelectedPatchSubjects([])
+      useUserNotificationStore.getState().setPushPermission('default')
+      useUserNotificationStore.getState().setPushSubscription(null)
+      setStudentUid(saved.uid)
       setStudent(saved)
+      setRegistering(false)
       setView('supporters')
     } catch {
+      setRegistering(false)
       if (!navigator.onLine) setErr('No internet connection. Check your network.')
       else setErr('Could not create account. Server error — please try again.')
     }
@@ -203,17 +234,22 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
     if (!checkOnline()) return
     setLoading(true); setErr('')
     try {
-      const snap = await getDoc(doc(db, 'admin_settings', 'admin_auth'))
-      if (!snap.exists()) {
+      const existsRes = await httpsCallable(functions, 'adminExists')()
+      const exists = existsRes.data && existsRes.data.exists
+      if (!exists) {
         setAdminSetupMode(true)
         setErr('No admin password set. Enter a new password to configure.')
         setLoading(false)
         return
       }
-      const data = snap.data()
-      const valid = await verifyPassword(adminPw, data.passwordHash)
-      if (!valid) { setErr('Wrong password'); setLoading(false); return }
-      setAdminAuthed(true); setView('admin')
+      try {
+        await signInWithEmailAndPassword(auth, ADMIN_EMAIL, adminPw)
+        const isAdmin = await verifyAdminSession()
+        if (!isAdmin) { await signOut(auth); setErr('Not an admin account'); setLoading(false); return }
+        setAdminAuthed(true); setView('admin')
+      } catch (e) {
+        setErr('Wrong password')
+      }
     } catch {
       if (!navigator.onLine) setErr('No internet connection. Check your network.')
       else setErr('Could not verify admin. Server error — please try again.')
@@ -223,13 +259,13 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
 
   const handleAdminSetup = async () => {
     if (!adminPw) { setErr('Enter a password'); return }
-    if (adminPw.length < 4) { setErr('Password must be at least 4 characters'); return }
+    if (adminPw.length < 8) { setErr('Password must be at least 8 characters'); return }
     if (adminPw !== adminSetupConfirm) { setErr('Passwords do not match'); return }
     if (!checkOnline()) return
     setLoading(true); setErr('')
     try {
-      const passwordHash = await hashPassword(adminPw)
-      await setDoc(doc(db, 'admin_settings', 'admin_auth'), { passwordHash })
+      await httpsCallable(functions, 'setupAdmin')({ adminPassword: adminPw })
+      await signInWithEmailAndPassword(auth, ADMIN_EMAIL, adminPw)
       setAdminSetupMode(false)
       setAdminSetupConfirm('')
       setAdminPw('')
@@ -243,31 +279,112 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
     setLoading(false)
   }
 
+  const handleSendOtp = async () => {
+    const phone = tPhone.trim()
+    if (phone.replace(/\D/g, '').length < 10) { setErr('Enter a valid phone number'); return }
+    if (!checkOnline()) return
+    setOtpSending(true); setErr('')
+    try {
+      await sendTeacherOtp(phone.replace(/^\+?234/, ''))
+      setOtpSent(true)
+      setOtpCooldown(60)
+    } catch (e) {
+      const msg = (e && e.message) || 'Could not send the code.'
+      if (msg.includes('resource-exhausted')) setErr(msg)
+      else if (!navigator.onLine) setErr('No internet connection. Check your network.')
+      else setErr('Could not send the code. Check the number and try again.')
+    }
+    setOtpSending(false)
+  }
+
+  useEffect(() => {
+    if (otpCooldown <= 0) return
+    const id = setTimeout(() => setOtpCooldown((c) => c - 1), 1000)
+    return () => clearTimeout(id)
+  }, [otpCooldown])
+
+  const handleTeacherRegister = async () => {
+    const phone = tPhone.trim()
+    const emailTrim = tEmail.trim().toLowerCase()
+    if (tName.trim().length < 3) { setErr('Enter your full name (at least 3 characters)'); return }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) { setErr('Enter a valid email address'); return }
+    if (phone.replace(/\D/g, '').length < 10) { setErr('Enter a valid phone number'); return }
+    if (!tCode.trim() || !/^\d{6}$/.test(tCode.trim())) { setErr('Enter the 6-digit verification code'); return }
+    if (tPass.length < 8) { setErr('Password must be at least 8 characters'); return }
+    if (tPass !== tConfirm) { setErr('Passwords do not match'); return }
+    if (!checkOnline()) return
+    setLoading(true); setErr(''); setOtpBusy(true)
+    try {
+      const res = await registerTeacher({
+        name: tName.trim(),
+        email: emailTrim,
+        phone: phone.replace(/^\+?234/, ''),
+        otp: tCode.trim(),
+        password: tPass,
+      })
+      if (!res || !res.ok) { setErr('Registration failed. Please try again.'); setLoading(false); setOtpBusy(false); return }
+      // Sign the new teacher in client-side so App.jsx's onAuthStateChanged
+      // sees the `teacher` claim and routes to the teacher dashboard.
+      await teacherSignIn(emailTrim, tPass)
+      const t = await getTeacherByUid(auth.currentUser.uid)
+      setTeacherSession(t)
+      setView('teacher-dashboard')
+    } catch (e) {
+      const msg = (e && e.message) || 'Could not create your account.'
+      if (msg.includes('already-exists')) setErr('This email is already registered.')
+      else if (msg.includes('expired')) setErr('This code has expired. Request a new one.')
+      else if (msg.includes('already used')) setErr('This code was already used. Request a new one.')
+      else if (msg.includes('Incorrect')) setErr('Incorrect verification code.')
+      else if (!navigator.onLine) setErr('No internet connection. Check your network.')
+      else setErr(msg)
+    }
+    setLoading(false); setOtpBusy(false)
+  }
+
+  const handleTeacherLogin = async () => {
+    const emailTrim = tEmail.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) { setErr('Enter the email you registered with'); return }
+    if (!tPass) { setErr('Enter your password'); return }
+    if (!checkRateLimit()) return
+    if (!checkOnline()) return
+    if (loading) return
+    setLoading(true); setErr('')
+    try {
+      await teacherSignIn(emailTrim, tPass)
+      const t = await getTeacherByUid(auth.currentUser.uid)
+      if (!t) { setErr('No teacher account found for that email.'); setLoading(false); return }
+      setTeacherSession(t)
+      setView('teacher-dashboard')
+    } catch (e) {
+      const code = e && e.code
+      if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential' || code === 'auth/invalid-email') {
+        setErr('Wrong email or password'); recordAttempt()
+      } else if (!navigator.onLine) setErr('No internet connection. Check your network.')
+      else setErr('Could not sign in. Please try again.')
+    }
+    setLoading(false)
+  }
+
   const handleForgotPassword = async () => {
     if (resetStudentId) {
-      if (!currentPassword) { setErr('Enter your current password to confirm'); return }
       if (!password) { setErr('Enter a new password'); return }
-      if (password.length < 4) { setErr('Password must be at least 4 characters'); return }
+      if (password.length < 8) { setErr('Password must be at least 8 characters'); return }
       if (password !== confirmPassword) { setErr('Passwords do not match'); return }
       if (!checkOnline()) return
       setLoading(true); setErr('')
       try {
-        const studentDoc = await findStudent(name.trim())
-        if (!studentDoc) { setErr('Student not found.'); setLoading(false); return }
-        const valid = await verifyPassword(currentPassword, studentDoc.password)
-        if (!valid) { setErr('Current password is incorrect.'); recordAttempt(); setLoading(false); return }
-        const passwordHash = await hashPassword(password)
-        await updateStudent(resetStudentId, { password: passwordHash })
+        await httpsCallable(functions, 'resetPassword')({ name: name.trim(), newPassword: password })
         setRecoveredPassword('done')
         setPassword('')
-        setCurrentPassword('')
         setConfirmPassword('')
         setResetStudentId(null)
         attemptsRef.current = 0
         cooldownUntilRef.current = 0
         persistRateLimit()
-      } catch {
-        if (!navigator.onLine) setErr('No internet connection. Check your network.')
+      } catch (e) {
+        const msg = (e && e.message) || ''
+        if (msg.includes('not-found')) setErr('No account found with that name.')
+        else if (!navigator.onLine) setErr('No internet connection. Check your network.')
         else setErr('Failed to reset password. Please try again.')
       }
       setLoading(false)
@@ -279,13 +396,10 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
     if (!checkOnline()) return
     setLoading(true); setErr(''); setRecoveredPassword('')
     try {
-      const existing = await findStudent(trimmed)
-      if (!existing) { setErr('Name not found. Please register first.'); setLoading(false); return }
-      setResetStudentId(existing.id)
+      setResetStudentId('1')
       setRecoveredPassword('reset')
     } catch {
-      if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Something went wrong. Please try again.')
+      setErr('Something went wrong. Please try again.')
     }
     setLoading(false)
   }
@@ -317,7 +431,6 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
           <div className="flex items-center gap-2">
             <button onClick={toggleTheme} className="flex items-center gap-1.5 text-xs text-[#888] hover:text-[#111] transition-colors font-label">
               <HugeiconsIcon icon={isDark ? Sun01Icon : Moon01Icon} size={14} color="currentColor" />
-              <span>{isDark ? 'Lightmode' : 'Darkmode'}</span>
             </button>
             <div className="w-7 h-7 bg-[#111] rounded-lg flex items-center justify-center">
               <span className="text-[9px] font-bold text-white font-display leading-none">274</span>
@@ -333,7 +446,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
         <div className="bg-white rounded-2xl border border-[#EBEBEB] shadow-sm w-full max-w-sm overflow-hidden">
           {/* Tab bar */}
           <div className="flex border-b border-[#EBEBEB]">
-            {['student', 'admin'].map((t) => (
+            {['student', 'teacher', 'admin'].map((t) => (
               <button
                 key={t}
                 onClick={() => { setTab(t); setErr('') }}
@@ -343,9 +456,13 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
                     : 'text-[#AAA] hover:text-[#666]'
                 }`}
               >
-                {t === 'student' ? 'Student' : 'Admin'}
+                {t === 'student' ? 'Student' : t === 'teacher' ? 'Teacher' : 'Admin'}
               </button>
             ))}
+          </div>
+
+          <div className="px-6 pt-4 pb-0">
+            <p className="text-sm font-bold text-[#111] font-display">Welcome to the Lab</p>
           </div>
 
           <div className="p-6">
@@ -508,7 +625,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
                         <p><strong>2. Data Collection</strong><br/>We collect your name, academic performance data (quiz scores), and phone numbers you provide for progress reports.</p>
                         <p><strong>3. SMS Communication</strong><br/>By providing parent/teacher phone numbers, you consent to receiving automated weekly performance SMS reports. Standard message rates may apply.</p>
                         <p><strong>4. Push Notifications</strong><br/>You may receive educational push notifications. You can disable these in your browser settings at any time.</p>
-                        <p><strong>5. Subscription &amp; Payments</strong><br/>Paid subscriptions grant continued access. You may use limited free attempts before subscribing. Payments are processed through Paystack and are non-refundable except where required by law.</p>
+                        <p><strong>5. Subscription &amp; Payments</strong><br/>Paid subscriptions grant continued access. You may use limited free attempts before subscribing. Payments are processed through Bachs and are non-refundable except where required by law.</p>
                         <p><strong>6. Acceptable Use</strong><br/>You agree to use the platform solely for educational purposes. Any misuse, including automated access or cheating, may result in account suspension.</p>
                         <p><strong>7. Changes to Terms</strong><br/>We may update these terms at any time. Continued use after changes constitutes acceptance.</p>
                         <p><strong>8. Contact</strong><br/>For questions, reach out via the Contact page in the app or email contact@274lab.com.</p>
@@ -537,26 +654,12 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
                         <p className="text-xs font-semibold text-[#111] font-label">Reset Password</p>
                         <p className="text-[11px] text-[#888] font-label">Set a new password for <strong>{name.trim()}</strong></p>
                         <div>
-                          <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">Current Password <span className="text-red-500">*</span></label>
-                          <div className="relative">
-                            <input type={showPassword ? 'text' : 'password'} value={currentPassword}
-                              onChange={(e) => setCurrentPassword(e.target.value)}
-                              maxLength={64}
-                              placeholder="Your current password"
-                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
-                            <button type="button" onClick={() => setShowPassword(!showPassword)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                              <EyeIcon open={showPassword} />
-                            </button>
-                          </div>
-                        </div>
-                        <div>
                           <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">New Password</label>
                           <div className="relative">
                             <input type={showResetPassword ? 'text' : 'password'} value={password}
                               onChange={(e) => setPassword(e.target.value)}
                               maxLength={64}
-                              placeholder="Minimum 4 characters"
+                              placeholder="Minimum 8 characters"
                               className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
                             <button type="button" onClick={() => setShowResetPassword(!showResetPassword)}
                               className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
@@ -646,7 +749,205 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode 
               </div>
             )}
 
-            {tab === 'admin' && (
+            {tab === 'teacher' && (
+              <div>
+                {/* Mode toggle */}
+                <div className="flex gap-1 p-1 bg-[#F3F3F2] rounded-xl mb-5">
+                  {['login', 'register'].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => { setMode(m); setErr('') }}
+                      className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all font-label ${
+                        mode === m
+                          ? 'bg-white text-[#111] shadow-sm'
+                          : 'text-[#999] hover:text-[#555]'
+                      }`}
+                    >
+                      {m === 'login' ? 'Lock In' : 'Register'}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="space-y-3.5">
+                  {mode === 'register' && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Full Name
+                      </label>
+                      <input
+                        value={tName}
+                        onChange={(e) => setTName(e.target.value)}
+                        maxLength={50}
+                        placeholder="e.g. Mrs. Adebayo"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                    </div>
+                  )}
+
+                  {mode === 'login' && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        value={tEmail}
+                        onChange={(e) => setTEmail(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleTeacherLogin()}
+                        placeholder="you@example.com"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                    </div>
+                  )}
+
+                  {mode === 'register' && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Phone Number
+                      </label>
+                      <div className="flex border border-[#E5E5E5] rounded-xl overflow-hidden focus-within:border-[#111] transition-colors bg-white">
+                      <span className="px-3 py-3 text-sm font-semibold text-[#555] bg-[#F8F8F7] border-r border-[#E5E5E5] select-none font-label">+234</span>
+                      <input
+                        type="tel"
+                        value={tPhone}
+                        onChange={(e) => { setTPhone(e.target.value.replace(/^\+?234/, '')); setErr('') }}
+                        disabled={mode === 'register' && otpSent}
+                        placeholder="803 000 0000"
+                        className="flex-1 px-3 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none bg-white disabled:bg-[#F3F3F2] disabled:text-[#AAA]"
+                      />
+                    </div>
+                  </div>
+                  )}
+
+                  {mode === 'register' && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        value={tEmail}
+                        onChange={(e) => setTEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                    </div>
+                  )}
+
+                  {mode === 'register' && (
+                    <div>
+                      {!otpSent ? (
+                        <button
+                          type="button"
+                          onClick={handleSendOtp}
+                          disabled={otpSending}
+                          className="w-full rounded-xl py-2.5 text-xs font-bold border border-[#E5E5E5] text-[#555] hover:text-[#111] hover:border-[#CCC] active:scale-[0.99] transition-all font-label disabled:opacity-50"
+                        >
+                          {otpSending ? 'Sending code…' : 'Send verification code'}
+                        </button>
+                      ) : (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">
+                              Verification Code
+                            </label>
+                            <input
+                              value={tCode}
+                              onChange={(e) => setTCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                              inputMode="numeric"
+                              placeholder="6-digit code"
+                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-center tracking-[0.3em] text-[#111] placeholder:text-[#CCC] placeholder:tracking-normal focus:outline-none focus:border-[#111] transition-colors bg-white"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setOtpSent(false); setTCode('') }}
+                            disabled={otpCooldown > 0}
+                            className="text-[11px] text-[#888] hover:text-[#111] font-label underline underline-offset-2 transition-colors disabled:opacity-40"
+                          >
+                            {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : 'Resend code'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                      Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={tPass}
+                        onChange={(e) => setTPass(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && mode === 'login' && handleTeacherLogin()}
+                        maxLength={64}
+                        placeholder={mode === 'register' ? 'Minimum 8 characters' : '••••••••'}
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                      <button type="button" onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
+                        <EyeIcon open={showPassword} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {mode === 'register' && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Confirm Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showConfirm ? 'text' : 'password'}
+                          value={tConfirm}
+                          onChange={(e) => setTConfirm(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleTeacherRegister()}
+                          placeholder="Repeat your password"
+                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                        />
+                        <button type="button" onClick={() => setShowConfirm(!showConfirm)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
+                          <EyeIcon open={showConfirm} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {err && (
+                  <div className="mt-3 px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
+                    <p className="text-red-600 text-xs font-label">{err}</p>
+                  </div>
+                )}
+
+                <button
+                  onClick={mode === 'login' ? handleTeacherLogin : handleTeacherRegister}
+                  disabled={loading}
+                  className={`w-full mt-4 rounded-xl py-3.5 text-sm font-bold tracking-wide transition-all active:scale-[0.99] font-display ${
+                    loading
+                      ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
+                      : 'bg-[#111] text-white hover:bg-[#222]'
+                  }`}
+                >
+                  {loading ? (otpBusy ? 'Verifying…' : 'Please wait...') : mode === 'login' ? 'Lock In' : 'Create Teacher Account'}
+                </button>
+
+                {mode === 'register' && !otpSent && (
+                  <p className="text-[11px] text-[#AAA] mt-3 font-label leading-relaxed">
+                    We'll send a one-time code to verify this phone number. Registration is free.
+                  </p>
+                )}
+                {mode === 'register' && otpSent && (
+                  <p className="text-[11px] text-[#AAA] mt-3 font-label leading-relaxed">
+                    Enter the code we just sent to +234{tPhone.replace(/^0+/, '')}. It expires in 10 minutes.
+                  </p>
+                )}
+              </div>
+            )}
+
+{tab === 'admin' && (
               <div>
                 {adminSetupMode ? (
                   <div className="space-y-3.5">

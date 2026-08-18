@@ -1,6 +1,30 @@
-import { db, collection, addDoc, getDocs, getCountFromServer, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter, increment } from '../firebase'
+import { db, collection, getDocs, getDoc, getCountFromServer, setDoc, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter, increment, auth } from '../firebase'
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updatePassword,
+  signInWithCustomToken,
+  getIdTokenResult,
+} from '../firebase'
+
+// Firebase Auth is the single source of truth for identity. Students log in by
+// name; we map each name to a stable, invisible Firebase Auth email so the
+// security rules can rely on `request.auth.uid`. The students doc keeps its own
+// auto-id (`id`) and stores the Firebase UID in a `uid` field for ownership checks.
+export const AUTH_EMAIL_DOMAIN = '274lab.app'
+export const ADMIN_EMAIL = 'admin@274lab.app'
+
+export function studentAuthEmail(nameLower) {
+  // Firebase Auth rejects spaces in the email local-part, so collapse them to
+  // dots. Existing accounts were created with spaced names, and this keeps the
+  // mapping deterministic (name -> email) for both sign-in and registration.
+  const safe = String(nameLower).replace(/\s+/g, '.').toLowerCase()
+  return `${safe}@${AUTH_EMAIL_DOMAIN}`
+}
+
 function getAccessStatus(student) {
   if (!student) return { status: 'expired', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0 }
+  if (student.suspended) return { status: 'suspended', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0 }
   const now = Date.now()
   const subUntil = student.subscriptionUntil ? new Date(student.subscriptionUntil).getTime() : 0
   const freeUsed = student.freeAttemptsUsed || 0
@@ -24,93 +48,122 @@ function getAccessStatus(student) {
   return { status: 'expired', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0 }
 }
 
-function generateSalt() {
-  const bytes = new Uint8Array(16)
-  crypto.getRandomValues(bytes)
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
-async function hashWithSalt(password, salt) {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(salt + password)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
-async function hashPassword(password) {
-  const salt = generateSalt()
-  const hash = await hashWithSalt(password, salt)
-  return 'sha256$' + salt + '$' + hash
-}
-
-async function verifyPassword(password, storedHash) {
-  if (storedHash && storedHash.startsWith('sha256$')) {
-    const parts = storedHash.split('$')
-    if (parts.length === 3) {
-      const salt = parts[1]
-      const hash = await hashWithSalt(password, salt)
-      return storedHash === 'sha256$' + salt + '$' + hash
-    }
-    return false
-  }
-  return password === storedHash
-}
-
 function stripSensitive(student) {
   if (!student) return null
   const { password, ...rest } = student
   return rest
 }
 
+function stripPersisted(student) {
+  if (!student) return null
+  const { password, parentPhone, teacherPhone, subscriptionUntil, ...rest } = student
+  return rest
+}
+
+// Creates the Firebase Auth user (email derived from name) and the students doc.
+// Returns the student object, or null if the name is already taken.
 async function registerStudent(student) {
-  const nameLower = student.name.toLowerCase().trim()
-  const q = query(collection(db, 'students'), where('nameLower', '==', nameLower))
-  const snapshot = await getDocs(q)
-  if (!snapshot.empty) return null
-  const nowIso = new Date().toISOString()
-  const passwordHash = await hashPassword(student.password)
+  const name = (student.name || '').trim()
+  if (name.length < 3) throw new Error('Name must be at least 3 characters')
+  const password = student.password
+  if (!password || password.length < 8) throw new Error('Password must be at least 8 characters')
+  const nameLower = name.toLowerCase()
+  const nameLowerWords = [...new Set(nameLower.split(/\s+/).filter(Boolean))]
+  const email = studentAuthEmail(nameLower)
+  let cred
+  try {
+    cred = await createUserWithEmailAndPassword(auth, email, password)
+  } catch (e) {
+    if (e && (e.code === 'auth/email-already-in-use' || e.code === 'auth/invalid-email')) return null
+    throw e
+  }
+  const uid = cred.user.uid
+  // Force-refresh the ID token so Firestore sees the new auth state immediately
+  await cred.user.getIdToken(true)
+  const ref = doc(collection(db, 'students'))
   const payload = {
-    name: student.name.trim(),
+    name,
     nickname: student.nickname || '',
-    nameLower: student.name.toLowerCase().trim(),
-    nicknameLower: (student.nickname || '').toLowerCase().trim(),
-    password: passwordHash,
-    year: student.year,
-    email: student.email || '',
+    nameLower,
+    nameLowerWords,
+    year: student.year || String(new Date().getFullYear()),
+    email: (student.email || '').toLowerCase(),
     parentPhone: student.parentPhone || '',
     teacherPhone: student.teacherPhone || '',
+    phone: student.phone || '',
     subjects: student.subjects || [],
-    trialStartedAt: student.trialStartedAt || nowIso,
-    subscriptionUntil: student.subscriptionUntil || null,
+    uid,
+    subscriptionUntil: null,
     freeAttemptsUsed: 0,
-    joinedAt: nowIso,
+    trialStartedAt: new Date().toISOString(),
+    joinedAt: new Date().toISOString(),
   }
-  const ref = await addDoc(collection(db, 'students'), payload)
-  return { id: ref.id, ...stripSensitive(payload) }
+  try {
+    await setDoc(ref, payload)
+  } catch (e) {
+    console.error('registerStudent/setDoc failed:', e)
+    throw e
+  }
+  // Public friend-search profile (P2-1). Best-effort: the rules allow an owner
+  // to create student_profiles/{studentId} directly.
+  try {
+    const profile = {
+      studentId: ref.id,
+      name,
+      nickname: student.nickname || '',
+      nameLowerWords,
+      nicknameLower: (student.nickname || '').toLowerCase().trim(),
+      year: student.year || String(new Date().getFullYear()),
+      updatedAt: new Date().toISOString(),
+    }
+    await setDoc(doc(db, 'student_profiles', ref.id), profile)
+  } catch (e) {
+    console.error('registerStudent/syncStudentProfile failed:', e?.message || e)
+  }
+  return stripSensitive({ id: ref.id, ...payload })
 }
 
-async function findStudent(name) {
-  const nameLower = name.toLowerCase().trim()
-  // Try indexed query first
-  const q = query(collection(db, 'students'), where('nameLower', '==', nameLower))
-  let snapshot = await getDocs(q)
-  if (!snapshot.empty) {
-    const d = snapshot.docs[0]
-    return { id: d.id, ...d.data() }
-  }
-  // Fallback: scan legacy users without nameLower
-  const allSnap = await getDocs(collection(db, 'students'))
-  const legacy = allSnap.docs.find((d) => !d.data().nameLower && d.data().name?.toLowerCase().trim() === nameLower)
-  if (!legacy) return null
-  // Migrate: add nameLower to legacy user
-  await updateDoc(doc(db, 'students', legacy.id), { nameLower })
-  return { id: legacy.id, ...legacy.data(), nameLower }
+// Returns the signed-in Firebase user's student profile (by UID), or null.
+async function getStudentByUid(uid) {
+  if (!uid) return null
+  const snap = await getDocs(query(collection(db, 'students'), where('uid', '==', uid)))
+  if (snap.empty) return null
+  const d = snap.docs[0]
+  return stripSensitive({ id: d.id, ...d.data() })
 }
 
-async function findStudentSafe(name) {
-  const found = await findStudent(name)
-  return found ? stripSensitive(found) : null
+async function getStudentById(id) {
+  const d = await getDoc(doc(db, 'students', id))
+  if (!d.exists()) return null
+  return stripSensitive({ id: d.id, ...d.data() })
+}
+
+// Changes a password for an already-known name. Signs the user in (acts as
+// re-auth) then updates the password. Used by both the logged-in change flow
+// and the "forgot password" flow (where the user is not yet signed in).
+async function changePassword(name, currentPassword, newPassword) {
+  if (!newPassword || newPassword.length < 8) throw new Error('Password must be at least 8 characters')
+  const nameLower = (name || '').toLowerCase().trim()
+  const email = studentAuthEmail(nameLower)
+  const cred = await signInWithEmailAndPassword(auth, email, currentPassword)
+  await updatePassword(cred.user, newPassword)
+  return true
+}
+
+// Admin sign-in: returns true if the signed-in admin carries the admin claim.
+async function verifyAdminSession() {
+  const user = auth.currentUser
+  if (!user) return false
+  try {
+    // Force a token refresh so a freshly-applied `admin` custom claim is
+    // present. Cached tokens can lag behind claim changes and cause admin-only
+    // callables (e.g. adminDeleteStudent) to return permission-denied.
+    await user.getIdToken(true)
+    const token = await getIdTokenResult(user, true)
+    return !!token.claims.admin
+  } catch {
+    return false
+  }
 }
 
 async function updateStudent(id, data) {
@@ -163,4 +216,18 @@ async function getStudentsCount(year) {
   }
 }
 
-export { getAccessStatus, registerStudent, findStudent, updateStudent, deleteStudent, listenStudents, getStudentsPage, getStudentsCount, hashPassword, verifyPassword, findStudentSafe, stripSensitive, incrementFreeAttempts }
+export {
+  getAccessStatus,
+  registerStudent,
+  getStudentByUid,
+  getStudentById,
+  changePassword,
+  verifyAdminSession,
+  updateStudent,
+  deleteStudent,
+  listenStudents,
+  getStudentsPage,
+  getStudentsCount,
+  stripSensitive, stripPersisted,
+  incrementFreeAttempts,
+}

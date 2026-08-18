@@ -9,15 +9,16 @@ export { db, load, save } from './db'
 
 export { normalizeTopic, setTopics, getTopics, listenTopics } from './topics'
 
-export { getAccessStatus, registerStudent, findStudent, updateStudent, deleteStudent, listenStudents, getStudentsPage, getStudentsCount, hashPassword, verifyPassword, stripSensitive, incrementFreeAttempts } from './students'
+export { getAccessStatus, registerStudent, getStudentByUid, getStudentById, changePassword, verifyAdminSession, updateStudent, deleteStudent, listenStudents, getStudentsPage, getStudentsCount, stripSensitive, stripPersisted, incrementFreeAttempts, studentAuthEmail, ADMIN_EMAIL } from './students'
 
-export { addScore, listenScores, getStudentScores } from './scores'
+export { startQuiz, submitQuiz, listenScores, getStudentScores, getStudentScoresAdmin, fetchDetails } from './scores'
 
 export {
   addQuestion,
   editQuestion,
   deleteQuestion,
   getQuestions,
+  getQuestionsWithAnswers,
   listenQuestions,
   copyQuestionsToWeek,
   saveQuestionLimit,
@@ -27,8 +28,10 @@ export {
 
 export { setActiveWeek, getActiveWeek, listenActiveWeek, setQuizDates, getQuizDates, listenQuizDates } from './settings'
 
-export { addPayment, listenPayments, extendSubscription, getPaymentsPage } from './payments'
+export { addPayment, listenPayments, getPaymentsPage } from './payments'
 
 export { getConsistencyRank } from './ranks'
 
 export { logEvent } from './analytics'
+
+export { sendTeacherOtp, registerTeacher, teacherSignIn, getTeacherByUid, teacherUpdateDetails, getTeacherDashboard, adminGetTeachers } from './teachers'
