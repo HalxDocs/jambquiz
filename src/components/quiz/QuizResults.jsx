@@ -81,7 +81,9 @@ export default function QuizResults({
                     <span className={`text-[10px] font-bold font-label w-8 text-right shrink-0 ${sp >= 70 ? 'text-green-600' : sp >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>{sp}%</span>
                     <span className="text-[#CCC] text-xs shrink-0 w-3">{isExp ? '▲' : '▼'}</span>
                   </button>
-                  {isExp && <Corrections questions={r.questions} answers={r.answers} />}
+                  {isExp && (r.released === false || !r.questions
+                    ? <p className="text-xs text-[#AAA] font-label py-2">Corrections will unlock once the quiz window closes.</p>
+                    : <Corrections questions={r.questions} answers={r.answers} />)}
                 </div>
               )
             })}

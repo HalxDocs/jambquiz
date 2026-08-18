@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import SEO from '../components/seo/SEO'
-import { load, save, addScore, getQuestions, getTopics, getQuestionLimit, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, WEEKS, incrementFreeAttempts, logEvent } from '../store/useStore'
+import { startQuiz, submitQuiz, getTopics, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, WEEKS, incrementFreeAttempts, logEvent } from '../store/useStore'
 
-const questionCache = new Map()
 import QuizTimer from '../components/quiz/QuizTimer'
 import QuestionCard from '../components/quiz/QuestionCard'
 import QuestionNav from '../components/quiz/QuestionNav'
@@ -25,15 +24,6 @@ function isInQuizWindow(quizDates) {
   return (day === 5 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
 }
 
-function shuffleAndPick(arr, count) {
-  const shuffled = [...arr]
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-  }
-  return shuffled.slice(0, Math.min(count, arr.length))
-}
-
 const ABBR = {
   'Mathematics': 'Math', 'English Language': 'English', 'Physics': 'Physics',
   'Chemistry': 'Chem', 'Biology': 'Bio', 'Government': 'Govt',
@@ -45,6 +35,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   const [quizData, setQuizData] = useState({}) // { [subject]: { questions, answers, currentQ } }
   const quizDataRef = useRef(quizData)
   quizDataRef.current = quizData
+  const [sessionId, setSessionId] = useState(null)
   const [activeSubject, setActiveSubject] = useState(null)
   const [timeLeft, setTimeLeft] = useState(60 * 60)
   const [submitting, setSubmitting] = useState(false)
@@ -91,36 +82,33 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     if (!currentWeek && !retakeData) return
     if (step !== 'init') return
     const { status } = getAccessStatus(student)
+    if (status === 'suspended') { setStep('suspended'); return }
     if (status === 'expired') { setStep('expired'); return }
     if (!retakeData && !isInQuizWindow(quizDates)) { setStep('locked'); return }
     logEvent(student.id, 'quiz_loaded', { retake: !!retakeData })
     setStep('loading')
   }, [quizDatesReady, currentWeek])
 
-  // Clear question cache when week changes
-  useEffect(() => {
-    return () => { questionCache.clear() }
-  }, [weekLabel])
-
-  // Load questions when step becomes 'loading'
+  // Load quiz via a server-issued session (startQuiz). The server assigns the
+  // question set and returns the public content (no answer key).
   useEffect(() => {
     if (step !== 'loading') return
     const week = retakeData?.week || weekLabel
     ;(async () => {
       setErr('')
       try {
+        const res = await startQuiz({
+          studentId: student.id,
+          week,
+          retakeSubject: retakeData ? retakeData.subject : undefined,
+        })
+        if (!res || !res.ok) throw new Error('startQuiz failed')
+        setSessionId(res.sessionId)
         const data = {}
-        await Promise.all(subjects.map(async (subj) => {
-          const cacheKey = `${subj}|${week}`
-          if (!questionCache.has(cacheKey)) {
-            questionCache.set(cacheKey, await getQuestions(subj, week))
-          }
-          const allQ = questionCache.get(cacheKey)
-          if (!allQ.length) return
-          const limit = await getQuestionLimit(subj, week)
-          const picked = shuffleAndPick(allQ, limit)
-          data[subj] = { questions: picked, answers: new Array(picked.length).fill(null), currentQ: 0 }
-        }))
+        Object.keys(res.questions || {}).forEach((subj) => {
+          const qs = res.questions[subj] || []
+          data[subj] = { questions: qs, answers: new Array(qs.length).fill(null), currentQ: 0 }
+        })
         if (!Object.keys(data).length) {
           setErr(`No questions available for ${week} yet. Check back later.`)
           setStep('error')
@@ -129,9 +117,18 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
         setQuizData(data)
         setActiveSubject(Object.keys(data)[0])
         setStep('quiz')
-      } catch {
-        setErr('Failed to load questions. Check your connection.')
-        setStep('error')
+      } catch (e) {
+        const msg = (e && e.message) || ''
+        if (/locked/i.test(msg)) {
+          setErr('The quiz window is not open yet.')
+          setStep('locked')
+        } else if (/deadline/i.test(msg)) {
+          setErr('Time is up — your quiz could not be submitted.')
+          setStep('error')
+        } else {
+          setErr('Failed to load questions. Check your connection.')
+          setStep('error')
+        }
       }
     })()
   }, [step])
@@ -163,80 +160,95 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     setQuizData((prev) => ({ ...prev, [subj]: { ...prev[subj], currentQ: idx } }))
   }
 
-  const handleSubmitAll = () => {
+  const handleSubmitAll = async () => {
     if (submitting) return
+    if (!sessionId) { setErr('Quiz session missing — please restart the quiz.'); setStep('error'); return }
     setSubmitting(true)
     clearInterval(timerRef.current)
 
     const qd = quizDataRef.current
-    const results = []
-    for (const subj of Object.keys(qd)) {
-      const { questions, answers } = qd[subj]
-      let correct = 0, wrong = 0, unanswered = 0
-      questions.forEach((q, i) => {
-        if (answers[i] === null) unanswered++
-        else if (answers[i] === q.answer) correct++
-        else wrong++
-      })
-      const score = Math.round((Math.max(0, correct * 4 - wrong) / (questions.length * 4)) * 100)
-      results.push({
-        studentId: student.id,
-        studentName: student.name,
-        subject: subj,
-        week: weekLabel,
-        score, outOf: 100, correct, wrong, unanswered, total: questions.length,
-        answers,
-        questions: questions.map((q) => ({
-          question: q.question, options: q.options, answer: q.answer,
-          explanation: q.explanation || '', image: q.image || '',
-          optionImages: q.optionImages || ['', '', '', ''],
-          explanationImage: q.explanationImage || '',
-        })),
-        date: new Date().toISOString(),
-      })
-    }
 
-    // ── show results immediately (optimistic) ──
-    if (results.length > 0) setLastScore(results[0])
-    if (setRetakeData) setRetakeData(null)
-    if (retakeData && results.length > 0) {
-      results.forEach((r) => markRevisionCompleted(revisionTopicKey(r.subject, r.week)))
-    }
-    const total = results.reduce((a, r) => a + r.score, 0)
-    const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
-    setAllResults(results)
-    setMedalToast({ medal, total, max: results.length * 100 })
-    const newFreeCount = (student.freeAttemptsUsed || 0) + 1
-    if (newFreeCount >= 2 && !student.subscriptionUntil && !retakeData) {
-      setPaymentPrompt('show')
-      paymentTimerRef.current = setTimeout(() => {
-        setPaymentPrompt(null)
-        setStep('done')
-      }, 3500)
-    } else {
-      setStep('done')
-    }
-    setSubmitting(false)
+    // Only the sessionId + chosen option indices leave the client. The server
+    // validates the exact assigned question set, so the answer key can't be
+    // enumerated one question at a time.
+    const answers = {}
+    Object.keys(qd).forEach((subj) => {
+      answers[subj] = qd[subj].answers.map((a) => (a === null || a === undefined ? -1 : a))
+    })
 
-    // ── persist to Firestore in background ──
-    Promise.all(results.map((r) => addScore(r))).then(() => {
-      const cached = load('jamb_scores_cache', [])
-      const trimmed = cached.slice(-50)
-      save('jamb_scores_cache', [...trimmed, ...results])
-    }).catch(() => {
-      console.error('Failed to save scores')
+    try {
+      const res = await submitQuiz({ sessionId, answers })
+      const graded = res && res.results ? res.results : []
+      // Merge the server grade with local question content for the corrections
+      // view. During the live window corrections stay locked (released=false).
+      const results = Object.keys(qd).map((subj) => {
+        const g = graded.find((r) => r.subject === subj) || {}
+        const local = qd[subj]
+        const released = g.released !== false
+        return {
+          studentId: student.id,
+          studentName: student.name,
+          subject: subj,
+          week: weekLabel,
+          score: g.score ?? 0,
+          outOf: 100,
+          correct: g.correct ?? 0,
+          wrong: g.wrong ?? 0,
+          unanswered: g.unanswered ?? 0,
+          total: g.total ?? local.questions.length,
+          questions: released && g.questions ? g.questions : null,
+          answers: released && g.answers ? g.answers : null,
+          released,
+          date: new Date().toISOString(),
+        }
+      })
+
+      if (results.length > 0) setLastScore(results[0])
+      if (setRetakeData) setRetakeData(null)
+      if (retakeData && results.length > 0) {
+        results.forEach((r) => {
+          const pct = Math.round((r.score / (r.outOf || 100)) * 100)
+          if (pct >= 50) markRevisionCompleted(revisionTopicKey(r.subject, r.week))
+        })
+      }
+      const total = results.reduce((a, r) => a + r.score, 0)
+      const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
+      setAllResults(results)
+      setMedalToast({ medal, total, max: results.length * 100 })
+
       try {
         const cached = load('jamb_scores_cache', [])
         const trimmed = cached.slice(-50)
         save('jamb_scores_cache', [...trimmed, ...results])
       } catch {}
-    })
-    incrementFreeAttempts(student.id).catch(() => {})
-    logEvent(student.id, 'quiz_completed', {
-      subjects: results.map((r) => r.subject),
-      scores: results.map((r) => r.score),
-      total: results.reduce((a, r) => a + r.score, 0),
-    }).catch(() => {})
+
+      incrementFreeAttempts(student.id).catch(() => {})
+      logEvent(student.id, 'quiz_completed', {
+        subjects: results.map((r) => r.subject),
+        scores: results.map((r) => r.score),
+        total,
+      }).catch(() => {})
+
+      const newFreeCount = (student.freeAttemptsUsed || 0) + 1
+      if (newFreeCount >= 2 && !student.subscriptionUntil && !retakeData) {
+        setPaymentPrompt('show')
+        paymentTimerRef.current = setTimeout(() => {
+          setPaymentPrompt(null)
+          setStep('done')
+        }, 3500)
+      } else {
+        setStep('done')
+      }
+    } catch (e) {
+      console.error('Failed to submit quiz', e)
+      if (e && /alreadySubmitted/i.test(e.message || '')) {
+        setStep('done')
+      } else {
+        setErr('Could not submit your quiz. Check your connection and try again.')
+        setStep('error')
+      }
+    }
+    setSubmitting(false)
   }
 
   useEffect(() => { return () => clearTimeout(paymentTimerRef.current) }, [])
@@ -291,6 +303,25 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
           <div className="flex gap-2">
             <button onClick={() => setView('dashboard')} className="flex-1 border border-[#E5E5E5] text-[#555] py-3 rounded-xl text-sm font-bold font-display">Back</button>
             <button onClick={() => setView('subscribe')} className="flex-1 bg-[#111] text-white py-3 rounded-xl text-sm font-bold font-display">Subscribe →</button>
+          </div>
+        </div>
+      </div>
+    </>
+    )
+  }
+
+  if (step === 'suspended') {
+    return (
+      <>
+      <SEO title="Quiz" />
+      <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
+        <div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 max-w-sm w-full text-center">
+          <span className="text-3xl">🟥</span>
+          <h2 className="text-xl font-bold text-[#111] font-display mt-3 mb-2">Account Suspended</h2>
+          <p className="text-sm text-[#888] font-label mb-6">You've missed 6 weekly tests. Reactivate with recovery code or pay ₦800.</p>
+          <div className="flex gap-2">
+            <button onClick={() => setView('dashboard')} className="flex-1 border border-[#E5E5E5] text-[#555] py-3 rounded-xl text-sm font-bold font-display">Back</button>
+            <button onClick={() => setView('subscribe')} className="flex-1 bg-[#111] text-white py-3 rounded-xl text-sm font-bold font-display">Reactivate →</button>
           </div>
         </div>
       </div>

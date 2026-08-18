@@ -72,7 +72,19 @@ function AshMedal() {
   )
 }
 
-function MedalCell({ week, hasTaken, isPast, isCurrent }) {
+function MedalCell({ week, hasTaken, isPast, isCurrent, beforeJoin }) {
+  if (beforeJoin) {
+    return (
+      <div title={`${week} — Not yet joined`} className="flex flex-col items-center flex-1 max-w-[10%]" style={{ opacity: 0.08 }}>
+        <span className="text-[8px] text-[#666] font-label mb-0.5 hidden sm:block truncate w-full text-center">
+          {week.replace('Week ', '')}
+        </span>
+        <svg width="24" height="38" viewBox="0 0 24 38" fill="none">
+          <circle cx="12" cy="28" r="8" fill="#222" />
+        </svg>
+      </div>
+    )
+  }
   const opacity = !hasTaken && !isPast ? (isCurrent ? 0.45 : 0.15) : 1
   return (
     <div
@@ -88,7 +100,7 @@ function MedalCell({ week, hasTaken, isPast, isCurrent }) {
   )
 }
 
-export default function MedalTrack({ weeklyMedals, currentWeekIdx }) {
+export default function MedalTrack({ weeklyMedals, currentWeekIdx, startedAtIdx }) {
   return (
     <div className="relative space-y-2">
       {/* Gradient defs — one definition, referenced by all medal instances */}
@@ -122,13 +134,15 @@ export default function MedalTrack({ weeklyMedals, currentWeekIdx }) {
         <div key={rowIdx} className="flex justify-between">
           {row.map((week, i) => {
             const idx = rowIdx * 9 + i
+            const beforeJoin = startedAtIdx != null && idx < startedAtIdx
             return (
               <MedalCell
                 key={week}
                 week={week}
                 hasTaken={!!weeklyMedals[idx]}
-                isPast={idx < currentWeekIdx}
-                isCurrent={idx === currentWeekIdx}
+                isPast={startedAtIdx != null && !beforeJoin && idx < currentWeekIdx}
+                isCurrent={!beforeJoin && idx === currentWeekIdx}
+                beforeJoin={beforeJoin}
               />
             )
           })}

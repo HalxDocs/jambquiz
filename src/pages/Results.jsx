@@ -47,6 +47,9 @@ export default function Results({ student, setView }) {
     : null
 
   const renderCorrections = (s) => {
+    if (s.released === false) {
+      return <p className="text-xs text-white/40 font-label py-2">Corrections will unlock once the quiz window closes.</p>
+    }
     if (!s.questions) return <p className="text-xs text-white/30 font-label py-2">No corrections data</p>
     return (
       <div className="mt-2 space-y-2">
@@ -185,20 +188,20 @@ export default function Results({ student, setView }) {
           <div className="bg-[#111] border border-[#333] rounded-2xl p-4 mb-4">
             <div className="flex items-center gap-3 mb-2">
               <div className="flex items-center gap-1.5">
-                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${(student.missedStreak || 0) >= CARD_YELLOW_1 ? 'bg-yellow-400' : 'bg-yellow-100'}`} />
-                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${(student.missedStreak || 0) >= CARD_YELLOW_2 ? 'bg-yellow-400' : 'bg-yellow-100'}`} />
-                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${(student.missedStreak || 0) >= CARD_RED ? 'bg-red-500' : 'bg-red-100'}`} />
+                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${(student.missedStreak || 0) >= CARD_YELLOW_1 ? 'bg-gradient-to-b from-yellow-400 to-yellow-500' : 'bg-yellow-100'}`} />
+                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${(student.missedStreak || 0) >= CARD_YELLOW_2 ? 'bg-gradient-to-b from-yellow-400 to-yellow-500' : 'bg-yellow-100'}`} />
+                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${(student.missedStreak || 0) >= CARD_RED ? 'bg-gradient-to-b from-red-500 to-red-700' : 'bg-red-100'}`} />
               </div>
               <p className="text-xs font-bold text-white font-display">Attendance Warning</p>
             </div>
             <p className="text-[11px] text-[#888] font-label leading-relaxed">
               {student.missedStreak >= CARD_RED
-                ? '3 Yellow cards = Red card (Account suspended). Reactivate with recovery code or pay N800.'
+                ? 'Account suspended. Reactivate with recovery code or pay N800.'
                 : student.missedStreak >= CARD_YELLOW_2
-                  ? '2 Yellow cards active. Miss 1 more week and your account will be suspended.'
-                  : '1 Yellow card active. Miss 1 more week for a second yellow card.'}
+                  ? 'Final warning — your account will be suspended if you keep missing.'
+                  : 'Warning — keep missing and you will get a second yellow card.'}
             </p>
-            <p className="text-[10px] text-[#555] font-label mt-2">Miss 2 weeks test back to back = Yellow card · 3 Yellow cards = Red card</p>
+            <p className="text-[10px] text-[#555] font-label mt-2">Miss 2 weeks = Yellow card · 3 cards = Suspended</p>
           </div>
         )}
 

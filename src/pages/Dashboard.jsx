@@ -10,9 +10,10 @@ import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED, computeCardLevel } from '../sto
 import { db, doc, onSnapshot } from '../firebase'
 import { registerPushNotifications, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
+import { useThemeStore } from '../store/theme'
 import RankToast from '../components/dashboard/RankToast'
-import PatchesOverlay from '../components/dashboard/PatchesOverlay'
 import PatchesModal from '../components/dashboard/PatchesModal'
+import PatchTopicsModal from '../components/dashboard/PatchTopicsModal'
 import SEO from '../components/seo/SEO'
 import MedalTrack from '../components/dashboard/MedalTrack'
 import SubscriptionBanner from '../components/dashboard/SubscriptionBanner'
@@ -100,62 +101,17 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const [patchesActive, setPatchesActive] = useState(() => localStorage.getItem('patches_active') === '1')
   const [currentPatchIdx, setCurrentPatchIdx] = useState(0)
   const [showPatchesModal, setShowPatchesModal] = useState(false)
+  const [showPatchTopics, setShowPatchTopics] = useState(false)
+  const [patchTopicNames, setPatchTopicNames] = useState({})
   const [selectedPatchSubjects, setSelectedPatchSubjectsLocal] = useState([])
 
   const [keyPointIdx, setKeyPointIdx] = useState(0)
   const [kpDismissed, setKpDismissed] = useState(false)
   const [patchesToast, setPatchesToast] = useState(false)
 
-  const [isDark, setIsDark] = useState(() => localStorage.getItem('app_theme') !== 'light')
-
-  // Inject/remove dark mode styles
-  useEffect(() => {
-    const existing = document.getElementById('dashboard-dark-styles')
-    if (isDark) {
-      if (!existing) {
-        const style = document.createElement('style')
-        style.id = 'dashboard-dark-styles'
-        style.textContent = `
-          body.dashboard-dark { background: #0A0A0A !important; }
-          body.dashboard-dark .bg-\\[\\#F8F8F7\\] { background: #0A0A0A !important; }
-          body.dashboard-dark .bg-white { background-color: #161616 !important; }
-          body.dashboard-dark .border-\\[\\#EBEBEB\\] { border-color: #2A2A2A !important; }
-          body.dashboard-dark .border-\\[\\#E5E5E5\\] { border-color: #2A2A2A !important; }
-          body.dashboard-dark .border-\\[\\#F3F3F2\\] { border-color: #2A2A2A !important; }
-          body.dashboard-dark .text-\\[\\#111\\] { color: #EDEDED !important; }
-          body.dashboard-dark .text-\\[\\#333\\] { color: #DDD !important; }
-          body.dashboard-dark .text-\\[\\#555\\] { color: #AAA !important; }
-          body.dashboard-dark .text-\\[\\#666\\] { color: #999 !important; }
-          body.dashboard-dark .text-\\[\\#888\\] { color: #888 !important; }
-          body.dashboard-dark .text-\\[\\#AAA\\] { color: #777 !important; }
-          body.dashboard-dark .text-\\[\\#CCC\\] { color: #666 !important; }
-          body.dashboard-dark .bg-\\[\\#F3F3F2\\] { background-color: #1A1A1A !important; }
-          body.dashboard-dark .bg-\\[\\#FAFAF9\\] { background-color: #1A1A1A !important; }
-          body.dashboard-dark .bg-\\[\\#F5F5F5\\] { background-color: #1A1A1A !important; }
-          body.dashboard-dark select { background-color: #161616 !important; color: #DDD !important; border-color: #2A2A2A !important; }
-          body.dashboard-dark input { background-color: #161616 !important; color: #DDD !important; border-color: #2A2A2A !important; }
-        `
-        document.head.appendChild(style)
-      }
-      document.body.classList.add('dashboard-dark')
-    } else {
-      document.body.classList.remove('dashboard-dark')
-      if (existing) existing.remove()
-    }
-    return () => {
-      document.body.classList.remove('dashboard-dark')
-      const s = document.getElementById('dashboard-dark-styles')
-      if (s) s.remove()
-    }
-  }, [isDark])
-
-  const toggleTheme = () => {
-    setIsDark((prev) => {
-      const next = !prev
-      localStorage.setItem('app_theme', next ? 'dark' : 'light')
-      return next
-    })
-  }
+  const theme = useThemeStore((s) => s.theme)
+  const isDark = theme === 'dark'
+  const toggleTheme = useThemeStore((s) => s.toggleTheme)
 
   const missedStreak = student.missedStreak || 0
   const isSuspended = student.suspended || false
@@ -320,7 +276,12 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const currentWeekIdx = WEEKS.indexOf(currentWeek)
   const rankData = getConsistencyRank(scores)
   const weeklyMedals = WEEKS.map((week) => scores.some((s) => s.week === week) ? 'gold' : null)
-  const cardLevel = computeCardLevel(weeklyMedals)
+  // Fresh accounts (zero scores) have no history: no "started" week to dim and no
+  // card level to compute. Everything renders brand-new until their first quiz.
+  const hasAnyScores = scores.length > 0
+  const firstScoreIdx = hasAnyScores ? Math.min(...scores.map(s => WEEKS.indexOf(s.week))) : null
+  const activeMedals = hasAnyScores ? weeklyMedals.slice(firstScoreIdx, currentWeekIdx + 1) : []
+  const cardLevel = computeCardLevel(activeMedals)
 
   const todaySubjectsAttempted = scores.filter((s) => s.week === currentWeek && new Date(s.date).toDateString() === new Date().toDateString()).map((s) => s.subject)
   const hasAttemptedAllSubjects = student.subjects.length > 0 && student.subjects.every((sub) => todaySubjectsAttempted.includes(sub))
@@ -334,7 +295,23 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const thisWeekTopics = student.subjects.map((sub) => ({ subject: sub, topic: normalizeTopic(weekTopics[sub]) })).filter((t) => t.topic && t.topic.name)
 
   const allKeyPoints = student.subjects.flatMap((sub) => { const topic = normalizeTopic(weekTopics[sub]); if (!topic?.keyPoints) return []; return topic.keyPoints.filter((kp) => kp?.trim()).map((kp) => ({ subject: sub, point: kp })) })
-  const weakSubjects = student.subjects.filter((sub) => { const pct = getSubjectPct(sub); return pct === null || pct < 50 })
+  const weakSubjects = student.subjects.filter((sub) => { const pct = getSubjectPct(sub); return pct !== null && pct < 50 })
+
+  // Topic-level failures: best attempt per subject+week scoring below 50%,
+  // excluding topics already passed on retake (tracked in localStorage).
+  const failedTopics = useMemo(() => {
+    const best = {}
+    scores.forEach((s) => {
+      if (!s.subject || !s.week) return
+      const key = revisionTopicKey(s.subject, s.week)
+      if (!best[key] || s.score > best[key].score) best[key] = s
+    })
+    return Object.values(best)
+      .map((s) => ({ ...s, pct: Math.round((s.score / (s.outOf || 100)) * 100) }))
+      .filter((s) => s.pct < 50)
+      .filter((s) => !isRevisionCompleted(revisionTopicKey(s.subject, s.week)))
+      .sort((a, b) => a.subject.localeCompare(b.subject))
+  }, [scores])
   const currentWeekWeakKeyPoints = weakSubjects.flatMap((sub) => { const topic = normalizeTopic(weekTopics[sub]); if (!topic?.keyPoints) return []; return topic.keyPoints.filter((kp) => kp?.trim()).map((kp) => ({ subject: sub, point: kp })) })
 
   // Revision queue — automatically cycles through all weak topics, 2 per week
@@ -372,15 +349,41 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   useEffect(() => { if (patchesActive) { const saved = localStorage.getItem('patches_selected_subjects'); if (saved) { try { const parsed = JSON.parse(saved); setSelectedPatchSubjectsLocal(parsed); useUserNotificationStore.getState().setSelectedPatchSubjects(parsed) } catch {} } } }, [])
 
-  const handleOpenPatchesModal = () => { setSelectedPatchSubjectsLocal(weakSubjects.length > 0 ? [...weakSubjects] : [...student.subjects]); setShowPatchesModal(true) }
+  // Resolve topic display names for the failed-topics list.
+  useEffect(() => {
+    if (!failedTopics.length) { setPatchTopicNames({}); return }
+    let active = true
+    const weeks = [...new Set(failedTopics.map((t) => t.week))]
+    Promise.all(weeks.map((w) => getTopics(w))).then((results) => {
+      if (!active) return
+      const map = {}
+      results.forEach((topicsData, i) => {
+        if (!topicsData) return
+        const week = weeks[i]
+        failedTopics.filter((t) => t.week === week).forEach((t) => {
+          const topic = normalizeTopic(topicsData[t.subject])
+          map[revisionTopicKey(t.subject, t.week)] = topic?.name || t.week
+        })
+      })
+      setPatchTopicNames(map)
+    }).catch(() => {})
+    return () => { active = false }
+  }, [failedTopics])
+
+  const patchTopics = failedTopics.map((t) => ({ ...t, topicName: patchTopicNames[revisionTopicKey(t.subject, t.week)] || t.week }))
+
+  const handleOpenPatchesModal = () => { setShowPatchesModal(true) }
   const handleConfirmPatches = () => {
-    const subjects = selectedPatchSubjects.length > 0 ? selectedPatchSubjects : (weakSubjects.length > 0 ? weakSubjects : student.subjects)
-    setPatchesActive(true); localStorage.setItem('patches_active', '1'); localStorage.setItem('patches_selected_subjects', JSON.stringify(subjects))
-    setSelectedPatchSubjectsLocal(subjects); useUserNotificationStore.getState().setSelectedPatchSubjects(subjects); useUserNotificationStore.getState().setPatchesActive(true)
+    const subjects = [...new Set(failedTopics.map((t) => t.subject))]
+    const notifySubjects = subjects.length > 0 ? subjects : (weakSubjects.length > 0 ? weakSubjects : student.subjects)
+    setPatchesActive(true); localStorage.setItem('patches_active', '1'); localStorage.setItem('patches_selected_subjects', JSON.stringify(notifySubjects))
+    setSelectedPatchSubjectsLocal(notifySubjects); useUserNotificationStore.getState().setSelectedPatchSubjects(notifySubjects); useUserNotificationStore.getState().setPatchesActive(true)
     setCurrentPatchIdx(0); setShowPatchesModal(false)
-    saveNotificationStateToFirestore(student.id, { patchesActive: true, selectedPatchSubjects: subjects, seenPoints: useUserNotificationStore.getState().seenPoints, currentCycleIndex: useUserNotificationStore.getState().currentCycleIndex, lastNotifiedAt: useUserNotificationStore.getState().lastNotifiedAt })
+    saveNotificationStateToFirestore(student.id, { patchesActive: true, selectedPatchSubjects: notifySubjects, seenPoints: useUserNotificationStore.getState().seenPoints, currentCycleIndex: useUserNotificationStore.getState().currentCycleIndex, lastNotifiedAt: useUserNotificationStore.getState().lastNotifiedAt })
   }
-  const handleTogglePatchSubject = (sub) => setSelectedPatchSubjectsLocal((prev) => prev.includes(sub) ? prev.filter((s) => s !== sub) : [...prev, sub])
+  const handleOpenPatchTopics = () => setShowPatchTopics(true)
+  const handleTopicCorrection = (item) => { setSelectedSubjectDetail(item.subject); setView('subject-detail') }
+  const handleTopicRetake = (item) => { if (setRetakeData) { setRetakeData({ subject: item.subject, week: item.week, questions: item.questions }); setView('quiz') } }
   const handleDeactivatePatches = () => {
     setPatchesActive(false); localStorage.removeItem('patches_active'); localStorage.removeItem('patches_selected_subjects')
     useUserNotificationStore.getState().setPatchesActive(false); useUserNotificationStore.getState().setSelectedPatchSubjects([])
@@ -388,7 +391,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   }
 
   const P = patchesActive ? { bg: 'bg-red-700', hoverBg: 'hover:bg-red-800', textColor: 'text-red-700' } : { bg: 'bg-[#111]', hoverBg: 'hover:bg-[#222]', textColor: 'text-[#111]' }
-  const patchesUnlocked = (() => { const d = new Date(); return d.getMonth() === 5 && d.getDate() >= 21 })()
+  const patchesUnlocked = (() => { const now = new Date(); return now >= new Date(now.getFullYear(), 6, 15) })()
 
   return (
     <>
@@ -419,7 +422,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               <p className="text-xs text-[#AAA] font-label mt-0.5">
                 {pushPermission === 'denied'
                   ? 'Go to browser settings → Site settings → Notifications → Allow'
-                  : 'Learn bit by bit everyday with 247chops notifications. Enable notification'}
+                  : 'Learn bit by bit everyday with 247chops notifications lessons. Enable notifications.'}
               </p>
             </div>
             {pushPermission === 'default' && (
@@ -432,16 +435,6 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
             )}
           </div>
         </div>
-      )}
-
-      {patchesActive && patchKeyPoints.length > 0 && (
-        <PatchesOverlay
-          currentIdx={currentPatchIdx} total={patchKeyPoints.length}
-          subject={patchKeyPoints[currentPatchIdx]?.subject}
-          point={patchKeyPoints[currentPatchIdx]?.point}
-          onNext={() => setCurrentPatchIdx((i) => (i + 1) % patchKeyPoints.length)}
-          onDeactivate={handleDeactivatePatches}
-        />
       )}
 
       {showAppeal && !appealResolved && (
@@ -457,11 +450,18 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
       {showPatchesModal && (
         <PatchesModal
-          subjects={weakSubjects.length > 0 ? weakSubjects : student.subjects}
-          selected={selectedPatchSubjects}
-          onToggle={handleTogglePatchSubject}
+          topicCount={failedTopics.length}
           onConfirm={handleConfirmPatches}
           onCancel={() => setShowPatchesModal(false)}
+        />
+      )}
+
+      {showPatchTopics && (
+        <PatchTopicsModal
+          topics={patchTopics}
+          onCorrection={handleTopicCorrection}
+          onRetake={handleTopicRetake}
+          onClose={() => setShowPatchTopics(false)}
         />
       )}
 
@@ -488,24 +488,26 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                   className="flex items-center gap-1.5 text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-2.5 py-2 font-label transition-colors shrink-0"
                 >
                   <HugeiconsIcon icon={isDark ? Sun01Icon : Moon01Icon} size={14} color="currentColor" />
-                  <span>{isDark ? 'Lightmode' : 'Darkmode'}</span>
                 </button>
                 <button onClick={() => { if (setStudent) setStudent(null); setView('home') }}
                   className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0">Log out</button>
               </div>
               <div className="flex items-center gap-1.5">
-                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${cardLevel >= 1 ? 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]' : 'bg-yellow-100'}`} />
-                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${cardLevel >= 2 ? 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]' : 'bg-yellow-100'}`} />
-                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${cardLevel >= 3 ? 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.4)]' : 'bg-red-100'}`} />
+                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${cardLevel >= 1 ? 'bg-gradient-to-b from-yellow-400 to-yellow-500 shadow-[0_0_8px_rgba(250,204,21,0.5)]' : 'bg-yellow-100'}`} />
+                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${cardLevel >= 2 ? 'bg-gradient-to-b from-yellow-400 to-yellow-500 shadow-[0_0_8px_rgba(250,204,21,0.5)]' : 'bg-yellow-100'}`} />
+                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${cardLevel >= 3 ? 'bg-gradient-to-b from-red-500 to-red-700 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'bg-red-100'}`} />
               </div>
             </div>
           </div>
 
-          <MedalTrack weeklyMedals={weeklyMedals} currentWeekIdx={currentWeekIdx} />
+          <MedalTrack weeklyMedals={weeklyMedals} currentWeekIdx={currentWeekIdx} startedAtIdx={firstScoreIdx} />
         </div>
 
         <SubscriptionBanner student={student} onSubscribe={() => setView('subscribe')} />
 
+        {patchesActive && patchKeyPoints.length > 0 && !kpDismissed && (
+          <KeyPointsCard point={patchKeyPoints[currentPatchIdx]} current={currentPatchIdx} total={patchKeyPoints.length} theme={P} onDismiss={() => setKpDismissed(true)} />
+        )}
         {allKeyPoints.length > 0 && !kpDismissed && !patchesActive && !isRedCard && (
           <KeyPointsCard point={allKeyPoints[keyPointIdx]} current={keyPointIdx} total={allKeyPoints.length} theme={P} onDismiss={() => setKpDismissed(true)} />
         )}
@@ -533,7 +535,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         <QuizCard
           currentWeek={currentWeek} quizTime={quizTime} quizDates={quizDates} timeLeft={timeLeft} theme={P}
           hasAttemptedAllSubjects={hasAttemptedAllSubjects} todaySubjectsAttempted={todaySubjectsAttempted}
-          onStartQuiz={() => { if (isRedCard) { setView('subscribe'); return }; const access = getAccessStatus(student); if (access.status === 'expired') setView('subscribe'); else setView('quiz') }}
+          onStartQuiz={() => { if (isRedCard) { return }; const access = getAccessStatus(student); if (access.status === 'expired') setView('subscribe'); else setView('quiz') }}
           onSubscribe={() => setView('subscribe')}
         />
 
@@ -548,7 +550,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                 className={`w-full rounded-xl py-3.5 text-sm font-bold transition-all font-display inline-flex items-center justify-center gap-1.5 ${patchesUnlocked ? 'bg-[#111] text-white hover:bg-[#222] active:scale-[0.99]' : 'bg-[#F3F3F2] text-[#CCC] cursor-not-allowed'}`}>
                 <HugeiconsIcon icon={HeartAddIcon} size={16} color="currentColor" /> ACTIVATE MY PATCHES
               </button>
-              {!patchesUnlocked && <p className="text-center text-[10px] text-[#CCC] font-label mt-1.5">Unlocks on June 21</p>}
+              {!patchesUnlocked && <p className="text-center text-[10px] text-[#CCC] font-label mt-1.5">Unlocks on July 15</p>}
             </>
           )}
         </div>
@@ -556,7 +558,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         {/* My Topics to Master */}
         <div className="mb-4">
           <button
-            onClick={patchesActive ? handleOpenPatchesModal : undefined}
+            onClick={patchesActive ? handleOpenPatchTopics : undefined}
             className={`w-full rounded-xl py-3 px-4 text-sm font-bold transition-all font-display flex items-center justify-between ${
               patchesActive
                 ? 'bg-white border border-[#EBEBEB] text-[#111] hover:border-[#111] active:scale-[0.99]'
@@ -565,10 +567,10 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
           >
             <span className="flex items-center gap-2">
               <HugeiconsIcon icon={Target01Icon} size={16} color={patchesActive ? 'currentColor' : '#AAA'} />
-              My Topics to Master
+              My Topics to Patch
             </span>
             <span className="flex items-center gap-1">
-              <span className="text-xs font-bold">{weakSubjects.length}</span>
+              <span className="text-xs font-bold">{failedTopics.length}</span>
               <span className="text-[10px]">▶️</span>
             </span>
           </button>

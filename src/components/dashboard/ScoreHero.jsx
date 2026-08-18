@@ -1,5 +1,5 @@
 export default function ScoreHero({ total, totalOut, theme, onViewResults }) {
-  if (total === null) return null
+  if (total == null || totalOut == null) return null
   const pct = Math.round((total / totalOut) * 100)
   const label = total >= 250 ? 'Strong' : total >= 180 ? 'Average' : 'Needs work'
   const labelColor = total >= 250 ? 'text-green-400' : total >= 180 ? 'text-yellow-400' : 'text-red-400'

@@ -148,21 +148,22 @@ export default function Leaderboard({ student, setView }) {
     let cancelled = false
     const timer = setTimeout(() => {
       const searchTerm = q.toLowerCase().trim()
-      const nameQuery = query(
-        collection(db, 'students'),
-      where('nameLower', '>=', searchTerm),
-      where('nameLower', '<', searchTerm + '~')
-    )
-    const nickQuery = query(
-      collection(db, 'students'),
-      where('nicknameLower', '>=', searchTerm),
-      where('nicknameLower', '<', searchTerm + '~')
-    )
-    Promise.all([getDocs(nameQuery), getDocs(nickQuery)]).then(async ([nameSnap, nickSnap]) => {
+      const searchWords = searchTerm.split(/\s+/).filter(Boolean)
+      // Friend-search reads the PUBLIC student_profiles collection (safe subset
+      // of name/nickname/year) — the full students docs are owner/admin-only.
+      const nameQuery = searchWords.length === 1
+        ? query(collection(db, 'student_profiles'), where('nameLowerWords', 'array-contains', searchWords[0]))
+        : query(collection(db, 'student_profiles'), where('nameLowerWords', 'array-contains-any', searchWords))
+      const nickQuery = query(
+        collection(db, 'student_profiles'),
+        where('nicknameLower', '>=', searchTerm),
+        where('nicknameLower', '<', searchTerm + '~')
+      )
+      Promise.all([getDocs(nameQuery), getDocs(nickQuery)]).then(async ([nameSnap, nickSnap]) => {
       if (cancelled) return
       const map = new Map()
-      nameSnap.docs.forEach((d) => { if (!map.has(d.id)) map.set(d.id, { id: d.id, ...d.data() }) })
-      nickSnap.docs.forEach((d) => { if (!map.has(d.id)) map.set(d.id, { id: d.id, ...d.data() }) })
+      nameSnap.docs.forEach((d) => { if (!map.has(d.id)) map.set(d.id, { id: d.id, name: d.data().name, nickname: d.data().nickname, year: d.data().year }) })
+      nickSnap.docs.forEach((d) => { if (!map.has(d.id)) map.set(d.id, { id: d.id, name: d.data().name, nickname: d.data().nickname, year: d.data().year }) })
       const students = Array.from(map.values()).slice(0, 20)
       const rankPromises = students.map((s) =>
         getDoc(doc(db, 'leaderboard_student_ranks', s.id)).then((snap) =>
@@ -302,9 +303,9 @@ export default function Leaderboard({ student, setView }) {
                             <span className={`text-[9px] font-bold font-label ${title.color}`}>{title.label}</span>
                             {(student.missedStreak || 0) >= CARD_YELLOW_1 && (
                               <div className="flex items-center gap-0.5 ml-0.5">
-                                <div className={`w-2 h-3 rounded-[1px] ${(student.missedStreak || 0) >= CARD_YELLOW_1 ? 'bg-yellow-400' : 'bg-yellow-100'}`} />
-                                <div className={`w-2 h-3 rounded-[1px] ${(student.missedStreak || 0) >= CARD_YELLOW_2 ? 'bg-yellow-400' : 'bg-yellow-100'}`} />
-                                <div className={`w-2 h-3 rounded-[1px] ${(student.missedStreak || 0) >= CARD_RED ? 'bg-red-500' : 'bg-red-100'}`} />
+                                <div className={`w-2 h-3 rounded-[1px] ${(student.missedStreak || 0) >= CARD_YELLOW_1 ? 'bg-gradient-to-b from-yellow-400 to-yellow-500' : 'bg-yellow-100'}`} />
+                                <div className={`w-2 h-3 rounded-[1px] ${(student.missedStreak || 0) >= CARD_YELLOW_2 ? 'bg-gradient-to-b from-yellow-400 to-yellow-500' : 'bg-yellow-100'}`} />
+                                <div className={`w-2 h-3 rounded-[1px] ${(student.missedStreak || 0) >= CARD_RED ? 'bg-gradient-to-b from-red-500 to-red-700' : 'bg-red-100'}`} />
                               </div>
                             )}
                           </div>
@@ -501,9 +502,9 @@ export default function Leaderboard({ student, setView }) {
                               {isMe && <span className="text-[10px] text-[#F59E0B] font-bold font-label bg-amber-100 px-1.5 py-0.5 rounded-full shrink-0">YOU</span>}
                               {(s.missedStreak || 0) >= CARD_YELLOW_1 && (
                                 <div className="flex items-center gap-0.5 ml-0.5">
-                                  <div className={`w-2 h-3 rounded-[1px] ${(s.missedStreak || 0) >= CARD_YELLOW_1 ? 'bg-yellow-400' : 'bg-yellow-100'}`} />
-                                  <div className={`w-2 h-3 rounded-[1px] ${(s.missedStreak || 0) >= CARD_YELLOW_2 ? 'bg-yellow-400' : 'bg-yellow-100'}`} />
-                                  <div className={`w-2 h-3 rounded-[1px] ${(s.missedStreak || 0) >= CARD_RED ? 'bg-red-500' : 'bg-red-100'}`} />
+                                  <div className={`w-2 h-3 rounded-[1px] ${(s.missedStreak || 0) >= CARD_YELLOW_1 ? 'bg-gradient-to-b from-yellow-400 to-yellow-500' : 'bg-yellow-100'}`} />
+                                  <div className={`w-2 h-3 rounded-[1px] ${(s.missedStreak || 0) >= CARD_YELLOW_2 ? 'bg-gradient-to-b from-yellow-400 to-yellow-500' : 'bg-yellow-100'}`} />
+                                  <div className={`w-2 h-3 rounded-[1px] ${(s.missedStreak || 0) >= CARD_RED ? 'bg-gradient-to-b from-red-500 to-red-700' : 'bg-red-100'}`} />
                                 </div>
                               )}
                             </div>

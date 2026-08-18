@@ -25,10 +25,9 @@ const RANK_TIERS = [
   { name: 'ELITE',   min: 21, color: 'green' },
 ]
 
-// TEMP: Testing period — card thresholds lowered (1 miss = yellow). Revert to 2,4,6 after test.
-const CARD_YELLOW_1 = 1
-const CARD_YELLOW_2 = 2
-const CARD_RED = 3
+const CARD_YELLOW_1 = 2
+const CARD_YELLOW_2 = 4
+const CARD_RED = 6
 
 // Card level from consecutive black medal pairs (2 consecutive misses = 1 level)
 function computeCardLevel(weeklyMedals) {

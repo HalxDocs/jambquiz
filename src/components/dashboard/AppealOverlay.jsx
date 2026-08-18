@@ -1,12 +1,18 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { functions, httpsCallable } from '../../firebase'
-import { addPayment, updateStudent } from '../../store/useStore'
 
-const PAYSTACK_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ''
 const RESUME_PRICE = 800
 
 export default function AppealOverlay({ student, onAppealed }) {
   const [step, setStep] = useState('notice')
+  const bachsInit = useRef(false)
+
+  useEffect(() => {
+    if (typeof window.Bachs !== 'undefined' && !bachsInit.current) {
+      window.Bachs.Initialize({ onEvent: () => {} })
+      bachsInit.current = true
+    }
+  }, [])
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -31,62 +37,46 @@ export default function AppealOverlay({ student, onAppealed }) {
   }
 
   const handlePay = async () => {
-    if (!PAYSTACK_KEY) {
-      setError('Online payment not configured. Please contact admin.')
-      return
-    }
-    if (typeof window.PaystackPop === 'undefined') {
+    if (typeof window.Bachs === 'undefined') {
       setError('Payment library not loaded. Refresh and try again.')
       return
     }
-    const email = student.email || `${student.name.toLowerCase().replace(/\s+/g, '.')}@274lab.com`
 
     setPaying(true)
     setError('')
 
-    const handler = window.PaystackPop.setup({
-      key: PAYSTACK_KEY,
-      email,
-      amount: RESUME_PRICE * 100,
-      currency: 'NGN',
-      ref: `274LAB-RESUME-${student.id}-${Date.now()}`,
-      metadata: {
-        studentId: student.id,
-        studentName: student.name,
-        type: 'account_resume',
-        custom_fields: [
-          { display_name: 'Student Name', variable_name: 'student_name', value: student.name },
-          { display_name: 'Payment Type', variable_name: 'payment_type', value: 'Account Resume' },
-        ],
-      },
-      callback: async (response) => {
-        setTimeout(async () => {
-          try {
-            await updateStudent(student.id, { missedStreak: 0, suspended: false })
-            await addPayment({
-              studentId: student.id,
-              studentName: student.name,
-              email,
-              amount: RESUME_PRICE,
-              currency: 'NGN',
-              method: 'paystack',
-              reference: response.reference,
-              type: 'account_resume',
-              paidAt: new Date().toISOString(),
-            })
-            onAppealed()
-          } catch (e) {
-            console.error(e)
-            setError('Payment received but failed to update. Contact admin with reference: ' + response.reference)
+    try {
+      const fn = httpsCallable(functions, 'createBachsCheckout')
+      const result = await fn({ studentId: student.id, type: 'resume' })
+      const { checkout_url, checkout_id } = result.data
+
+      window.Bachs.Checkout.open({
+        checkoutUrl: checkout_url,
+        onEvent: async (event) => {
+          if (event.type === 'checkout.completed') {
+            try {
+              const verifyFn = httpsCallable(functions, 'completeBachsCheckout')
+              await verifyFn({ checkoutId: checkout_id })
+              onAppealed()
+            } catch (e) {
+              console.error(e)
+              setError('Payment received but failed to verify. Contact admin with checkout ID: ' + checkout_id)
+            }
+            setPaying(false)
           }
-          setPaying(false)
-        }, 0)
-      },
-      onClose: () => {
-        setPaying(false)
-      },
-    })
-    handler.openIframe()
+          if (event.type === 'checkout.failed' || event.type === 'checkout.expired') {
+            setError('Payment was not completed. Please try again.')
+            setPaying(false)
+          }
+          if (event.type === 'checkout.closed') {
+            setPaying(false)
+          }
+        },
+      })
+    } catch (e) {
+      setError(e?.message || 'Failed to start payment. Please try again.')
+      setPaying(false)
+    }
   }
 
   return (
@@ -98,7 +88,7 @@ export default function AppealOverlay({ student, onAppealed }) {
           </div>
           <h2 className="text-xl font-bold text-white font-display mb-3">Account Suspended</h2>
           <p className="text-sm text-[#888] font-label leading-relaxed mb-2">
-            You've missed 3 weekly quizzes. Weekly tests and key points are paused until you reactivate.
+            You've missed 6 weekly tests. Weekly quizzes and key points are paused until you reactivate.
           </p>
           <div className="bg-[#161616] border border-[#333] rounded-xl p-3 mb-6 text-left space-y-2">
             <p className="text-xs text-[#888] font-label">Choose how to reactivate:</p>

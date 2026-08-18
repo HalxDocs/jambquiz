@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { SUBJECTS, updateStudent } from '../store/useStore'
+import { SUBJECTS } from '../store/useStore'
+import { functions, httpsCallable } from '../firebase'
 
 import SEO from '../components/seo/SEO'
 
@@ -22,11 +23,13 @@ export default function SubjectSelect({ student, setStudent, setView }) {
     if (selected.length !== 4) { setErr('Please select exactly 4 subjects'); return }
     setLoading(true)
     try {
-      await updateStudent(student.id, { subjects: selected })
+      const fn = httpsCallable(functions, 'updateStudentProfile')
+      await fn({ studentId: student.id, subjects: selected })
       setStudent({ ...student, subjects: selected })
       setView('dashboard')
-    } catch {
-      setErr('Failed to save. Check your connection.')
+    } catch (e) {
+      console.error('[SubjectSelect] handleSave error:', e)
+      setErr(e?.message || 'Failed to save. Check your connection.')
     }
     setLoading(false)
   }
