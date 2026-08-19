@@ -46,6 +46,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   const [quizDatesReady, setQuizDatesReady] = useState(false)
   const [nextWeekTopics, setNextWeekTopics] = useState({})
   const [paymentPrompt, setPaymentPrompt] = useState(null)
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
   const [err, setErr] = useState('')
   const timerRef = useRef(null)
   const paymentTimerRef = useRef(null)
@@ -160,8 +161,14 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     setQuizData((prev) => ({ ...prev, [subj]: { ...prev[subj], currentQ: idx } }))
   }
 
+  const requestSubmit = () => {
+    if (submitting || !sessionId) return
+    setShowSubmitConfirm(true)
+  }
+
   const handleSubmitAll = async () => {
     if (submitting) return
+    setShowSubmitConfirm(false)
     if (!sessionId) { setErr('Quiz session missing — please restart the quiz.'); setStep('error'); return }
     setSubmitting(true)
     clearInterval(timerRef.current)
@@ -382,6 +389,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   const q = questions[currentQ]
   const totalAnswered = subjectList.reduce((a, s) => a + quizData[s].answers.filter((x) => x !== null).length, 0)
   const totalQs = subjectList.reduce((a, s) => a + quizData[s].questions.length, 0)
+  const totalUnanswered = totalQs - totalAnswered
   const subjIdx = subjectList.indexOf(activeSubject)
   const isLastSubj = subjIdx === subjectList.length - 1
   const isLastQ = currentQ === questions.length - 1
@@ -456,7 +464,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
               {ABBR[subjectList[subjIdx + 1]] || subjectList[subjIdx + 1].split(' ')[0]} →
             </button>
           ) : (
-            <button onClick={handleSubmitAll} disabled={submitting}
+            <button onClick={requestSubmit} disabled={submitting}
               className={`flex-1 rounded-xl py-3 text-sm font-bold font-display transition-colors ${submitting ? 'bg-[#EBEBEB] text-[#AAA]' : 'bg-green-600 text-white hover:bg-green-700'}`}>
               {submitting ? 'Submitting…' : 'Submit All ✓'}
             </button>
@@ -466,11 +474,41 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
         <QuestionNav total={questions.length} currentIndex={currentQ} answers={answers} onJump={(i) => setCurrentQ(activeSubject, i)} />
 
         {/* Always-visible submit all */}
-        <button onClick={handleSubmitAll} disabled={submitting}
+        <button onClick={requestSubmit} disabled={submitting}
           className={`w-full rounded-xl py-3.5 text-sm font-bold font-display transition-colors ${submitting ? 'bg-[#EBEBEB] text-[#AAA] cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}>
           {submitting ? 'Submitting…' : `Submit All (${totalAnswered}/${totalQs} answered) ✓`}
         </button>
       </div>
+
+      {/* Submit confirmation */}
+      {showSubmitConfirm && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm bg-white rounded-2xl p-6 text-center shadow-xl">
+            <div className="w-12 h-12 mx-auto bg-green-50 rounded-2xl flex items-center justify-center mb-4 text-2xl">📤</div>
+            <h2 className="text-lg font-bold text-[#111] font-display mb-2">Submit your quiz?</h2>
+            <p className="text-sm text-[#666] font-label mb-1">
+              You've answered <strong className="text-[#111]">{totalAnswered}</strong> of {totalQs} questions.
+            </p>
+            {totalUnanswered > 0 ? (
+              <p className="text-sm text-[#F97316] font-label mb-5">
+                You still have <strong>{totalUnanswered}</strong> unanswered question{totalUnanswered > 1 ? 's' : ''}. Unanswered questions score 0.
+              </p>
+            ) : (
+              <p className="text-sm text-green-600 font-label mb-5">All questions answered — ready to submit!</p>
+            )}
+            <div className="flex gap-2.5">
+              <button onClick={() => setShowSubmitConfirm(false)} disabled={submitting}
+                className="flex-1 border border-[#E5E5E5] text-[#555] rounded-xl py-3 text-sm font-bold font-label hover:bg-[#F8F8F7] transition-colors">
+                No, keep reviewing
+              </button>
+              <button onClick={handleSubmitAll} disabled={submitting}
+                className={`flex-1 rounded-xl py-3 text-sm font-bold font-display transition-colors ${submitting ? 'bg-[#EBEBEB] text-[#AAA]' : 'bg-green-600 text-white hover:bg-green-700'}`}>
+                {submitting ? 'Submitting…' : 'Yes, submit ✓'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
     </>
   )
