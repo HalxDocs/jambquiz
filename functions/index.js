@@ -2397,11 +2397,13 @@ exports.verifyRecoveryCode = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_g
 // standard email/password sign-in works unchanged. Students link a teacher by
 // entering the teacher's phone as their accountability partner
 // (`students.teacherPhone` — Supporters step). The teacher panel lists those
-// students, their monthly test counts + scores, and computes earnings: N300
-// per month per student who completes at least 3 tests that month.
+// students, their monthly test counts + scores, and computes earnings: N500
+// per month per student who completes at least 3 tests that month, capped at
+// 30 qualifying students (N15,000) per teacher per month.
 
-const RATE_PER_QUALIFYING_STUDENT_MONTH = 300
+const RATE_PER_QUALIFYING_STUDENT_MONTH = 500
 const MIN_TESTS_PER_MONTH = 3
+const MAX_PAID_STUDENTS_PER_MONTH = 30
 
 // Resolve the signed-in caller to their teacher doc. Throws if not a teacher.
 async function assertTeacher(request) {
@@ -2434,17 +2436,22 @@ async function studentScoreSummary(studentId) {
 }
 
 // Monthly earnings from a list of per-student monthly count maps: a student
-// qualifies their teacher for N300 in a given month by taking >= 3 tests.
+// qualifies their teacher for N500 in a given month by taking >= 3 tests. The
+// number of paid students is capped at MAX_PAID_STUDENTS_PER_MONTH per month.
 function earningsFromCounts(countsList) {
   const perMonth = {}
+  const qualified = {}
   for (const counts of countsList) {
     for (const [month, count] of Object.entries(counts || {})) {
       if (count >= MIN_TESTS_PER_MONTH) {
-        perMonth[month] = (perMonth[month] || 0) + RATE_PER_QUALIFYING_STUDENT_MONTH
+        qualified[month] = (qualified[month] || 0) + 1
+        if (qualified[month] <= MAX_PAID_STUDENTS_PER_MONTH) {
+          perMonth[month] = (perMonth[month] || 0) + RATE_PER_QUALIFYING_STUDENT_MONTH
+        }
       }
     }
   }
-  return perMonth
+  return { earnings: perMonth, qualifiedCounts: qualified }
 }
 
 // Every student who added this teacher as an accountability partner. Matches on
@@ -2585,7 +2592,7 @@ exports.getTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 1, me
     })
   }
   students.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-  const monthsEarnings = earningsFromCounts(countsList)
+  const { earnings: monthsEarnings, qualifiedCounts } = earningsFromCounts(countsList)
   return {
     ok: true,
     linkedCount: students.length,
@@ -2597,6 +2604,7 @@ exports.getTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 1, me
       bankName: teacher.bankName || '',
     },
     monthsEarnings,
+    qualifiedCounts,
     students,
   }
 })
@@ -2623,6 +2631,7 @@ exports.adminTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 1, 
       })
     }
     studentRows.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    const { earnings, qualifiedCounts } = earningsFromCounts(countsList)
     teachers.push({
       teacherId: d.id,
       name: t.name || '—',
@@ -2631,7 +2640,8 @@ exports.adminTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 1, 
       accountNumber: t.accountNumber || '',
       bankName: t.bankName || '',
       linkedCount: studentsMap.size,
-      monthsEarnings: earningsFromCounts(countsList),
+      monthsEarnings: earnings,
+      qualifiedCounts,
       students: studentRows,
       createdAt: t.createdAt || '',
     })

@@ -23,6 +23,7 @@ function monthShort(m) {
 export default function TeacherDashboard({ teacher, setTeacher, setView }) {
   const [students, setStudents] = useState([])
   const [monthsEarnings, setMonthsEarnings] = useState({})
+  const [qualifiedCounts, setQualifiedCounts] = useState({})
   const [months, setMonths] = useState([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
@@ -39,6 +40,7 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
       if (res && res.ok) {
         setStudents(res.students || [])
         setMonthsEarnings(res.monthsEarnings || {})
+        setQualifiedCounts(res.qualifiedCounts || {})
         const all = new Set(Object.keys(res.monthsEarnings || {}))
         ;(res.students || []).forEach((s) => Object.keys(s.monthlyCounts || {}).forEach((m) => all.add(m)))
         const ordered = [...all].sort()
@@ -89,6 +91,7 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
   }
 
   const earnings = selected ? (monthsEarnings[selected] || 0) : 0
+  const qualified = selected ? (qualifiedCounts[selected] || 0) : 0
   const naira = (n) => `N${Number(n || 0).toLocaleString('en-NG')}`
 
   const selectedScores = useMemo(() => {
@@ -189,8 +192,13 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
             <p className="text-[11px] text-white/50 font-label">Earnings this month</p>
             <p className="text-3xl font-bold font-display mt-1">{naira(earnings)}</p>
             <p className="text-[10px] text-white/40 font-label mt-2">
-              N300 per student who completes at least 3 tests in a month
+              N500 per student who completes at least 3 tests in a month · max 30 students counted
             </p>
+            {selected && (
+              <p className="text-[10px] text-white/40 font-label mt-1">
+                {qualified}/30 students met the target this month
+              </p>
+            )}
           </div>
 
           {/* Students */}
@@ -224,7 +232,7 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
                       <span className={`shrink-0 text-[10px] font-bold px-2 py-1 rounded-lg font-label ${
                         s.count >= 3 ? 'bg-green-50 text-green-700' : 'bg-[#F3F3F2] text-[#888]'
                       }`}>
-                        {s.count >= 3 ? `+N300` : `${s.count}/3 tests`}
+                        {s.count >= 3 ? `+N500` : `${s.count}/3 tests`}
                       </span>
                     </div>
                     {s.scores.length > 0 && (
@@ -277,10 +285,32 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
                 </table>
               </div>
               <p className="text-[11px] text-[#AAA] font-label mt-3">
-                Cells show tests per month; green means the student qualified you for N300 that month.
+                Cells show tests per month; green means the student qualified you for N500 that month.
               </p>
             </div>
           )}
+
+                    {/* Teacher program */}
+          <div className="space-y-3">
+            <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
+              <p className="text-[10px] font-bold text-[#888] uppercase tracking-widest mb-2 font-label">Your Role</p>
+              <p className="text-sm text-[#555] font-body leading-relaxed">
+                Encourage your students take at least 3 tests monthly. You'd receive weekly updates on your students performance.
+              </p>
+            </div>
+            <div className="bg-[#111] text-white rounded-2xl p-5">
+              <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2 font-label">Your Reward</p>
+              <p className="text-sm text-white/85 font-body leading-relaxed">
+                You earn N500 every time a student completes 3 tests a month. Maximum number of students for payout per teacher is 30.
+              </p>
+            </div>
+            <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
+              <p className="text-[10px] font-bold text-[#888] uppercase tracking-widest mb-2 font-label">Your Student's Reward</p>
+              <p className="text-sm text-[#555] font-body leading-relaxed">
+                They identify strengths &amp; weaknesses in each topic if they consistently take tests. They are well prepared for JAMB as 274Lab highlights weak topics they should focus on starting February till exam day.
+              </p>
+            </div>
+          </div>
 
           <p className="text-[11px] text-[#AAA] font-label leading-relaxed text-center pb-4">
             Monthly counts update as your students take quizzes. Powered by 274Lab.

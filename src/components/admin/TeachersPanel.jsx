@@ -75,7 +75,7 @@ export default function TeachersPanel() {
 
       <div className="bg-white border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#555] font-label">
         <strong className="text-[#111] font-semibold">{teachers.length}</strong> registered teacher{teachers.length === 1 ? '' : 's'}
-        {" · monthly earnings update as students take quizzes"}
+        {" · N500 per student with ≥3 tests/month · max 30 students per teacher"}
       </div>
 
       {loading && (
@@ -127,7 +127,7 @@ export default function TeachersPanel() {
               <div className="min-w-0">
                 <p className="text-sm font-bold text-[#111] font-display truncate">{t.name}</p>
                 <p className="text-[11px] text-[#888] font-label truncate">
-                  +{t.phone} · {t.bankName ? `${t.bankName} ****${String(t.accountNumber).slice(-4)}` : 'No bank details'}
+                  +{t.phone} · {t.bankName ? `${t.bankName} Acct ${t.accountNumber}` : 'No bank details'}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -149,9 +149,21 @@ export default function TeachersPanel() {
                     <p className="font-bold text-[#111] font-display">{t.linkedCount || 0}</p>
                   </div>
                   <div className="bg-[#F8F8F7] rounded-lg px-3 py-2">
+                    <p className="text-[10px] text-[#888] font-label uppercase tracking-wide mb-0.5">Met target (≤30)</p>
+                    <p className="font-bold text-[#111] font-display">
+                      {(t.qualifiedCounts || {})[selectedMonth] || 0}/30
+                    </p>
+                    <p className="text-[10px] text-[#888] font-label">completed 3 tests this month · N500 each</p>
+                  </div>
+                  <div className="bg-[#F8F8F7] rounded-lg px-3 py-2">
                     <p className="text-[10px] text-[#888] font-label uppercase tracking-wide mb-0.5">Bank</p>
                     <p className="font-bold text-[#111] font-display truncate">{t.bankName || '—'}</p>
-                    <p className="text-[10px] text-[#888] font-label">{t.accountNumber ? `Acct ****${String(t.accountNumber).slice(-4)}` : '—'}</p>
+                    <p className="text-[10px] text-[#888] font-label">{t.accountNumber ? `Acct ${t.accountNumber}` : '—'}</p>
+                  </div>
+                  <div className="bg-[#F8F8F7] rounded-lg px-3 py-2">
+                    <p className="text-[10px] text-[#888] font-label uppercase tracking-wide mb-0.5">Contact</p>
+                    <p className="font-bold text-[#111] font-display truncate">{t.phone || '—'}</p>
+                    <p className="text-[10px] text-[#888] font-label truncate">{t.email || ''}</p>
                   </div>
                 </div>
 

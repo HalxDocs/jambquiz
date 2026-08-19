@@ -68,6 +68,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
   const [otpSending, setOtpSending] = useState(false)
   const [otpBusy, setOtpBusy] = useState(false)
   const [otpCooldown, setOtpCooldown] = useState(0)
+  const [teacherStep, setTeacherStep] = useState(1)
 
   const theme = useThemeStore((s) => s.theme)
   const isDark = theme === 'dark'
@@ -302,6 +303,16 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
     const id = setTimeout(() => setOtpCooldown((c) => c - 1), 1000)
     return () => clearTimeout(id)
   }, [otpCooldown])
+
+  const handleTeacherNextStep = () => {
+    const emailTrim = tEmail.trim().toLowerCase()
+    if (tName.trim().length < 3) { setErr('Enter your full name (at least 3 characters)'); return }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) { setErr('Enter a valid email address'); return }
+    if (tPass.length < 8) { setErr('Password must be at least 8 characters'); return }
+    if (tPass !== tConfirm) { setErr('Passwords do not match'); return }
+    setErr('')
+    setTeacherStep(2)
+  }
 
   const handleTeacherRegister = async () => {
     const phone = tPhone.trim()
@@ -756,20 +767,20 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                   {['login', 'register'].map((m) => (
                     <button
                       key={m}
-                      onClick={() => { setMode(m); setErr('') }}
+                      onClick={() => { setMode(m); setErr(''); setTeacherStep(1); setOtpSent(false) }}
                       className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all font-label ${
                         mode === m
                           ? 'bg-white text-[#111] shadow-sm'
                           : 'text-[#999] hover:text-[#555]'
                       }`}
                     >
-                      {m === 'login' ? 'Lock In' : 'Register'}
+                      {m === 'login' ? 'Sign In' : 'Sign up'}
                     </button>
                   ))}
                 </div>
 
                 <div className="space-y-3.5">
-                  {mode === 'register' && (
+                  {mode === 'register' && teacherStep === 1 && (
                     <div>
                       <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
                         Full Name
@@ -800,7 +811,68 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                     </div>
                   )}
 
-                  {mode === 'register' && (
+                  {mode === 'register' && teacherStep === 1 && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        value={tEmail}
+                        onChange={(e) => setTEmail(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleTeacherNextStep()}
+                        placeholder="you@example.com"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                    </div>
+                  )}
+
+                  {mode === 'register' && teacherStep === 1 && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          value={tPass}
+                          onChange={(e) => setTPass(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleTeacherNextStep()}
+                          maxLength={64}
+                          placeholder="Minimum 8 characters"
+                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                        />
+                        <button type="button" onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
+                          <EyeIcon open={showPassword} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {mode === 'register' && teacherStep === 1 && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Confirm Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showConfirm ? 'text' : 'password'}
+                          value={tConfirm}
+                          onChange={(e) => setTConfirm(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleTeacherNextStep()}
+                          placeholder="Repeat your password"
+                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                        />
+                        <button type="button" onClick={() => setShowConfirm(!showConfirm)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
+                          <EyeIcon open={showConfirm} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {mode === 'register' && teacherStep === 2 && (
                     <div>
                       <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
                         Phone Number
@@ -811,7 +883,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                         type="tel"
                         value={tPhone}
                         onChange={(e) => { setTPhone(e.target.value.replace(/^\+?234/, '')); setErr('') }}
-                        disabled={mode === 'register' && otpSent}
+                        disabled={otpSent}
                         placeholder="803 000 0000"
                         className="flex-1 px-3 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none bg-white disabled:bg-[#F3F3F2] disabled:text-[#AAA]"
                       />
@@ -819,22 +891,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                   </div>
                   )}
 
-                  {mode === 'register' && (
-                    <div>
-                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                        Email
-                      </label>
-                      <input
-                        type="email"
-                        value={tEmail}
-                        onChange={(e) => setTEmail(e.target.value)}
-                        placeholder="you@example.com"
-                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                      />
-                    </div>
-                  )}
-
-                  {mode === 'register' && (
+                  {mode === 'register' && teacherStep === 2 && (
                     <div>
                       {!otpSent ? (
                         <button
@@ -843,7 +900,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                           disabled={otpSending}
                           className="w-full rounded-xl py-2.5 text-xs font-bold border border-[#E5E5E5] text-[#555] hover:text-[#111] hover:border-[#CCC] active:scale-[0.99] transition-all font-label disabled:opacity-50"
                         >
-                          {otpSending ? 'Sending code…' : 'Send verification code'}
+                          {otpSending ? 'Sending code…' : 'Send confirmation code'}
                         </button>
                       ) : (
                         <div className="space-y-3">
@@ -872,44 +929,24 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                     </div>
                   )}
 
-                  <div>
-                    <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                      Password
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        value={tPass}
-                        onChange={(e) => setTPass(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && mode === 'login' && handleTeacherLogin()}
-                        maxLength={64}
-                        placeholder={mode === 'register' ? 'Minimum 8 characters' : '••••••••'}
-                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
-                      />
-                      <button type="button" onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                        <EyeIcon open={showPassword} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {mode === 'register' && (
+                  {mode === 'login' && (
                     <div>
                       <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                        Confirm Password
+                        Password
                       </label>
                       <div className="relative">
                         <input
-                          type={showConfirm ? 'text' : 'password'}
-                          value={tConfirm}
-                          onChange={(e) => setTConfirm(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleTeacherRegister()}
-                          placeholder="Repeat your password"
+                          type={showPassword ? 'text' : 'password'}
+                          value={tPass}
+                          onChange={(e) => setTPass(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleTeacherLogin()}
+                          maxLength={64}
+                          placeholder="••••••••"
                           className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
                         />
-                        <button type="button" onClick={() => setShowConfirm(!showConfirm)}
+                        <button type="button" onClick={() => setShowPassword(!showPassword)}
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                          <EyeIcon open={showConfirm} />
+                          <EyeIcon open={showPassword} />
                         </button>
                       </div>
                     </div>
@@ -922,24 +959,65 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                   </div>
                 )}
 
-                <button
-                  onClick={mode === 'login' ? handleTeacherLogin : handleTeacherRegister}
-                  disabled={loading}
-                  className={`w-full mt-4 rounded-xl py-3.5 text-sm font-bold tracking-wide transition-all active:scale-[0.99] font-display ${
-                    loading
-                      ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
-                      : 'bg-[#111] text-white hover:bg-[#222]'
-                  }`}
-                >
-                  {loading ? (otpBusy ? 'Verifying…' : 'Please wait...') : mode === 'login' ? 'Lock In' : 'Create Teacher Account'}
-                </button>
+                {mode === 'login' ? (
+                  <button
+                    onClick={handleTeacherLogin}
+                    disabled={loading}
+                    className={`w-full mt-4 rounded-xl py-3.5 text-sm font-bold tracking-wide transition-all active:scale-[0.99] font-display ${
+                      loading
+                        ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
+                        : 'bg-[#111] text-white hover:bg-[#222]'
+                    }`}
+                  >
+                    {loading ? 'Please wait...' : 'Sign In'}
+                  </button>
+                ) : teacherStep === 1 ? (
+                  <button
+                    onClick={handleTeacherNextStep}
+                    disabled={loading}
+                    className={`w-full mt-4 rounded-xl py-3.5 text-sm font-bold tracking-wide transition-all active:scale-[0.99] font-display ${
+                      loading
+                        ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
+                        : 'bg-[#111] text-white hover:bg-[#222]'
+                    }`}
+                  >
+                    Sign up →
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleTeacherRegister}
+                      disabled={loading}
+                      className={`w-full mt-4 rounded-xl py-3.5 text-sm font-bold tracking-wide transition-all active:scale-[0.99] font-display ${
+                        loading
+                          ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
+                          : 'bg-[#111] text-white hover:bg-[#222]'
+                      }`}
+                    >
+                      {loading ? (otpBusy ? 'Verifying…' : 'Please wait...') : 'Create Teacher Account'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTeacherStep(1)}
+                      disabled={loading}
+                      className="w-full mt-2 text-[11px] text-[#888] hover:text-[#111] font-label transition-colors disabled:opacity-40"
+                    >
+                      ← Back to details
+                    </button>
+                  </>
+                )}
 
-                {mode === 'register' && !otpSent && (
+                {mode === 'register' && teacherStep === 1 && (
                   <p className="text-[11px] text-[#AAA] mt-3 font-label leading-relaxed">
-                    We'll send a one-time code to verify this phone number. Registration is free.
+                    Next, we'll ask for your phone number and send a one-time code to verify it. Registration is free.
                   </p>
                 )}
-                {mode === 'register' && otpSent && (
+                {mode === 'register' && teacherStep === 2 && !otpSent && (
+                  <p className="text-[11px] text-[#AAA] mt-3 font-label leading-relaxed">
+                    We'll send a one-time code to verify this phone number.
+                  </p>
+                )}
+                {mode === 'register' && teacherStep === 2 && otpSent && (
                   <p className="text-[11px] text-[#AAA] mt-3 font-label leading-relaxed">
                     Enter the code we just sent to +234{tPhone.replace(/^0+/, '')}. It expires in 10 minutes.
                   </p>

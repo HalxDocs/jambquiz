@@ -628,7 +628,7 @@ export default function Home({ setView, setHomeMode, setHomeTab }) {
                 Are you a teacher?
               </h2>
               <p className="mt-3 text-sm text-neutral-400 font-body max-w-sm mx-auto">
-                Track the students who chose you as their accountability partner, see their weekly test counts and scores, and earn up to N300 per student per month.
+                Become an Official 274Lab accountability partner for your students. See their weekly tests score and encourage them to keep progressing.
               </p>
               <motion.button
                 whileHover={{ scale: 1.03 }}
