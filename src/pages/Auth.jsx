@@ -64,6 +64,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
   const [tCode, setTCode] = useState('')
   const [tPass, setTPass] = useState('')
   const [tConfirm, setTConfirm] = useState('')
+  const [tPioneerCode, setTPioneerCode] = useState('')
   const [otpSent, setOtpSent] = useState(false)
   const [otpSending, setOtpSending] = useState(false)
   const [otpBusy, setOtpBusy] = useState(false)
@@ -159,16 +160,21 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
       if (!signedIn) {
         const legacyCodes = ['auth/user-not-found', 'auth/wrong-password', 'auth/invalid-credential', 'auth/invalid-email']
         if (signInErrors.some((c) => legacyCodes.includes(c))) {
-          const legacyFn = httpsCallable(functions, 'verifyLegacyLogin')
-          const res = await legacyFn({ name: trimmed, password })
-          if (res.data && res.data.ok && res.data.customToken) {
-            await signInWithCustomToken(auth, res.data.customToken)
-            // Migrate the account to a real Firebase password (only if ≥6 chars).
-            if (password.length >= 6) {
-              try { await updatePassword(auth.currentUser, password) } catch {}
+          try {
+            const legacyFn = httpsCallable(functions, 'verifyLegacyLogin')
+            const res = await legacyFn({ name: trimmed, password })
+            if (res.data && res.data.ok && res.data.customToken) {
+              await signInWithCustomToken(auth, res.data.customToken)
+              if (password.length >= 6) {
+                try { await updatePassword(auth.currentUser, password) } catch {}
+              }
+            } else {
+              setErr('Wrong name or password'); recordAttempt(); setLoading(false); return
             }
-          } else {
-            setErr('Wrong name or password'); recordAttempt(); setLoading(false); return
+          } catch (legacyErr) {
+            console.error('[Auth] verifyLegacyLogin failed:', legacyErr)
+            setErr('Could not verify account. Please check your connection and try again.')
+            recordAttempt(); setLoading(false); return
           }
         } else {
           setErr('Could not sign in. Please try again.'); setLoading(false); return
@@ -323,6 +329,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
     if (!tCode.trim() || !/^\d{6}$/.test(tCode.trim())) { setErr('Enter the 6-digit verification code'); return }
     if (tPass.length < 8) { setErr('Password must be at least 8 characters'); return }
     if (tPass !== tConfirm) { setErr('Passwords do not match'); return }
+    if (tPioneerCode.trim() && !/^\d{4}$/.test(tPioneerCode.trim())) { setErr('Pioneer code must be 4 digits'); return }
     if (!checkOnline()) return
     setLoading(true); setErr(''); setOtpBusy(true)
     try {
@@ -332,6 +339,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
         phone: phone.replace(/^\+?234/, ''),
         otp: tCode.trim(),
         password: tPass,
+        pioneerCode: tPioneerCode.trim() || undefined,
       })
       if (!res || !res.ok) { setErr('Registration failed. Please try again.'); setLoading(false); setOtpBusy(false); return }
       // Sign the new teacher in client-side so App.jsx's onAuthStateChanged
@@ -872,6 +880,21 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                     </div>
                   )}
 
+                  {mode === 'register' && teacherStep === 1 && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Who referred you? <span className="text-[#CCC] normal-case tracking-normal">(optional)</span>
+                      </label>
+                      <input
+                        value={tPioneerCode}
+                        onChange={(e) => setTPioneerCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                        inputMode="numeric"
+                        placeholder="Enter 4-digit pioneer code"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-center tracking-[0.3em] text-[#111] placeholder:text-[#CCC] placeholder:tracking-normal focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                    </div>
+                  )}
+
                   {mode === 'register' && teacherStep === 2 && (
                     <div>
                       <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
@@ -879,10 +902,20 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                       </label>
                       <div className="flex border border-[#E5E5E5] rounded-xl overflow-hidden focus-within:border-[#111] transition-colors bg-white">
                       <span className="px-3 py-3 text-sm font-semibold text-[#555] bg-[#F8F8F7] border-r border-[#E5E5E5] select-none font-label">+234</span>
-                      <input
+                       <input
                         type="tel"
+                        inputMode="numeric"
+                        autoComplete="tel"
                         value={tPhone}
-                        onChange={(e) => { setTPhone(e.target.value.replace(/^\+?234/, '')); setErr('') }}
+                        onChange={(e) => {
+                          // Accept 803..., 0803..., +234803..., 234803... — all normalize to 803... for the +234 prefix
+                          let v = e.target.value.replace(/\D/g, '')
+                          // Strip a leading 234 country code if the user pasted it
+                          if (v.startsWith('234')) v = v.slice(3)
+                          // Strip a single leading 0 so 0803... and 803... both become 803... (displayed as +234 803...)
+                          if (v.startsWith('0')) v = v.replace(/^0+/, '')
+                          setTPhone(v.slice(0, 10)); setErr('')
+                        }}
                         disabled={otpSent}
                         placeholder="803 000 0000"
                         className="flex-1 px-3 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none bg-white disabled:bg-[#F3F3F2] disabled:text-[#AAA]"

@@ -108,18 +108,29 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const [keyPointIdx, setKeyPointIdx] = useState(0)
   const [kpDismissed, setKpDismissed] = useState(false)
   const [patchesToast, setPatchesToast] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
 
   const theme = useThemeStore((s) => s.theme)
   const isDark = theme === 'dark'
   const toggleTheme = useThemeStore((s) => s.toggleTheme)
 
-  const missedStreak = student.missedStreak || 0
-  const isSuspended = student.suspended || false
-  const isRedCard = missedStreak >= CARD_RED || isSuspended
-  const [showAppeal, setShowAppeal] = useState(() => isRedCard)
+  const [showAppeal, setShowAppeal] = useState(false)
   const [appealResolved, setAppealResolved] = useState(false)
   const [showCardWarning, setShowCardWarning] = useState(false)
 
+  // Derived red-card state — safe even when student is null
+  const missedStreak = student?.missedStreak || 0
+  const isSuspended = student?.suspended || false
+  const isRedCard = missedStreak >= CARD_RED || isSuspended
+
+  useEffect(() => { if (isRedCard) setShowAppeal(true) }, [isRedCard])
+
+  // Mark loadFailed after 10 seconds if student data never arrives
+  useEffect(() => {
+    if (student?.id && typeof student === 'object') return
+    const t = setTimeout(() => setLoadFailed(true), 10000)
+    return () => clearTimeout(t)
+  }, [student])
   useEffect(() => {
     if (missedStreak > 0 && !isRedCard) {
       setShowCardWarning(true)
@@ -156,7 +167,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   useEffect(() => {
     if (currentWeek && student?.subjects?.length) {
-      notificationScheduler.start(currentWeek, student.subjects, scores, student.id)
+      notificationScheduler.start(currentWeek, student?.subjects || [], scores, student.id)
     }
     return () => notificationScheduler.stop()
   }, [currentWeek, student.id])
@@ -175,17 +186,27 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     return () => { active = false }
   }, [currentWeek])
 
-  useEffect(() => { logEvent(student.id, 'page_view', { page: 'dashboard' }) }, [])
+  useEffect(() => { if (!student?.id) return; logEvent(student.id, 'page_view', { page: 'dashboard' }) }, [student?.id])
 
   useEffect(() => {
+    if (!student?.id) return
     const unsub = onSnapshot(doc(db, 'students', student.id), (snap) => {
       if (snap.exists()) {
         const data = snap.data()
-        setStudent({ ...student, ...data })
+        // Don't overwrite an optimistic Active (just paid) with stale null from Firestore propagation delay
+        setStudent((prev) => {
+          const merged = { ...prev, ...data }
+          const prevUntil = prev?.subscriptionUntil ? new Date(prev.subscriptionUntil).getTime() : 0
+          const dataUntil = data?.subscriptionUntil ? new Date(data.subscriptionUntil).getTime() : 0
+          if (prevUntil > Date.now() && dataUntil <= Date.now()) {
+            merged.subscriptionUntil = prev.subscriptionUntil
+          }
+          return merged
+        })
       }
     }, () => {})
     return () => unsub()
-  }, [student.id])
+  }, [student?.id])
 
   const handleEnableNotifications = async () => {
     const sub = await registerPushNotifications()
@@ -194,11 +215,11 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
       useUserNotificationStore.getState().setPushPermission('granted')
       savePushSubscriptionToFirestore(student.id, sub)
     }
-    setPushPermission(Notification.permission)
+    setPushPermission(typeof Notification !== 'undefined' ? Notification.permission : 'denied')
   }
 
   useEffect(() => {
-    if (Notification.permission === 'granted') {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       const access = getAccessStatus(student)
       if (access.status === 'expired') return
       navigator.serviceWorker.ready.then((reg) =>
@@ -273,29 +294,29 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   useEffect(() => { useUserNotificationStore.getState().setPatchesActive(patchesActive) }, [patchesActive])
 
-  const currentWeekIdx = WEEKS.indexOf(currentWeek)
+  const currentWeekIdx = WEEKS?.indexOf(currentWeek ?? 'Week 1') ?? 0
   const rankData = getConsistencyRank(scores)
-  const weeklyMedals = WEEKS.map((week) => scores.some((s) => s.week === week) ? 'gold' : null)
+  const weeklyMedals = (WEEKS || []).map((week) => (scores || []).some((s) => s?.week === week) ? 'gold' : null)
   // Fresh accounts (zero scores) have no history: no "started" week to dim and no
   // card level to compute. Everything renders brand-new until their first quiz.
-  const hasAnyScores = scores.length > 0
-  const firstScoreIdx = hasAnyScores ? Math.min(...scores.map(s => WEEKS.indexOf(s.week))) : null
+  const hasAnyScores = (scores || []).length > 0
+  const firstScoreIdx = hasAnyScores ? Math.min(...(scores || []).map(s => WEEKS?.indexOf(s?.week ?? '') ?? -1).filter(i => i >= 0)) : null
   const activeMedals = hasAnyScores ? weeklyMedals.slice(firstScoreIdx, currentWeekIdx + 1) : []
   const cardLevel = computeCardLevel(activeMedals)
 
   const todaySubjectsAttempted = scores.filter((s) => s.week === currentWeek && new Date(s.date).toDateString() === new Date().toDateString()).map((s) => s.subject)
-  const hasAttemptedAllSubjects = student.subjects.length > 0 && student.subjects.every((sub) => todaySubjectsAttempted.includes(sub))
+  const hasAttemptedAllSubjects = (student?.subjects?.length || 0) > 0 && (student.subjects || []).every((sub) => todaySubjectsAttempted.includes(sub))
 
-  const getBestBySubject = () => { const best = {}; scores.forEach((s) => { if (!best[s.subject] || s.score > best[s.subject].score) best[s.subject] = s }); return best }
+  const getBestBySubject = () => { const best = {}; (scores || []).forEach((s) => { if (!best[s.subject] || s.score > best[s.subject].score) best[s.subject] = s }); return best }
   const getTotalScore = () => { const best = getBestBySubject(); const subjects = Object.values(best); if (subjects.length < 4) return null; const top4 = subjects.slice(0, 4); return { total: top4.reduce((a, s) => a + s.score, 0), totalOut: top4.reduce((a, s) => a + (s.outOf || 100), 0) } }
   const getSubjectScore = (sub) => getBestBySubject()[sub] || null
   const getSubjectPct = (sub) => { const sc = getSubjectScore(sub); if (!sc) return null; return Math.round((sc.score / (sc.outOf || 100)) * 100) }
 
   const totalScore = getTotalScore()
-  const thisWeekTopics = student.subjects.map((sub) => ({ subject: sub, topic: normalizeTopic(weekTopics[sub]) })).filter((t) => t.topic && t.topic.name)
+  const thisWeekTopics = (student?.subjects || []).map((sub) => ({ subject: sub, topic: normalizeTopic(weekTopics[sub]) })).filter((t) => t.topic && t.topic.name)
 
-  const allKeyPoints = student.subjects.flatMap((sub) => { const topic = normalizeTopic(weekTopics[sub]); if (!topic?.keyPoints) return []; return topic.keyPoints.filter((kp) => kp?.trim()).map((kp) => ({ subject: sub, point: kp })) })
-  const weakSubjects = student.subjects.filter((sub) => { const pct = getSubjectPct(sub); return pct !== null && pct < 50 })
+  const allKeyPoints = (student?.subjects || []).flatMap((sub) => { const topic = normalizeTopic(weekTopics[sub]); if (!topic?.keyPoints) return []; return topic.keyPoints.filter((kp) => kp?.trim()).map((kp) => ({ subject: sub, point: kp })) })
+  const weakSubjects = (student?.subjects || []).filter((sub) => { const pct = getSubjectPct(sub); return pct !== null && pct < 50 })
 
   // Topic-level failures: best attempt per subject+week scoring below 50%,
   // excluding topics already passed on retake (tracked in localStorage).
@@ -306,16 +327,45 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
       const key = revisionTopicKey(s.subject, s.week)
       if (!best[key] || s.score > best[key].score) best[key] = s
     })
+    // Late registrants: add previous weeks they never attempted as 0% so they appear in Patch queue
+    const currentIdx = WEEKS?.indexOf(currentWeek ?? 'Week 1') ?? 0
+    if (currentIdx > 0 && student?.subjects?.length) {
+      const previousWeeks = WEEKS.slice(0, currentIdx)
+      ;(student?.subjects || []).forEach((sub) => {
+        previousWeeks.forEach((week) => {
+          const key = revisionTopicKey(sub, week)
+          if (!best[key]) {
+            best[key] = { subject: sub, week, score: 0, outOf: 100 }
+          }
+        })
+      })
+    }
     return Object.values(best)
       .map((s) => ({ ...s, pct: Math.round((s.score / (s.outOf || 100)) * 100) }))
       .filter((s) => s.pct < 50)
       .filter((s) => !isRevisionCompleted(revisionTopicKey(s.subject, s.week)))
       .sort((a, b) => a.subject.localeCompare(b.subject))
-  }, [scores])
+  }, [scores, currentWeek, student?.subjects])
   const currentWeekWeakKeyPoints = weakSubjects.flatMap((sub) => { const topic = normalizeTopic(weekTopics[sub]); if (!topic?.keyPoints) return []; return topic.keyPoints.filter((kp) => kp?.trim()).map((kp) => ({ subject: sub, point: kp })) })
 
-  // Revision queue — automatically cycles through all weak topics, 2 per week
-  const revisionBatch = useMemo(() => getCurrentRevisionBatch(scores), [scores])
+  // Revision queue — includes missing previous weeks for late registrants (12 subjects = 3 tests)
+  const revisionBatch = useMemo(() => {
+    const allScores = [...(scores || [])]
+    const currentIdx = WEEKS?.indexOf(currentWeek ?? 'Week 1') ?? 0
+    if (currentIdx > 0 && student?.subjects?.length) {
+      const previousWeeks = WEEKS.slice(0, currentIdx)
+      ;(student?.subjects || []).forEach((sub) => {
+        previousWeeks.forEach((week) => {
+          const key = revisionTopicKey(sub, week)
+          const exists = allScores.some((s) => revisionTopicKey(s.subject, s.week) === key)
+          if (!exists) {
+            allScores.push({ subject: sub, week, score: 0, outOf: 100 })
+          }
+        })
+      })
+    }
+    return getCurrentRevisionBatch(allScores)
+  }, [scores, currentWeek, student?.subjects])
 
 
   // Fetch key points from revision batch topics (may span different weeks)
@@ -374,8 +424,8 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   const handleOpenPatchesModal = () => { setShowPatchesModal(true) }
   const handleConfirmPatches = () => {
-    const subjects = [...new Set(failedTopics.map((t) => t.subject))]
-    const notifySubjects = subjects.length > 0 ? subjects : (weakSubjects.length > 0 ? weakSubjects : student.subjects)
+    const subjects = [...new Set((failedTopics || []).map((t) => t.subject))]
+    const notifySubjects = subjects.length > 0 ? subjects : ((weakSubjects || []).length > 0 ? weakSubjects : (student?.subjects || []))
     setPatchesActive(true); localStorage.setItem('patches_active', '1'); localStorage.setItem('patches_selected_subjects', JSON.stringify(notifySubjects))
     setSelectedPatchSubjectsLocal(notifySubjects); useUserNotificationStore.getState().setSelectedPatchSubjects(notifySubjects); useUserNotificationStore.getState().setPatchesActive(true)
     setCurrentPatchIdx(0); setShowPatchesModal(false)
@@ -392,6 +442,14 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   const P = patchesActive ? { bg: 'bg-red-700', hoverBg: 'hover:bg-red-800', textColor: 'text-red-700' } : { bg: 'bg-[#111]', hoverBg: 'hover:bg-[#222]', textColor: 'text-[#111]' }
   const patchesUnlocked = (() => { const now = new Date(); return now >= new Date(now.getFullYear(), 6, 15) })()
+
+  if (!student?.id || typeof student !== 'object') {
+    return <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-8"><div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 text-center max-w-sm">
+      <p className="text-sm text-[#888] font-label">{loadFailed ? 'Could not load your account — please sign in again.' : 'Loading your dashboard…'}</p>
+      {loadFailed && <button onClick={() => { localStorage.clear(); window.location.href = '/'; }} className="mt-4 w-full bg-[#111] text-white rounded-xl py-2.5 text-sm font-bold hover:bg-[#222] font-display">Go to Sign In</button>}
+      {!loadFailed && <div className="mt-3 w-5 h-5 border-2 border-[#111] border-t-transparent rounded-full animate-spin mx-auto" />}
+    </div></div>
+  }
 
   return (
     <>
@@ -519,10 +577,11 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         <div className="mb-4">
           <div className="flex justify-between items-center mb-2">
             <p className="text-sm font-bold text-[#111] font-display">My Subjects</p>
-            <p className="text-[11px] text-[#AAA] font-label">Tap to see topic performance</p>
+            <button onClick={() => setView('subjects')} className="text-[11px] font-semibold text-[#666] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-lg px-2.5 py-1 font-label transition-colors">Edit</button>
           </div>
+          <p className="text-[11px] text-[#AAA] font-label mb-2">Tap to see topic performance</p>
           <div className="grid grid-cols-2 gap-2">
-            {student.subjects.map((sub) => {
+            {(student?.subjects || []).map((sub) => {
               const pct = getSubjectPct(sub)
               return (
                 <SubjectCard key={sub} subject={sub} pct={pct} isWeak={pct === null || pct < 50} patchesActive={patchesActive}
@@ -530,6 +589,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               )
             })}
           </div>
+          <button onClick={() => setView('supporters')} className="mt-2 w-full bg-white border border-[#EBEBEB] rounded-xl py-2 text-xs font-semibold text-[#666] hover:text-[#111] hover:border-[#CCC] transition-colors font-label">Edit accountability partners (phone numbers)</button>
         </div>
 
         <QuizCard

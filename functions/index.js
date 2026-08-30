@@ -1,8 +1,13 @@
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
+const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
 const webpush = require('web-push');
+
+// Cap total CPU — `us-central1` quota is ~8 vCPU. 30+ functions × 1 vCPU × 100 instances = 3000 vCPU > quota.
+// Global cap keeps every service at max 3 instances, so 30 × 0.08 × 3 = ~7.2 vCPU → fits after per-function CPU cut below.
+setGlobalOptions({ region: 'us-central1', maxInstances: 3 });
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -26,11 +31,11 @@ const MIN_INTERVAL_BETWEEN_NOTIFICATIONS = 30 * 60 * 1000;
 // before an exam window. `maxInstances` is a hard cost circuit breaker.
 const HOT = {
   region: 'us-central1',
-  concurrency: 80,
+  concurrency: 20,
   minInstances: 0,
-  maxInstances: 20,
+  maxInstances: 2,
   timeoutSeconds: 60,
-  run: { cpu: 1, memory: '512MiB' },
+  run: { cpu: 0.25, memory: '256MiB' },
 };
 
 // Env-gated App Check enforcement. Callables must ship with enforceAppCheck
@@ -246,7 +251,7 @@ exports.sendKeyPointNotifications = onSchedule(
     schedule: 'every 2 hours',
     timeZone: 'Africa/Lagos',
     secrets: ['VAPID_PRIVATE_KEY'],
-    run: { cpu: 'gcf_gen1', memory: '256MiB' },
+    run: { cpu: 0.08, memory: '256MiB' },
   },
   async (event) => {
     const adminSnap = await db.collection('admin_settings').doc('notifications').get();
@@ -372,7 +377,7 @@ exports.sendBroadcastPush = onDocumentCreated(
     document: 'admin_broadcasts/{broadcastId}',
     region: 'us-central1',
     secrets: ['VAPID_PRIVATE_KEY'],
-    run: { cpu: 'gcf_gen1', memory: '256MiB' },
+    run: { cpu: 0.08, memory: '256MiB' },
   },
   async (event) => {
     const snapshot = event.data;
@@ -473,7 +478,7 @@ exports.computeLeaderboard = onSchedule(
   {
     schedule: 'every 15 minutes',
     timeZone: 'Africa/Lagos',
-    run: { cpu: 1, memory: '512MiB', timeoutSeconds: 300 },
+    run: { cpu: 0.08, memory: '256MiB', timeoutSeconds: 300 },
   },
   async () => {
     // Rank docs are maintained incrementally by submitQuiz (best-4 total,
@@ -558,7 +563,7 @@ exports.refreshPublicStats = onSchedule(
   {
     schedule: 'every 15 minutes',
     timeZone: 'Africa/Lagos',
-    run: { cpu: 'gcf_gen1', memory: '256MiB' },
+    run: { cpu: 0.08, memory: '256MiB' },
   },
   async () => {
     const activeWeek = await getActiveWeek();
@@ -571,12 +576,73 @@ exports.refreshPublicStats = onSchedule(
     const counters = await db.collection('admin_settings').doc('stats_counters').get();
     const c = counters.exists ? counters.data() : {};
 
+    // Highest JAMB total (0-400) — surfaced as "Top Score" on the marketing
+    // page. Prefer the aggregated leaderboard total; fall back to the
+    // single-subject max for early/bootstrapped deploys.
+    let topScore = 0;
+    let topScorePct = 0;
+    try {
+      const topRankSnap = await db.collection('leaderboard_student_ranks').orderBy('total', 'desc').limit(1).get();
+      if (!topRankSnap.empty) {
+        topScore = Math.round(topRankSnap.docs[0].data().total || 0);
+      }
+    } catch {}
+    if (!topScore) {
+      // Fallback: scan without index (works even while index builds) — finds 319 JAMB total
+      try {
+        const snap = await db.collection('leaderboard_student_ranks').limit(500).get();
+        let max = 0;
+        snap.docs.forEach((d) => { const t = d.data().total || 0; if (t > max) max = t; });
+        if (max) topScore = Math.round(max);
+      } catch {}
+    }
+    if (!topScore) {
+      try {
+        const topSnap = await db.collection('scores').orderBy('score', 'desc').limit(1).get();
+        if (!topSnap.empty) {
+          const v = Math.round(topSnap.docs[0].data().score || 0);
+          topScorePct = v;
+          topScore = v;
+        }
+      } catch {}
+    } else {
+      try {
+        const topSnap = await db.collection('scores').orderBy('score', 'desc').limit(1).get();
+        if (!topSnap.empty) topScorePct = Math.round(topSnap.docs[0].data().score || 0);
+      } catch {}
+    }
+
+    // Last week's top (so Home can show the active week's best first, then all-time) — 319 was missing because index wasn't ready
+    let topScoreLastWeek = 0;
+    try {
+      const weekSnap = await db.collection('scores').where('week', '==', activeWeek).orderBy('score', 'desc').limit(1).get();
+      if (!weekSnap.empty) topScoreLastWeek = Math.round(weekSnap.docs[0].data().score || 0);
+      if (!topScoreLastWeek) {
+        const rankWeekSnap = await db.collection('leaderboard_week_ranks').where('week', '==', activeWeek).orderBy('total', 'desc').limit(1).get();
+        if (!rankWeekSnap.empty) topScoreLastWeek = Math.round(rankWeekSnap.docs[0].data().total || 0);
+      }
+    } catch (e) {
+      try {
+        const snap = await db.collection('leaderboard_week_ranks').where('week', '==', activeWeek).limit(500).get();
+        let max = 0;
+        snap.docs.forEach((d) => { const t = d.data().total || 0; if (t > max) max = t; });
+        topScoreLastWeek = Math.round(max);
+        if (!topScoreLastWeek) {
+          const sSnap = await db.collection('scores').where('week', '==', activeWeek).limit(200).get().catch(() => null);
+          if (sSnap) { let m = 0; sSnap.docs.forEach((d) => { const s = d.data().score || 0; if (s > m) m = s; }); topScoreLastWeek = Math.round(m); }
+        }
+      } catch { topScoreLastWeek = 0; }
+    }
+
     await db.collection('public_stats').doc('overview').set({
       totalStudents: studentsCount.data().count,
       activeSubscriptions: c.activeSubscriptions || 0,
       totalQuizzesTaken: quizzesCount.data().count,
       studentsActiveThisWeek: weekCount.data().count,
       averageScorePct: c.averageScorePct || 0,
+      topScore,
+      topScorePct,
+      topScoreLastWeek,
       activeWeek,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -619,10 +685,11 @@ exports.computeAdminStats = onCall({ enforceAppCheck: false }, async (request) =
     yearGroups[yr].push(sid);
   });
 
-  for (const [year, ids] of Object.entries(yearGroups)) {
-    const yrStudents = ids.map(sid => students[sid]);
-    const yrScores = allScores.filter(sc => ids.includes(sc.studentId));
-    const yrPayments = allPayments.filter(p => ids.includes(p.studentId));
+    for (const [year, ids] of Object.entries(yearGroups)) {
+      const yrStudents = ids.map(sid => students[sid]);
+      const yrScores = allScores.filter(sc => ids.includes(sc.studentId));
+      // Revenue: for 'all' count every payment (even if student was deleted), for year groups only matching year
+      const yrPayments = year === 'all' ? allPayments : allPayments.filter(p => ids.includes(p.studentId));
 
     const studentCount = yrStudents.length;
     const attemptCount = yrScores.length;
@@ -700,7 +767,7 @@ exports.sendQuizTimeReminder = onSchedule(
     schedule: 'every 1 minutes',
     timeZone: 'Africa/Lagos',
     secrets: ['VAPID_PRIVATE_KEY'],
-    run: { cpu: 'gcf_gen1', memory: '256MiB' },
+    run: { cpu: 0.08, memory: '256MiB' },
   },
   async () => {
     const now = Date.now();
@@ -762,7 +829,7 @@ exports.sendQuizTimeReminder = onSchedule(
 );
 
 exports.testPushToAll = onCall(
-  { secrets: ['VAPID_PRIVATE_KEY'], enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } },
+  { secrets: ['VAPID_PRIVATE_KEY'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } },
   async (request) => {
     const vapidPrivateKeyValue = (process.env.VAPID_PRIVATE_KEY || '').trim();
     if (!vapidPrivateKeyValue) return { ok: false, reason: 'VAPID_PRIVATE_KEY secret not set in Firebase. Run: firebase functions:secrets:set VAPID_PRIVATE_KEY' };
@@ -794,7 +861,7 @@ exports.testPushToAll = onCall(
 );
 
 exports.testSms = onCall(
-  { secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } },
+  { secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } },
   async (request) => {
     const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
     if (!TERMII_API_KEY) return { ok: false, message: 'TERMII_API_KEY secret not set. Run: firebase functions:secrets:set TERMII_API_KEY' }
@@ -816,7 +883,7 @@ exports.testSms = onCall(
 );
 
 exports.sendAccountabilityIntro = onCall(
-  { secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } },
+  { secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } },
   async (request) => {
     const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
     if (!TERMII_API_KEY) return { ok: false, message: 'TERMII_API_KEY not set' }
@@ -858,7 +925,7 @@ exports.sendAccountabilityIntro = onCall(
   }
 );
 
-exports.updateStudentProfile = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (request) => {
+exports.updateStudentProfile = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   const { studentId, ...fields } = request.data || {}
   if (!request.auth) throw new HttpsError('unauthenticated', 'Not authenticated')
   if (!studentId) throw new HttpsError('invalid-argument', 'Missing studentId')
@@ -867,20 +934,29 @@ exports.updateStudentProfile = onCall({ enforceAppCheck: false, run: { cpu: 'gcf
   for (const k of keys) {
     if (!allowed.includes(k)) throw new HttpsError('invalid-argument', `Field not allowed: ${k}`)
   }
+  // Store phones in the canonical form so teacher lookups (`where('teacherPhone',
+  // '==', teacher.phone)`) match regardless of how the user typed them
+  // (+234 prefix, spaces, dashes). Teacher phone matching depends on this.
+  for (const k of ['parentPhone', 'teacherPhone', 'phone']) {
+    if (k in fields && typeof fields[k] === 'string') {
+      const n = normalizePhone(fields[k])
+      fields[k] = n || null
+    }
+  }
   if (!keys.length) return { ok: true }
   const snap = await db.collection('students').doc(studentId).get()
   if (!snap.exists) throw new HttpsError('not-found', 'Student not found')
   if (snap.data().uid !== request.auth.uid) throw new HttpsError('permission-denied', 'Not authorized')
   await snap.ref.update(fields)
-  // Keep the public friend-search profile in sync (P2-1).
-  await syncStudentProfile(studentId)
+  // Keep the public friend-search profile in sync (P2-1) — don't fail the whole save if this flakes.
+  try { await syncStudentProfile(studentId) } catch (e) { console.error('[updateStudentProfile] sync failed:', e?.message || e) }
   return { ok: true }
 });
 
 // Write the public `student_profiles/{studentId}` doc (safe subset) used by the
 // leaderboard friend-search, which must NOT read the full `students` docs
 // (owner/admin-only). Owner or admin may call.
-exports.syncStudentProfile = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (request) => {
+exports.syncStudentProfile = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   const { studentId } = request.data || {}
   if (!request.auth) throw new HttpsError('unauthenticated', 'Not authenticated')
   if (!studentId) throw new HttpsError('invalid-argument', 'Missing studentId')
@@ -889,7 +965,7 @@ exports.syncStudentProfile = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_g
 });
 
 // Admin-only backfill: (re)write every student_profiles doc from students.
-exports.syncAllStudentProfiles = onCall({ enforceAppCheck: false, run: { cpu: 1, memory: '512MiB' } }, async (request) => {
+exports.syncAllStudentProfiles = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const snap = await db.collection('students').get()
   const chunks = []
@@ -935,7 +1011,7 @@ async function syncStudentProfile(studentId, auth) {
 }
 
 exports.getPortalStats = onRequest(
-  { cors: true, run: { cpu: 'gcf_gen1', memory: '256MiB' } },
+  { cors: true, run: { cpu: 0.08, memory: '256MiB' } },
   async (req, res) => {
     try {
       const snap = await db.collection('public_stats').doc('overview').get();
@@ -952,6 +1028,9 @@ exports.getPortalStats = onRequest(
           totalQuizzesTaken: d.totalQuizzesTaken || 0,
           studentsActiveThisWeek: d.studentsActiveThisWeek || 0,
           averageScorePct: d.averageScorePct || 0,
+          topScore: d.topScore ?? d.topScorePct ?? 0,
+          topScorePct: d.topScorePct || 0,
+          topScoreLastWeek: d.topScoreLastWeek ?? 0,
           activeWeek: d.activeWeek || 'Week 1',
         },
       });
@@ -967,7 +1046,7 @@ exports.sendQuizReminders = onSchedule(
     schedule: 'every 1 minutes',
     timeZone: 'Africa/Lagos',
     secrets: ['VAPID_PRIVATE_KEY'],
-    run: { cpu: 'gcf_gen1', memory: '256MiB' },
+    run: { cpu: 0.08, memory: '256MiB' },
   },
   async () => {
     const vapidPrivateKeyValue = (process.env.VAPID_PRIVATE_KEY || '').trim();
@@ -1127,7 +1206,7 @@ exports.sendAbsentSmsReport = onSchedule(
     schedule: 'every 1 minutes',
     timeZone: 'Africa/Lagos',
     secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'],
-    run: { cpu: 'gcf_gen1', memory: '256MiB' },
+    run: { cpu: 0.08, memory: '256MiB' },
   },
   async () => {
     const now = Date.now()
@@ -1279,6 +1358,9 @@ function normalizePhone(p) {
   let s = p.replace(/[\s\-\(\)]/g, '')
   if (s.startsWith('+')) s = s.slice(1)
   if (s.startsWith('0')) s = '234' + s.slice(1)
+  // Bare 10-digit Nigerian number (e.g. 8036428999, no leading 0, no
+  // country code) — prefix the +234 so SMS/OTP and teacher matching work.
+  else if (s.length === 10 && /^[789]/.test(s)) s = '234' + s
   if (s.length >= 10 && s.length <= 14) return s
   return null
 }
@@ -1425,7 +1507,7 @@ exports.advanceWeek = onSchedule(
     schedule: 'every 1 minutes',
     timeZone: 'Africa/Lagos',
     secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'],
-    run: { cpu: 'gcf_gen1', memory: '256MiB' },
+    run: { cpu: 0.08, memory: '256MiB' },
   },
   async () => {
     const now = Date.now()
@@ -1649,7 +1731,7 @@ exports.sendQuizSmsReport = onSchedule(
     schedule: 'every 1 minutes',
     timeZone: 'Africa/Lagos',
     secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'],
-    run: { cpu: 'gcf_gen1', memory: '256MiB' },
+    run: { cpu: 0.08, memory: '256MiB' },
   },
   async () => {
     // P2-3: per-score trigger removed — a per-doc trigger would fire once per
@@ -1813,7 +1895,7 @@ exports.sendQuizSmsReport = onSchedule(
   }
 )
 
-exports.clearSmsGuards = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async () => {
+exports.clearSmsGuards = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
   const batch = db.batch()
   let count = 0
   const reminderSnap = await db.collection('reminder_sent').get()
@@ -1828,7 +1910,7 @@ exports.clearSmsGuards = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1'
 
 // Diagnostic helper (admin callable) — returns the exact data the scheduled SMS
 // passes see, so "why is nothing sending" is answerable from the admin panel.
-exports.debugSmsState = onCall({ secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async () => {
+exports.debugSmsState = onCall({ secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
   const week = await getActiveWeek()
 
   const settingsSnap = await db.collection('settings').get()
@@ -1973,13 +2055,19 @@ async function fulfillBachsCheckout(checkoutId, chargeData) {
     if (!studentSnap.exists) throw new HttpsError('not-found', 'Student not found')
     const student = studentSnap.data()
 
+    // Verify amount/currency for Bachs as well — prevents underpayment
+    const expectedBachsNgn = fresh.type === 'subscription' ? SUBSCRIPTION_PRICE_NGN : RESUME_PRICE_NGN
+    const paidBachsNgn = Math.round(parseFloat(chargeData.amount || '0'))
+    if (chargeData.currency && chargeData.currency !== 'NGN') throw new HttpsError('failed-precondition', 'Invalid currency')
+    if (paidBachsNgn < expectedBachsNgn) throw new HttpsError('failed-precondition', `Underpayment: expected ₦${expectedBachsNgn}, got ₦${paidBachsNgn}`)
+
     const updates = {}
     const paymentRecord = {
       studentId: fresh.studentId,
       uid: student.uid || '',
       studentName: student.name,
       email: (chargeData.customer && chargeData.customer.email) || student.email || '',
-      amount: Math.round(parseFloat(chargeData.amount || '0')),
+      amount: paidBachsNgn,
       currency: chargeData.currency || 'NGN',
       method: 'bachs',
       reference: chargeData.reference || checkoutId,
@@ -2061,7 +2149,7 @@ function computeExpiry(currentIso, months) {
     // One-time admin setup: create the admin Firebase Auth user (if needed) and
     // grant the `admin` custom claim. Admin sign-in then uses Firebase Auth and
     // the claim is checked by the security rules.
-    exports.setupAdmin = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (request) => {
+    exports.setupAdmin = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
       const { adminPassword } = request.data || {}
       if (!adminPassword || adminPassword.length < 8) throw new HttpsError('invalid-argument', 'Password must be at least 8 characters')
       try {
@@ -2079,7 +2167,7 @@ function computeExpiry(currentIso, months) {
       return { ok: true }
     })
 
-    exports.adminExists = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async () => {
+    exports.adminExists = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
       try {
         await admin.auth().getUserByEmail(ADMIN_EMAIL)
         return { exists: true }
@@ -2092,7 +2180,7 @@ function computeExpiry(currentIso, months) {
     // If name+password matches, create the Firebase user and sign in with a
     // custom token. Sets the Firebase password to the user's existing password
     // so the client can sign in directly next time without the legacy fallback.
-    exports.verifyLegacyLogin = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (request) => {
+    exports.verifyLegacyLogin = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
       assertAppCheck(request)
       const { name, password } = request.data || {}
       if (!name || !password) throw new HttpsError('invalid-argument', 'Missing name or password')
@@ -2137,7 +2225,7 @@ function computeExpiry(currentIso, months) {
     })
 
     // Stamp `uid` from any existing Firebase user onto legacy student docs.
-    exports.migrateLegacyAuth = onCall({ enforceAppCheck: true, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async () => {
+    exports.migrateLegacyAuth = onCall({ enforceAppCheck: true, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
       const BATCH = 500
       const snap = await db.collection('students').where('uid', '==', null).limit(BATCH).get()
       let migrated = 0
@@ -2158,7 +2246,7 @@ function computeExpiry(currentIso, months) {
 
     // Forgot-password flow (no current password required). Creates/migrates the
     // Firebase account if needed, then sets the new password via Admin SDK.
-    exports.resetPassword = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (request) => {
+    exports.resetPassword = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
       assertAppCheck(request)
       const { name, newPassword } = request.data || {}
       if (!name || !newPassword) throw new HttpsError('invalid-argument', 'Missing name or new password')
@@ -2211,7 +2299,7 @@ function assertOwnsStudent(request, student) {
   }
 }
 
-exports.adminGrantSubscription = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (request) => {
+exports.adminGrantSubscription = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const { studentId, expiry } = request.data || {}
   if (!studentId || !expiry) throw new HttpsError('invalid-argument', 'Missing studentId or expiry')
@@ -2225,7 +2313,7 @@ exports.adminGrantSubscription = onCall({ enforceAppCheck: false, run: { cpu: 'g
   return { ok: true, subscriptionUntil: expiry }
 })
 
-exports.adminDeleteStudent = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '512MiB' } }, async (request) => {
+exports.adminDeleteStudent = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const { studentId } = request.data || {}
   if (!studentId) throw new HttpsError('invalid-argument', 'Missing studentId')
@@ -2261,7 +2349,7 @@ exports.adminDeleteStudent = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_g
 })
 
 // Create a Bachs checkout session and store the student mapping for webhook fulfillment.
-exports.createBachsCheckout = onCall({ enforceAppCheck: false, secrets: ['BACHS_API_KEY'], run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (request) => {
+exports.createBachsCheckout = onCall({ enforceAppCheck: false, secrets: ['BACHS_API_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
   assertAppCheck(request)
   const { studentId, type, successUrl, cancelUrl } = request.data || {}
@@ -2312,7 +2400,7 @@ exports.createBachsCheckout = onCall({ enforceAppCheck: false, secrets: ['BACHS_
 })
 
 // Called from the client after the overlay completes or on redirect return.
-exports.completeBachsCheckout = onCall({ enforceAppCheck: false, secrets: ['BACHS_API_KEY'], run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (request) => {
+exports.completeBachsCheckout = onCall({ enforceAppCheck: false, secrets: ['BACHS_API_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
   const { checkoutId } = request.data || {}
   if (!checkoutId) throw new HttpsError('invalid-argument', 'Missing checkoutId')
@@ -2333,7 +2421,7 @@ exports.completeBachsCheckout = onCall({ enforceAppCheck: false, secrets: ['BACH
 // Webhook endpoint — Bachs delivers collection.succeeded here.
 // TODO: Add HMAC signature verification (X-Bachs-Signature header) using
 // BACHS_WEBHOOK_SECRET once req.rawBody is reliably available in this runtime.
-exports.bachsWebhook = onRequest({ cors: true, secrets: ['BACHS_API_KEY', 'BACHS_WEBHOOK_TOKEN', 'BACHS_WEBHOOK_SECRET'], run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (req, res) => {
+exports.bachsWebhook = onRequest({ cors: true, secrets: ['BACHS_API_KEY', 'BACHS_WEBHOOK_TOKEN', 'BACHS_WEBHOOK_SECRET'], run: { cpu: 0.08, memory: '256MiB' } }, async (req, res) => {
   if (req.method === 'OPTIONS') { res.status(204).end(); return }
   if (req.method !== 'POST') { res.status(405).end(); return }
 
@@ -2364,9 +2452,241 @@ exports.bachsWebhook = onRequest({ cors: true, secrets: ['BACHS_API_KEY', 'BACHS
   }
 })
 
+// ─── PAYSTACK (PRIMARY) — BACHS IS THE BACKUP ────────────────────────────
+// Paystack is the main checkout. Bachs remains as a fallback if Paystack is
+// not configured or the initialize call fails. Both gateways fulfill the same
+// way (extend subscription, write a payments doc, mark the checkout mapping).
 
+function paystackSecretOrThrow() {
+  const k = (process.env.PAYSTACK_SECRET_KEY || '').trim()
+  if (!k) throw new HttpsError('failed-precondition', 'PAYSTACK_SECRET_KEY not configured. Set it with: firebase functions:secrets:set PAYSTACK_SECRET_KEY')
+  return k
+}
 
-exports.verifyRecoveryCode = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (request) => {
+async function savePaystackCheckoutMapping(reference, studentId, type, accessCode) {
+  await db.collection('paystackCheckouts').doc(reference).set({
+    reference,
+    studentId,
+    type,
+    accessCode: accessCode || '',
+    status: 'PENDING',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  })
+}
+
+async function fulfillPaystackCheckout(reference, paystackData) {
+  const mapRef = db.collection('paystackCheckouts').doc(reference)
+  const mapSnap = await mapRef.get()
+  if (!mapSnap.exists) throw new HttpsError('not-found', 'Paystack checkout not found')
+  const map = mapSnap.data()
+  if (map.status === 'FULFILLED') return { ok: true, alreadyFulfilled: true }
+
+  // Paystack verify payload shape: data = { reference, amount (kobo), currency, status, customer:{email}, paid_at, ... }
+  // When called from the webhook we already have that `data` object — no extra fetch needed.
+  let data = paystackData
+  if (!data) {
+    const secret = paystackSecretOrThrow()
+    const res = await fetch('https://api.paystack.co/transaction/verify/' + encodeURIComponent(reference), {
+      headers: { Authorization: 'Bearer ' + secret },
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || !body.status) throw new HttpsError('internal', body.message || 'Paystack verification failed')
+    data = body.data
+  }
+  if (!data || data.status !== 'success') throw new HttpsError('failed-precondition', 'Payment not successful yet')
+
+  // Verify amount and currency match what we charged — prevents underpayment attacks (P0)
+  const expectedNgn = map.type === 'subscription' ? SUBSCRIPTION_PRICE_NGN : RESUME_PRICE_NGN
+  const paidNgn = Math.round((Number(data.amount) || 0) / 100)
+  if (data.currency && data.currency !== 'NGN') throw new HttpsError('failed-precondition', 'Invalid currency')
+  if (paidNgn < expectedNgn) throw new HttpsError('failed-precondition', `Underpayment: expected ₦${expectedNgn}, got ₦${paidNgn}`)
+  // Paystack may include fees; allow slight overpayment but log it
+  if (paidNgn !== expectedNgn) console.warn(`[Paystack] Amount mismatch for ${reference}: expected ${expectedNgn}, got ${paidNgn}`)
+
+  return db.runTransaction(async (t) => {
+    const freshSnap = await t.get(mapRef)
+    if (!freshSnap.exists) throw new HttpsError('not-found', 'Paystack checkout not found')
+    const fresh = freshSnap.data()
+    if (fresh.status === 'FULFILLED') return { ok: true, alreadyFulfilled: true }
+
+    const studentSnap = await t.get(db.collection('students').doc(fresh.studentId))
+    if (!studentSnap.exists) throw new HttpsError('not-found', 'Student not found')
+    const student = studentSnap.data()
+
+    const updates = {}
+    const paymentRecord = {
+      studentId: fresh.studentId,
+      uid: student.uid || '',
+      studentName: student.name,
+      email: (data.customer && data.customer.email) || student.email || '',
+      amount: paidNgn,
+      currency: data.currency || 'NGN',
+      method: 'paystack',
+      reference: data.reference || reference,
+      checkoutId: reference,
+      paidAt: data.paid_at || data.paidAt || new Date().toISOString(),
+    }
+
+    if (fresh.type === 'subscription') {
+      const iso = computeExpiry(student.subscriptionUntil, 1)
+      updates.subscriptionUntil = iso
+      paymentRecord.extendsTo = iso
+    } else if (fresh.type === 'resume') {
+      updates.missedStreak = 0
+      updates.suspended = false
+      updates.appealedAt = admin.firestore.FieldValue.serverTimestamp()
+      paymentRecord.type = 'account_resume'
+    }
+
+    t.update(studentSnap.ref, updates)
+    t.set(db.collection('payments').doc(), paymentRecord)
+    t.update(mapRef, { status: 'FULFILLED', fulfilledAt: admin.firestore.FieldValue.serverTimestamp() })
+    return { ok: true }
+  })
+}
+
+exports.createPaystackCheckout = onCall({ enforceAppCheck: false, secrets: ['PAYSTACK_SECRET_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
+  assertAppCheck(request)
+  const { studentId, type, callbackUrl: clientCallbackUrl } = request.data || {}
+  if (!studentId || !type) throw new HttpsError('invalid-argument', 'Missing studentId or type')
+  if (!['subscription', 'resume'].includes(type)) throw new HttpsError('invalid-argument', 'Type must be "subscription" or "resume"')
+
+  if (!(await rateLimit(`paystack:${request.auth.uid}`, 10, 60 * 60 * 1000))) {
+    throw new HttpsError('resource-exhausted', 'Too many checkouts. Try again later.')
+  }
+
+  const studentSnap = await db.collection('students').doc(studentId).get()
+  if (!studentSnap.exists) throw new HttpsError('not-found', 'Student not found')
+  const student = studentSnap.data()
+  assertOwnsStudent(request, student)
+
+  const secret = paystackSecretOrThrow()
+  const amountNgn = type === 'subscription' ? SUBSCRIPTION_PRICE_NGN : RESUME_PRICE_NGN
+  const amountKobo = amountNgn * 100
+  const reference = `274L-${type === 'subscription' ? 'SUB' : 'RES'}-${studentId}-${Date.now()}`
+  const email = (student.email || '').trim() || `${student.name.toLowerCase().replace(/\s+/g, '.')}@274lab.app`
+
+  let callbackUrl = (clientCallbackUrl || '').trim() || (process.env.PAYSTACK_CALLBACK_URL || '').trim() || 'https://www.274lab.com/'
+  // Validate callback URL is on an allowed 274Lab origin — prevents open-redirect abuse
+  try {
+    const u = new URL(callbackUrl)
+    const allowed = ['www.274lab.com', '274lab.com', 'fitness-gym-fc040.web.app', 'fitness-gym-fc040.firebaseapp.com']
+    if (!allowed.includes(u.hostname)) callbackUrl = 'https://www.274lab.com/'
+  } catch { callbackUrl = 'https://www.274lab.com/' }
+
+  const body = {
+    email,
+    amount: String(amountKobo),
+    reference,
+    currency: 'NGN',
+    metadata: { studentId, type, studentName: student.name },
+  }
+  if (callbackUrl) body.callback_url = callbackUrl
+
+  const res = await fetch('https://api.paystack.co/transaction/initialize', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || !data.status) {
+    throw new HttpsError('internal', 'Paystack initialize failed: ' + (data.message || res.statusText))
+  }
+
+  await savePaystackCheckoutMapping(data.data.reference, studentId, type, data.data.access_code)
+  return {
+    authorization_url: data.data.authorization_url,
+    access_code: data.data.access_code,
+    reference: data.data.reference,
+  }
+})
+
+exports.completePaystackCheckout = onCall({ enforceAppCheck: false, secrets: ['PAYSTACK_SECRET_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
+  if (!(await rateLimit(`completePaystack:${request.auth.uid}`, 20, 60 * 1000))) {
+    throw new HttpsError('resource-exhausted', 'Too many verification attempts. Try again later.')
+  }
+  const { reference } = request.data || {}
+  if (!reference) throw new HttpsError('invalid-argument', 'Missing reference')
+  // Basic reference format check — prevents probing random IDs
+  if (!/^274L-(SUB|RES)-[a-zA-Z0-9_-]+-\d+$/.test(reference)) {
+    throw new HttpsError('invalid-argument', 'Invalid reference format')
+  }
+
+  const mapSnap = await db.collection('paystackCheckouts').doc(reference).get()
+  if (!mapSnap.exists) throw new HttpsError('not-found', 'Checkout not found')
+  const map = mapSnap.data()
+  const studentSnap = await db.collection('students').doc(map.studentId).get()
+  if (!studentSnap.exists) throw new HttpsError('not-found', 'Student not found')
+  assertOwnsStudent(request, studentSnap.data())
+
+  return fulfillPaystackCheckout(reference, null)
+})
+
+exports.paystackWebhook = onRequest({ cors: true, secrets: ['PAYSTACK_SECRET_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (req, res) => {
+  if (req.method === 'OPTIONS') { res.status(204).end(); return }
+  if (req.method !== 'POST') { res.status(405).end(); return }
+
+  const secret = (process.env.PAYSTACK_SECRET_KEY || '').trim()
+  if (!secret) { res.status(500).send('PAYSTACK_SECRET_KEY not configured'); return }
+
+  // Paystack signs the raw body with HMAC SHA512 using the secret
+  const signature = (req.headers['x-paystack-signature'] || '').toString().trim()
+  const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body)
+  const expected = crypto.createHmac('sha512', secret).update(rawBody, 'utf8').digest('hex')
+  let sigOk = false
+  try { sigOk = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature)) } catch { sigOk = false }
+  if (!sigOk) { res.status(401).send('Invalid signature'); return }
+
+  try {
+    const event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body
+    // Paystack sends { event: 'charge.success', data: { reference, status, amount, ... } }
+    if (event.event === 'charge.success' && event.data && event.data.reference) {
+      await fulfillPaystackCheckout(event.data.reference, event.data)
+    }
+    res.status(200).send('ok')
+  } catch (e) {
+    console.error('paystackWebhook error:', e)
+    res.status(500).send('error')
+  }
+})
+
+// Sync missing Paystack payments into Firestore — run when Paystack shows payments but admin revenue is 0
+// (webhook was down due to quota). Pulls last 100 successful Paystack transactions with 274L- refs.
+exports.syncPaystackPayments = onCall({ secrets: ['PAYSTACK_SECRET_KEY'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  assertAdmin(request)
+  const secret = paystackSecretOrThrow()
+  const res = await fetch('https://api.paystack.co/transaction?perPage=100', { headers: { Authorization: 'Bearer ' + secret } })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok || !body.status) throw new HttpsError('internal', body.message || 'Paystack fetch failed')
+  let synced = 0, skipped = 0, failed = 0
+  for (const trx of (body.data || [])) {
+    if (trx.status !== 'success' || !trx.reference || !String(trx.reference).startsWith('274L-')) continue
+    const existingPay = await db.collection('payments').where('reference', '==', trx.reference).limit(1).get().catch(() => null)
+    if (existingPay && !existingPay.empty) { skipped++; continue }
+    let mapSnap = await db.collection('paystackCheckouts').doc(trx.reference).get().catch(() => null)
+    if (!mapSnap || !mapSnap.exists) {
+      const meta = trx.metadata || {}
+      const sid = meta.studentId || (trx.reference.split('-')[2] || '')
+      const type = meta.type || (trx.reference.includes('-SUB-') ? 'subscription' : 'subscription')
+      if (!sid) { failed++; continue }
+      const stuSnap = await db.collection('students').doc(sid).get().catch(() => null)
+      if (!stuSnap || !stuSnap.exists) { failed++; continue }
+      await db.collection('paystackCheckouts').doc(trx.reference).set({
+        reference: trx.reference,
+        studentId: sid,
+        type,
+        status: 'PENDING',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      })
+    }
+    try { await fulfillPaystackCheckout(trx.reference, trx); synced++ } catch (e) { console.error('[syncPaystack] fulfill failed for', trx.reference, e?.message); failed++ }
+  }
+  return { ok: true, synced, skipped, failed }
+})
+
+exports.verifyRecoveryCode = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
   const { studentId, code } = request.data || {}
   if (!studentId || !code) throw new HttpsError('invalid-argument', 'Missing studentId or code')
@@ -2405,6 +2725,20 @@ const RATE_PER_QUALIFYING_STUDENT_MONTH = 500
 const MIN_TESTS_PER_MONTH = 3
 const MAX_PAID_STUDENTS_PER_MONTH = 30
 
+// Pioneer referral bonus: N200 per qualifying student under a referred teacher, Oct-Dec only, cap 20/month
+const PIONEER_BONUS_PER_STUDENT = 200
+const PIONEER_MAX_BONUS_STUDENTS = 20
+const PIONEER_BONUS_START = '2026-10'
+const PIONEER_BONUS_END = '2026-12'
+
+function isPioneerBonusMonth(month) {
+  return month >= PIONEER_BONUS_START && month <= PIONEER_BONUS_END
+}
+
+function generatePioneerCode() {
+  return String(Math.floor(1000 + Math.random() * 9000))
+}
+
 // Resolve the signed-in caller to their teacher doc. Throws if not a teacher.
 async function assertTeacher(request) {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
@@ -2418,20 +2752,29 @@ async function findTeacherByPhone(phone) {
   return snap.empty ? null : snap.docs[0]
 }
 
-// Per-student monthly test counts + recent scores from one query. A "test" is a
-// graded subject quiz (one scores doc, each carrying `date`). Sorted in memory
+// Per-student monthly test counts + recent scores from one query. A "test"
+// is a weekly quiz session (all 4 subjects for that week count as ONE test).
+// 12 subject docs across 3 weeks = 3 tests, not 12. Sorted in memory
 // so no extra composite index is required.
 async function studentScoreSummary(studentId) {
   const snap = await db.collection('scores').where('studentId', '==', studentId).limit(300).get()
-  const counts = {}
+  const monthTests = {} // month -> Set<week|date>
   const recent = []
   const docs = snap.docs.map((d) => d.data())
   docs.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
   docs.forEach((sc) => {
     const month = (sc.date || '').slice(0, 7)
-    if (month) counts[month] = (counts[month] || 0) + 1
+    if (month) {
+      if (!monthTests[month]) monthTests[month] = new Set()
+      // Distinct test = distinct week (fallback to date day). 4 subject docs
+      // in the same week share the same `week` value, so they count as 1.
+      const testKey = (sc.week || '').trim() || (sc.date || '').slice(0, 10)
+      if (testKey) monthTests[month].add(testKey)
+    }
     if (recent.length < 15) recent.push({ week: sc.week, subject: sc.subject, score: sc.score, date: sc.date })
   })
+  const counts = {}
+  for (const [m, set] of Object.entries(monthTests)) counts[m] = set.size
   return { counts, recent }
 }
 
@@ -2454,13 +2797,37 @@ function earningsFromCounts(countsList) {
   return { earnings: perMonth, qualifiedCounts: qualified }
 }
 
+// Pioneer bonus: N200 per qualifying student (3+ tests) of referred teachers, Oct-Dec only, cap 20/month
+function pioneerBonusFromCounts(countsList) {
+  const perMonth = {}
+  const qualified = {}
+  for (const counts of countsList) {
+    for (const [month, count] of Object.entries(counts || {})) {
+      if (!isPioneerBonusMonth(month)) continue
+      if (count >= MIN_TESTS_PER_MONTH) {
+        qualified[month] = (qualified[month] || 0) + 1
+        if (qualified[month] <= PIONEER_MAX_BONUS_STUDENTS) {
+          perMonth[month] = (perMonth[month] || 0) + PIONEER_BONUS_PER_STUDENT
+        }
+      }
+    }
+  }
+  return { earnings: perMonth, qualifiedCounts: qualified }
+}
+
 // Every student who added this teacher as an accountability partner. Matches on
 // `students.teacherPhone` (the teacher's phone) plus any legacy explicit
 // `teacherId` links.
 async function findTeacherStudents(teacherId, teacherPhone) {
   const students = new Map()
   const queries = []
-  if (teacherPhone) queries.push(db.collection('students').where('teacherPhone', '==', teacherPhone).limit(500))
+  if (teacherPhone) {
+    // Students may have stored their teacher's number with a +234 prefix (or
+    // spacing that the caller normalized away), so query the canonical phone
+    // AND the '+' variant. Firestore `in` keeps this to one extra query.
+    const canonical = normalizePhone(teacherPhone)
+    if (canonical) queries.push(db.collection('students').where('teacherPhone', 'in', [canonical, `+${canonical}`]).limit(500))
+  }
   queries.push(db.collection('students').where('teacherId', '==', teacherId).limit(500))
   const snaps = await Promise.all(queries.map((q) => q.get().catch(() => null)))
   snaps.forEach((snap) => {
@@ -2471,7 +2838,7 @@ async function findTeacherStudents(teacherId, teacherPhone) {
 }
 
 exports.sendTeacherOtp = onCall(
-  { secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } },
+  { secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } },
   async (request) => {
     const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
     if (!TERMII_API_KEY) throw new HttpsError('failed-precondition', 'SMS service not configured')
@@ -2499,8 +2866,8 @@ exports.sendTeacherOtp = onCall(
   }
 )
 
-exports.registerTeacher = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (request) => {
-  const { name, email, phone, otp, password } = request.data || {}
+exports.registerTeacher = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  const { name, email, phone, otp, password, pioneerCode } = request.data || {}
   const tName = (name || '').trim()
   if (tName.length < 3) throw new HttpsError('invalid-argument', 'Name must be at least 3 characters')
   const tEmail = (email || '').trim().toLowerCase()
@@ -2510,6 +2877,18 @@ exports.registerTeacher = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1
   if (!password || password.length < 8) throw new HttpsError('invalid-argument', 'Password must be at least 8 characters')
   const code = String(otp || '').trim()
   if (!/^\d{6}$/.test(code)) throw new HttpsError('invalid-argument', 'Enter the 6-digit verification code')
+  // Validate pioneer referral code if supplied (4-digit random, 2-level only, no self-referral)
+  let referredByPioneerId = null
+  const rawPioneerCode = String(pioneerCode || '').trim()
+  if (rawPioneerCode) {
+    if (!/^\d{4}$/.test(rawPioneerCode)) throw new HttpsError('invalid-argument', 'Pioneer code must be 4 digits')
+    const codeSnap = await db.collection('pioneerCodes').doc(rawPioneerCode).get()
+    if (!codeSnap.exists) throw new HttpsError('invalid-argument', 'Invalid pioneer code')
+    const pid = codeSnap.data().teacherId
+    const pioneerSnap = await db.collection('teachers').doc(pid).get()
+    if (!pioneerSnap.exists || !pioneerSnap.data().isPioneer) throw new HttpsError('invalid-argument', 'Invalid pioneer code')
+    referredByPioneerId = pid
+  }
 
   const otpSnap = await db.collection('teacher_otps').doc(normalized).get()
   if (!otpSnap.exists) throw new HttpsError('failed-precondition', 'Request a verification code first')
@@ -2552,6 +2931,9 @@ exports.registerTeacher = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1
     phone: normalized,
     accountNumber: '',
     bankName: '',
+    isPioneer: false,
+    pioneerCode: null,
+    referredByPioneerId: referredByPioneerId || null,
     createdAt: new Date().toISOString(),
   }
   await ref.set(payload)
@@ -2559,23 +2941,200 @@ exports.registerTeacher = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1
   return { ok: true, teacherId: ref.id, teacher: payload }
 })
 
-// Teacher fills in / updates the payout bank details (account number + bank).
-exports.teacherUpdateDetails = onCall({ enforceAppCheck: false, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (request) => {
-  const { accountNumber, bankName } = request.data || {}
-  const acct = (accountNumber || '').replace(/\D/g, '')
-  if (acct.length < 10) throw new HttpsError('invalid-argument', 'Enter a valid account number')
-  const bank = (bankName || '').trim()
-  if (bank.length < 2) throw new HttpsError('invalid-argument', 'Enter your bank name')
-  const { teacherId } = await assertTeacher(request)
-  await db.collection('teachers').doc(teacherId).update({
-    accountNumber: acct,
-    bankName: bank,
-    bankUpdatedAt: new Date().toISOString(),
-  })
-  return { ok: true, accountNumber: acct, bankName: bank }
+// ─── PIONEER REFERRAL SYSTEM ───
+// Two-level only: Admin makes a teacher PIONEER (random 4-digit code). New teachers
+// can enter that code on signup; they appear under the pioneer. Pioneer earns
+// N200 per qualifying student (3+ tests) of their referrals, Oct-Dec only, cap 20.
+
+exports.makePioneer = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  assertAdmin(request)
+  const { teacherId } = request.data || {}
+  if (!teacherId) throw new HttpsError('invalid-argument', 'Missing teacherId')
+  const tRef = db.collection('teachers').doc(teacherId)
+  const tSnap = await tRef.get()
+  if (!tSnap.exists) throw new HttpsError('not-found', 'Teacher not found')
+  const t = tSnap.data()
+  if (t.isPioneer && t.pioneerCode) throw new HttpsError('already-exists', 'Teacher is already a Pioneer')
+  // Generate 4 random digits, retry on collision
+  let code = null
+  for (let i = 0; i < 5; i++) {
+    const c = generatePioneerCode()
+    const exists = await db.collection('pioneerCodes').doc(c).get()
+    if (!exists.exists) { code = c; break }
+  }
+  if (!code) throw new HttpsError('internal', 'Could not generate code, try again')
+  await tRef.update({ isPioneer: true, pioneerCode: code, pioneerSince: new Date().toISOString() })
+  await db.collection('pioneerCodes').doc(code).set({ teacherId, code, createdAt: new Date().toISOString() })
+  return { ok: true, code }
 })
 
-exports.getTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 1, memory: '512MiB' } }, async (request) => {
+exports.removePioneer = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  assertAdmin(request)
+  const { teacherId } = request.data || {}
+  if (!teacherId) throw new HttpsError('invalid-argument', 'Missing teacherId')
+  const tRef = db.collection('teachers').doc(teacherId)
+  const tSnap = await tRef.get()
+  if (!tSnap.exists) throw new HttpsError('not-found', 'Teacher not found')
+  const t = tSnap.data()
+  if (t.pioneerCode) {
+    await db.collection('pioneerCodes').doc(t.pioneerCode).delete().catch(() => {})
+  }
+  await tRef.update({ isPioneer: false, pioneerCode: null, pioneerSince: null })
+  return { ok: true }
+})
+
+exports.getPioneerDashboard = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  const { teacherId, teacher } = await assertTeacher(request)
+  if (!teacher.isPioneer) throw new HttpsError('permission-denied', 'Not a Pioneer')
+  const refSnap = await db.collection('teachers').where('referredByPioneerId', '==', teacherId).get()
+  const referred = []
+  for (const doc of refSnap.docs) {
+    const rt = doc.data()
+    const studentsMap = await findTeacherStudents(doc.id, rt.phone)
+    const countsList = []
+    const studentRows = []
+    for (const [sid, data] of studentsMap) {
+      const { counts } = await studentScoreSummary(sid)
+      countsList.push(counts)
+      const totalTests = Object.values(counts).reduce((a, n) => a + n, 0)
+      studentRows.push({ studentId: sid, name: data.name || 'Student', totalTests })
+    }
+    const totalStudents = studentsMap.size
+    const totalTests = studentRows.reduce((a, s) => a + s.totalTests, 0)
+    referred.push({
+      teacherId: doc.id,
+      name: rt.name || '—',
+      email: rt.email || '',
+      phone: rt.phone || '',
+      students: studentRows,
+      totalStudents,
+      totalTests,
+    })
+  }
+  return { ok: true, referred }
+})
+
+// ─── PAYSTACK BANK ACCOUNT VERIFICATION ───
+// Live checker: resolves an account number + bank code to the real account
+// holder's name via Paystack's /bank/resolve. The bank-name → code mapping is
+// pulled fresh from Paystack /bank (cached per instance) so new institutions
+// are supported without code changes. Requires the PAYSTACK_SECRET_KEY secret.
+
+let paystackBanksCache = null
+let paystackBanksCacheAt = 0
+
+function paystackHeaders(secret) {
+  return { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' }
+}
+
+// Normalize a bank name for fuzzy matching ("guaranty trust bank" == "GTBank").
+function bankNameKey(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '').trim()
+}
+
+// Cache the NGN bank list for 6 hours (callable instances are short-lived, so
+// this is effectively a per-deploy refresh; it avoids a /bank round-trip on
+// every teacher save).
+async function fetchPaystackBanks(secret) {
+  const now = Date.now()
+  if (paystackBanksCache && now - paystackBanksCacheAt < 6 * 60 * 60 * 1000) {
+    return paystackBanksCache
+  }
+  const banks = []
+  let page = 1
+  let total = 999
+  while (banks.length < total && page <= 10) {
+    const res = await fetch(`https://api.paystack.co/bank?currency=NGN&perPage=100&page=${page}`, {
+      headers: paystackHeaders(secret),
+    })
+    if (!res.ok) throw new HttpsError('internal', 'Could not reach Paystack bank list')
+    const body = await res.json()
+    if (!body.status) break
+    total = body.meta?.total ?? banks.length
+    banks.push(...(body.data || []))
+    page += 1
+  }
+  paystackBanksCache = banks
+  paystackBanksCacheAt = now
+  return banks
+}
+
+// Map the teacher's free-text bank name to a Paystack bank code (best match by
+// slug, then by normalized name).
+async function resolveBankCode(secret, bankName) {
+  const banks = await fetchPaystackBanks(secret)
+  const wanted = bankNameKey(bankName)
+  let scored = banks
+    .filter((b) => b.code && (b.name || b.slug))
+    .map((b) => {
+      const slugKey = bankNameKey(b.slug)
+      const nameKey = bankNameKey(b.name)
+      let score = 0
+      if (slugKey && (slugKey === wanted || wanted.includes(slugKey) || slugKey.includes(wanted))) score += 3
+      if (nameKey === wanted) score += 5
+      else if (nameKey.includes(wanted) || wanted.includes(nameKey)) score += 2
+      return { bank: b, score }
+    })
+  scored.sort((a, b) => b.score - a.score)
+  const top = scored[0]
+  if (!top || top.score < 2) return null
+  return top.bank
+}
+
+async function resolvePaystackAccount(secret, bank) {
+  const url = 'https://api.paystack.co/bank/resolve?account_number=' +
+    encodeURIComponent(bank.accountNumber) + '&bank_code=' + encodeURIComponent(bank.bankCode)
+  const res = await fetch(url, { headers: paystackHeaders(secret) })
+  const body = await res.json().catch(() => ({}))
+  if (res.status === 404 || (body.status === false && /Does not exist|invalid|not found/i.test(body.message || ''))) {
+    throw new HttpsError('invalid-argument', 'This account number was not found on ' + bank.bankName + '. Double-check the number and try again.')
+  }
+  if (!res.ok || !body.status) {
+    throw new HttpsError('internal', body.message || 'Could not verify the account right now. Try again.')
+  }
+  return body.data
+}
+
+// Teacher fills in / updates the payout bank details (account number + bank).
+// Verifies the account lives before saving — a live Paystack /bank/resolve.
+exports.teacherUpdateDetails = onCall(
+  { secrets: ['PAYSTACK_SECRET_KEY'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } },
+  async (request) => {
+    const { accountNumber, bankName } = request.data || {}
+    const acct = (accountNumber || '').replace(/\D/g, '')
+    if (acct.length < 10) throw new HttpsError('invalid-argument', 'Enter a valid account number')
+    const bank = (bankName || '').trim()
+    if (bank.length < 2) throw new HttpsError('invalid-argument', 'Enter your bank name')
+    const secret = (process.env.PAYSTACK_SECRET_KEY || '').trim()
+    if (!secret) throw new HttpsError('failed-precondition', 'Bank verification is not configured. Set PAYSTACK_SECRET_KEY with: firebase functions:secrets:set PAYSTACK_SECRET_KEY')
+    const { teacherId } = await assertTeacher(request)
+
+    // Resolve the typed bank name to a Paystack bank code, then verify the
+    // account number really exists under that bank.
+    const bankInfo = await resolveBankCode(secret, bank)
+    if (!bankInfo) throw new HttpsError('invalid-argument', 'Could not recognize the bank "' + bank + '". Check the spelling and try again.')
+
+    const resolved = await resolvePaystackAccount(secret, {
+      accountNumber: acct,
+      bankCode: bankInfo.code,
+      bankName: bankInfo.name,
+    })
+    const accountName = (resolved.account_name || '').trim()
+
+    await db.collection('teachers').doc(teacherId).update({
+      accountNumber: acct,
+      bankName: bankInfo.name,
+      bankCode: bankInfo.code,
+      accountName,
+      bankVerified: true,
+      bankVerifiedAt: new Date().toISOString(),
+      bankUpdatedAt: new Date().toISOString(),
+    })
+    return { ok: true, accountNumber: acct, bankName: bankInfo.name, accountName, bankVerified: true }
+  }
+)
+
+exports.getTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   const { teacherId, teacher } = await assertTeacher(request)
   const studentsMap = await findTeacherStudents(teacherId, teacher.phone)
   const countsList = []
@@ -2593,6 +3152,26 @@ exports.getTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 1, me
   }
   students.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
   const { earnings: monthsEarnings, qualifiedCounts } = earningsFromCounts(countsList)
+  // Pioneer bonus (if this teacher is a pioneer, check their referred teachers)
+  let pioneerEarnings = {}
+  let pioneerQualifiedCounts = {}
+  let isPioneer = !!teacher.isPioneer
+  let pioneerCode = teacher.pioneerCode || null
+  if (isPioneer) {
+    const refSnap = await db.collection('teachers').where('referredByPioneerId', '==', teacherId).get()
+    const refCountsList = []
+    for (const doc of refSnap.docs) {
+      const rt = doc.data()
+      const sMap = await findTeacherStudents(doc.id, rt.phone)
+      for (const [sid] of sMap) {
+        const { counts } = await studentScoreSummary(sid)
+        refCountsList.push(counts)
+      }
+    }
+    const pb = pioneerBonusFromCounts(refCountsList)
+    pioneerEarnings = pb.earnings
+    pioneerQualifiedCounts = pb.qualifiedCounts
+  }
   return {
     ok: true,
     linkedCount: students.length,
@@ -2602,16 +3181,21 @@ exports.getTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 1, me
       phone: teacher.phone || '',
       accountNumber: teacher.accountNumber || '',
       bankName: teacher.bankName || '',
+      isPioneer,
+      pioneerCode,
+      referredByPioneerId: teacher.referredByPioneerId || null,
     },
     monthsEarnings,
     qualifiedCounts,
+    pioneerEarnings,
+    pioneerQualifiedCounts,
     students,
   }
 })
 
 // Admin tracking: every teacher, how many students linked them, their payout
 // bank details, and monthly earnings.
-exports.adminTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 1, memory: '512MiB' } }, async (request) => {
+exports.adminTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const snap = await db.collection('teachers').get()
   const teachers = []
@@ -2632,6 +3216,24 @@ exports.adminTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 1, 
     }
     studentRows.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
     const { earnings, qualifiedCounts } = earningsFromCounts(countsList)
+    // Pioneer bonus for admin view
+    let pioneerEarnings = {}
+    let pioneerQualifiedCounts = {}
+    if (t.isPioneer) {
+      const refSnap = await db.collection('teachers').where('referredByPioneerId', '==', d.id).get()
+      const refCountsList = []
+      for (const doc of refSnap.docs) {
+        const rt = doc.data()
+        const sMap = await findTeacherStudents(doc.id, rt.phone)
+        for (const [sid] of sMap) {
+          const { counts } = await studentScoreSummary(sid)
+          refCountsList.push(counts)
+        }
+      }
+      const pb = pioneerBonusFromCounts(refCountsList)
+      pioneerEarnings = pb.earnings
+      pioneerQualifiedCounts = pb.qualifiedCounts
+    }
     teachers.push({
       teacherId: d.id,
       name: t.name || '—',
@@ -2639,9 +3241,16 @@ exports.adminTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 1, 
       phone: t.phone || '',
       accountNumber: t.accountNumber || '',
       bankName: t.bankName || '',
+      accountName: t.accountName || '',
+      bankVerified: t.bankVerified || false,
+      isPioneer: !!t.isPioneer,
+      pioneerCode: t.pioneerCode || null,
+      referredByPioneerId: t.referredByPioneerId || null,
       linkedCount: studentsMap.size,
       monthsEarnings: earnings,
       qualifiedCounts,
+      pioneerEarnings,
+      pioneerQualifiedCounts,
       students: studentRows,
       createdAt: t.createdAt || '',
     })
@@ -3033,7 +3642,7 @@ async function updateLeaderboardAggregates(studentId, week, results) {
 // Migrate existing questions: copy each question's inline `answer` field into the
 // admin-only `questionAnswers/{questionId}` doc, then strip `answer` from the
 // public question doc. Run repeatedly until `remaining` is 0.
-exports.migrateQuestionAnswers = onCall({ enforceAppCheck: true, run: { cpu: 'gcf_gen1', memory: '256MiB' } }, async (request) => {
+exports.migrateQuestionAnswers = onCall({ enforceAppCheck: true, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const BATCH = 300
   const snap = await db.collection('questions').where('answer', '>=', 0).limit(BATCH).get()
