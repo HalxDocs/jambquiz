@@ -2264,9 +2264,12 @@ function computeExpiry(currentIso, months) {
         const updated = (await doc.ref.get()).data()
         return { ok: true, student: { id: doc.id, ...updated } }
       }
-      // uid belongs to a different Firebase user — this shouldn't happen but
-      // don't silently overwrite. The admin should resolve the conflict.
-      throw new HttpsError('already-exists', 'This name is linked to another account')
+      // uid belongs to a different Firebase user. The caller can sign in
+      // (Firebase Auth works), so they are the rightful owner. Overwrite
+      // the stale uid so Firestore rules allow access.
+      await doc.ref.update({ uid: request.auth.uid })
+      const updated = (await doc.ref.get()).data()
+      return { ok: true, student: { id: doc.id, ...updated } }
     })
 
     // Forgot-password flow (no current password required). Creates/migrates the    // Forgot-password flow (no current password required). Creates/migrates the
