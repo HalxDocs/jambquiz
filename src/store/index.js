@@ -9,7 +9,7 @@ export { db, load, save } from './db'
 
 export { normalizeTopic, setTopics, getTopics, listenTopics } from './topics'
 
-export { getAccessStatus, registerStudent, getStudentByUid, getStudentById, changePassword, verifyAdminSession, updateStudent, deleteStudent, listenStudents, getStudentsPage, getStudentsCount, stripSensitive, stripPersisted, incrementFreeAttempts, studentAuthEmail, ADMIN_EMAIL } from './students'
+export { getAccessStatus, registerStudent, getStudentByUid, getStudentById, changePassword, verifyAdminSession, updateStudent, deleteStudent, listenStudents, getStudentsPage, getStudentsCount, stripSensitive, stripPersisted, incrementFreeAttempts, studentAuthEmail, ADMIN_EMAIL, linkStudentUid } from './students'
 
 export { startQuiz, submitQuiz, listenScores, getStudentScores, getStudentScoresAdmin, fetchDetails } from './scores'
 
@@ -34,4 +34,4 @@ export { getConsistencyRank } from './ranks'
 
 export { logEvent } from './analytics'
 
-export { sendTeacherOtp, registerTeacher, teacherSignIn, getTeacherByUid, teacherUpdateDetails, getTeacherDashboard, adminGetTeachers } from './teachers'
+export { sendTeacherOtp, registerTeacher, teacherSignIn, getTeacherByUid, teacherUpdateDetails, getTeacherDashboard, adminGetTeachers, makePioneer, removePioneer, getPioneerDashboard } from './teachers'

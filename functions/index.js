@@ -2244,7 +2244,32 @@ function computeExpiry(currentIso, months) {
       return { migrated, remaining: Math.max(0, snap.size - migrated) }
     })
 
-    // Forgot-password flow (no current password required). Creates/migrates the
+    // Link a Firebase Auth uid to a student doc. Called when the user can
+    // sign in (Firebase Auth account exists) but the student doc has no matching
+    // uid field — common for accounts created before uid was added to the schema.
+    exports.linkStudentUid = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+      if (!request.auth) throw new HttpsError('unauthenticated', 'Not authenticated')
+      const { name } = request.data || {}
+      if (!name || String(name).trim().length < 3) throw new HttpsError('invalid-argument', 'Name required')
+      const nameLower = name.toLowerCase().trim()
+      const snap = await db.collection('students').where('nameLower', '==', nameLower).limit(1).get()
+      if (snap.empty) throw new HttpsError('not-found', 'No account found with that name')
+      const doc = snap.docs[0]
+      const data = doc.data()
+      // Already linked
+      if (data.uid === request.auth.uid) return { ok: true, student: { id: doc.id, ...data } }
+      // If uid is null/missing, stamp the caller's uid
+      if (!data.uid) {
+        await doc.ref.update({ uid: request.auth.uid })
+        const updated = (await doc.ref.get()).data()
+        return { ok: true, student: { id: doc.id, ...updated } }
+      }
+      // uid belongs to a different Firebase user — this shouldn't happen but
+      // don't silently overwrite. The admin should resolve the conflict.
+      throw new HttpsError('already-exists', 'This name is linked to another account')
+    })
+
+    // Forgot-password flow (no current password required). Creates/migrates the    // Forgot-password flow (no current password required). Creates/migrates the
     // Firebase account if needed, then sets the new password via Admin SDK.
     exports.resetPassword = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
       assertAppCheck(request)

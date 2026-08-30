@@ -1,4 +1,4 @@
-import { db, collection, getDocs, getDoc, getCountFromServer, setDoc, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter, increment, auth } from '../firebase'
+import { db, collection, getDocs, getDoc, getCountFromServer, setDoc, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter, increment, auth, functions, httpsCallable } from '../firebase'
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -13,6 +13,17 @@ import {
 // auto-id (`id`) and stores the Firebase UID in a `uid` field for ownership checks.
 export const AUTH_EMAIL_DOMAIN = '274lab.app'
 export const ADMIN_EMAIL = 'admin@274lab.app'
+
+// Canonical Nigerian phone format used for teacher matching: no +, no spaces.
+export function normalizePhone(p) {
+  if (!p) return ''
+  let s = String(p).replace(/[\s\-\(\)]/g, '')
+  if (s.startsWith('+')) s = s.slice(1)
+  if (s.startsWith('0')) s = '234' + s.slice(1)
+  else if (s.length === 10 && /^[789]/.test(s)) s = '234' + s
+  if (s.length >= 10 && s.length <= 14) return s
+  return ''
+}
 
 export function studentAuthEmail(nameLower) {
   // Firebase Auth rejects spaces in the email local-part, so collapse them to
@@ -56,7 +67,7 @@ function stripSensitive(student) {
 
 function stripPersisted(student) {
   if (!student) return null
-  const { password, parentPhone, teacherPhone, subscriptionUntil, ...rest } = student
+  const { password, ...rest } = student
   return rest
 }
 
@@ -88,9 +99,9 @@ async function registerStudent(student) {
     nameLowerWords,
     year: student.year || String(new Date().getFullYear()),
     email: (student.email || '').toLowerCase(),
-    parentPhone: student.parentPhone || '',
-    teacherPhone: student.teacherPhone || '',
-    phone: student.phone || '',
+    parentPhone: normalizePhone(student.parentPhone),
+    teacherPhone: normalizePhone(student.teacherPhone),
+    phone: normalizePhone(student.phone),
     subjects: student.subjects || [],
     uid,
     subscriptionUntil: null,
@@ -216,6 +227,11 @@ async function getStudentsCount(year) {
   }
 }
 
+async function linkStudentUid(name) {
+  const res = await httpsCallable(functions, 'linkStudentUid')({ name })
+  return res.data
+}
+
 export {
   getAccessStatus,
   registerStudent,
@@ -228,6 +244,6 @@ export {
   listenStudents,
   getStudentsPage,
   getStudentsCount,
-  stripSensitive, stripPersisted,
+  stripSensitive, stripPersisted, linkStudentUid,
   incrementFreeAttempts,
 }

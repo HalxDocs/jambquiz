@@ -17,7 +17,7 @@ import TeacherDashboard from './pages/TeacherDashboard'
 import GlobalToast from './components/ui/GlobalToast'
 import ErrorBoundary from './components/ui/ErrorBoundary'
 import CardWarningPopup from './components/dashboard/CardWarningPopup'
-import { stripSensitive, stripPersisted, getStudentByUid, getTeacherByUid } from './store/useStore'
+import { stripSensitive, stripPersisted, getStudentByUid, getTeacherByUid, linkStudentUid } from './store/useStore'
 import { useThemeStore } from './store/theme'
 import { applyDarkTheme } from './lib/darkTheme'
 import { auth, onAuthStateChanged, getIdTokenResult, functions, httpsCallable } from './firebase'
@@ -202,9 +202,26 @@ export default function App() {
               setView((v) => (v === 'landing' || v === 'home' ? 'dashboard' : v))
             }
           } else {
-            // Firebase Auth user exists but no matching student doc — stale
-            // session or legacy account that was never migrated. Clear the
-            // session and send the user back to sign in.
+            // Firebase Auth uid doesn't match any student doc. Try to link
+            // the uid using the name from the saved session (common for
+            // accounts created before uid was added to the schema).
+            const saved = (() => { try { return JSON.parse(localStorage.getItem('jamb_session') || 'null') } catch { return null } })()
+            if (saved?.name) {
+              try {
+                const linkRes = await linkStudentUid(saved.name)
+                if (linkRes?.ok && linkRes.student) {
+                  setStudentUid(linkRes.student.uid || user.uid)
+                  setStudent(linkRes.student)
+                  if (!isRegistering()) {
+                    setView((v) => (v === 'landing' || v === 'home' ? 'dashboard' : v))
+                  }
+                  return
+                }
+              } catch (e) {
+                console.warn('[Auth] linkStudentUid failed:', e?.message || e)
+              }
+            }
+            // Could not link — clear stale session
             console.warn('[Auth] Student doc not found for uid:', user.uid)
             setStudentState(null)
             localStorage.removeItem('jamb_session')
