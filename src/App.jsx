@@ -20,9 +20,10 @@ import CardWarningPopup from './components/dashboard/CardWarningPopup'
 import { stripSensitive, stripPersisted, getStudentByUid, getTeacherByUid } from './store/useStore'
 import { useThemeStore } from './store/theme'
 import { applyDarkTheme } from './lib/darkTheme'
-import { auth, onAuthStateChanged, getIdTokenResult } from './firebase'
+import { auth, onAuthStateChanged, getIdTokenResult, functions, httpsCallable } from './firebase'
 import { setStudentUid, clearStudentUid, isRegistering } from './store/studentSession'
 import { useUserNotificationStore } from './store/notificationStore'
+import { useToastStore } from './store/toast'
 
 function isIos() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent)
@@ -56,7 +57,8 @@ export default function App() {
     } catch { return null }
   })()
 
-  const [view, setView] = useState(savedTeacherSession ? 'teacher-dashboard' : (savedSession ? 'dashboard' : 'landing'))
+  const teachersPath = typeof window !== 'undefined' && (window.location.pathname === '/teachers' || window.location.pathname.startsWith('/teachers/'))
+  const [view, setView] = useState(teachersPath ? 'landing' : (savedTeacherSession ? 'teacher-dashboard' : (savedSession ? 'dashboard' : 'landing')))
   const [homeMode, setHomeMode] = useState('login')
   const [homeTab, setHomeTab] = useState('student')
   const theme = useThemeStore((s) => s.theme)
@@ -116,11 +118,25 @@ export default function App() {
     prevViewRef.current = view
   }, [view])
 
+  // Handle /teachers deep link — scroll to teachers section on landing
+  useEffect(() => {
+    if (view === 'landing' && typeof window !== 'undefined' && window.location.pathname === '/teachers') {
+      const t = setTimeout(() => document.getElementById('teachers')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 350)
+      return () => clearTimeout(t)
+    }
+  }, [view])
+
   // Intercept hardware back button — go to dashboard instead of closing the app
   useEffect(() => {
     const subViews = ['quiz', 'results', 'leaderboard', 'subject-detail', 'subscribe', 'supporters', 'subjects', 'contact']
     if (subViews.includes(view)) {
       window.history.pushState({ jamb: view }, '')
+    } else if (view === 'home' && homeTab === 'teacher') {
+      window.history.pushState({ jamb: 'teachers' }, '', '/teachers')
+    } else if (view === 'landing' && window.location.pathname === '/teachers') {
+      // keep /teachers visible on landing
+    } else if (window.location.pathname === '/teachers' && view !== 'home' && view !== 'landing') {
+      window.history.replaceState({}, '', '/')
     }
   }, [view])
 
@@ -185,6 +201,16 @@ export default function App() {
             if (!isRegistering()) {
               setView((v) => (v === 'landing' || v === 'home' ? 'dashboard' : v))
             }
+          } else {
+            // Firebase Auth user exists but no matching student doc — stale
+            // session or legacy account that was never migrated. Clear the
+            // session and send the user back to sign in.
+            console.warn('[Auth] Student doc not found for uid:', user.uid)
+            setStudentState(null)
+            localStorage.removeItem('jamb_session')
+            localStorage.removeItem('jamb_session_ts')
+            clearStudentUid()
+            setView('landing')
           }
         }
       } catch {
@@ -193,6 +219,39 @@ export default function App() {
     })
     return () => unsub()
   }, [])
+
+  // Paystack redirect callback (primary gateway). Paystack appends
+  // ?reference=...&trxref=... to the callback_url, which lands on the
+  // hosting root. Pick it up here even when the Subscribe page is not
+  // mounted (view is landing/dashboard). We just route to Subscribe and
+  // let that page verify and show the dedicated success screen + receipt.
+  const paystackHandledRef = useRef(null)
+  useEffect(() => {
+    if (!student) return
+    const params = new URLSearchParams(window.location.search)
+    const urlRef = params.get('reference') || params.get('trxref')
+    let pendingRef = null
+    try { pendingRef = localStorage.getItem('pending_paystack_ref') } catch {}
+    const ref = urlRef || pendingRef
+    if (!ref || !ref.includes(student.id)) return
+    if (paystackHandledRef.current === ref) return
+    paystackHandledRef.current = ref
+
+    if (urlRef) {
+      try {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('reference')
+        url.searchParams.delete('trxref')
+        window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+      } catch {}
+      // Keep the ref for Subscribe.jsx to verify and render the success page
+      try { localStorage.setItem('pending_paystack_ref', ref) } catch {}
+      setView('subscribe')
+    } else if (pendingRef) {
+      // Pending without URL — user is on landing after Paystack, nudge to Subscribe
+      setView('subscribe')
+    }
+  }, [student])
 
   const swIntervalRef = useRef(null)
   const {

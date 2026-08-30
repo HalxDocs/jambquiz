@@ -125,11 +125,11 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   useEffect(() => { if (isRedCard) setShowAppeal(true) }, [isRedCard])
 
-  // Mark loadFailed after 10 seconds if student data never arrives
+  // Show error immediately if student data is missing or invalid
   useEffect(() => {
-    if (student?.id && typeof student === 'object') return
-    const t = setTimeout(() => setLoadFailed(true), 10000)
-    return () => clearTimeout(t)
+    if (!student || !student.id || typeof student !== 'object') {
+      setLoadFailed(true)
+    }
   }, [student])
   useEffect(() => {
     if (missedStreak > 0 && !isRedCard) {
