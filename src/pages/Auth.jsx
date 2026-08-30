@@ -3,6 +3,7 @@ import {
   registerStudent,
   verifyAdminSession,
   getStudentByUid,
+  linkStudentUid,
   studentAuthEmail,
   ADMIN_EMAIL,
   sendTeacherOtp,
@@ -183,8 +184,18 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
       attemptsRef.current = 0
       cooldownUntilRef.current = 0
       persistRateLimit()
-      const stu = await getStudentByUid(auth.currentUser.uid)
-      if (stu) { setStudentUid(stu.uid); setStudent(stu); setView('dashboard') }
+      let stu = await getStudentByUid(auth.currentUser.uid)
+      if (!stu) {
+        // uid mismatch — link the Firebase Auth uid to the Firestore doc
+        try {
+          const linkRes = await linkStudentUid(trimmed)
+          if (linkRes?.ok && linkRes.student) stu = linkRes.student
+        } catch (e) {
+          console.error('[Auth] linkStudentUid failed:', e?.message || e)
+        }
+      }
+      if (stu) { setStudentUid(stu.uid || auth.currentUser.uid); setStudent(stu); setView('dashboard') }
+      else { setErr('Could not load your account. Please try again.'); setLoading(false); return }
     } catch {
       if (!navigator.onLine) setErr('No internet connection. Check your network.')
       else setErr('Could not sign in. Server error — please try again.')
