@@ -82,15 +82,30 @@ export default function App() {
   }, [theme, view])
 
   const setStudent = (s) => {
-    const safe = s ? stripSensitive(s) : null
-    setStudentState(safe || s)
-    if (safe) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(stripPersisted(safe)))
-      localStorage.setItem(SESSION_TS_KEY, String(Date.now()))
-    } else {
-      localStorage.removeItem(SESSION_KEY)
-      localStorage.removeItem(SESSION_TS_KEY)
-      clearStudentUid()
+    // Support both direct values and React-style updater functions
+    // (used by Dashboard's onSnapshot: setStudent((prev) => {...}))
+    const resolved = typeof s === 'function' ? s : s
+    const safe = resolved ? stripSensitive(resolved) : null
+    const next = safe || resolved
+    setStudentState(typeof s === 'function' ? (prev) => {
+      const val = s(prev)
+      const valSafe = val ? stripSensitive(val) : null
+      const final = valSafe || val
+      if (final) {
+        localStorage.setItem(SESSION_KEY, JSON.stringify(stripPersisted(final)))
+        localStorage.setItem(SESSION_TS_KEY, String(Date.now()))
+      }
+      return final
+    } : next)
+    if (typeof s !== 'function') {
+      if (safe) {
+        localStorage.setItem(SESSION_KEY, JSON.stringify(stripPersisted(safe)))
+        localStorage.setItem(SESSION_TS_KEY, String(Date.now()))
+      } else {
+        localStorage.removeItem(SESSION_KEY)
+        localStorage.removeItem(SESSION_TS_KEY)
+        clearStudentUid()
+      }
     }
   }
 
