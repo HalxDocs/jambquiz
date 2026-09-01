@@ -441,7 +441,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   }
 
   const P = patchesActive ? { bg: 'bg-red-700', hoverBg: 'hover:bg-red-800', textColor: 'text-red-700' } : { bg: 'bg-[#111]', hoverBg: 'hover:bg-[#222]', textColor: 'text-[#111]' }
-  const patchesUnlocked = (() => { const now = new Date(); return now >= new Date(now.getFullYear(), 6, 15) })()
+  const patchesUnlocked = (() => { const now = new Date(); return now >= new Date(2027, 1, 14) })()
 
   if (!student?.id || typeof student !== 'object') {
     return <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-8"><div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 text-center max-w-sm">
@@ -610,7 +610,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                 className={`w-full rounded-xl py-3.5 text-sm font-bold transition-all font-display inline-flex items-center justify-center gap-1.5 ${patchesUnlocked ? 'bg-[#111] text-white hover:bg-[#222] active:scale-[0.99]' : 'bg-[#F3F3F2] text-[#CCC] cursor-not-allowed'}`}>
                 <HugeiconsIcon icon={HeartAddIcon} size={16} color="currentColor" /> ACTIVATE MY PATCHES
               </button>
-              {!patchesUnlocked && <p className="text-center text-[10px] text-[#CCC] font-label mt-1.5">Unlocks on July 15</p>}
+              {!patchesUnlocked && <p className="text-center text-[10px] text-[#CCC] font-label mt-1.5">Unlocks on February 14, 2027</p>}
             </>
           )}
         </div>
