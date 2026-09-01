@@ -2919,7 +2919,7 @@ exports.sendTeacherOtp = onCall(
   }
 )
 
-exports.registerTeacher = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.registerTeacher = onCall({ secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   const { name, email, phone, otp, password, pioneerCode } = request.data || {}
   const tName = (name || '').trim()
   if (tName.length < 3) throw new HttpsError('invalid-argument', 'Name must be at least 3 characters')
