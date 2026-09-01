@@ -925,6 +925,29 @@ exports.sendAccountabilityIntro = onCall(
   }
 );
 
+exports.sendStudentWelcomeSms = onCall(
+  { secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } },
+  async (request) => {
+    const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
+    if (!TERMII_API_KEY) return { ok: false, message: 'TERMII_API_KEY not set' }
+
+    const { studentId } = request.data || {}
+    if (!studentId) return { ok: false, message: 'Missing studentId' }
+
+    const studentSnap = await db.collection('students').doc(studentId).get()
+    if (!studentSnap.exists) return { ok: false, message: 'Student not found' }
+    const student = studentSnap.data()
+    const name = student.name || 'Student'
+    const phone = normalizePhone(student.phone)
+    if (!phone) return { ok: false, message: 'No student phone on file' }
+
+    const welcomeText = `Welcome to 274Lab, ${name}! Your JAMB prep journey starts now. Complete your profile to receive weekly SMS progress reports. Log in at 274lab.app. - 274Lab`
+    const r = await sendSmsTermii(TERMII_API_KEY, phone, welcomeText, { studentId, source: 'student-welcome' })
+    if (!r.ok) return { ok: false, message: r.error || 'SMS failed' }
+    return { ok: true, message: `Welcome SMS sent to ${phone}` }
+  }
+);
+
 exports.updateStudentProfile = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   const { studentId, ...fields } = request.data || {}
   if (!request.auth) throw new HttpsError('unauthenticated', 'Not authenticated')
@@ -1291,6 +1314,7 @@ exports.sendAbsentSmsReport = onSchedule(
       const phones = [
         { label: 'parent', phone: normalizePhone(student.parentPhone) },
         { label: 'teacher', phone: normalizePhone(student.teacherPhone) },
+        { label: 'student', phone: normalizePhone(student.phone) },
       ].filter((p) => p.phone)
       if (!phones.length) { skipped++; continue }
 
@@ -1480,6 +1504,7 @@ async function sendRealtimeResultSms(studentId, week, studentData, results) {
   const phones = [
     { label: 'parent', phone: normalizePhone(studentData.parentPhone) },
     { label: 'teacher', phone: normalizePhone(studentData.teacherPhone) },
+    { label: 'student', phone: normalizePhone(studentData.phone) },
   ].filter((p) => p.phone)
   if (!phones.length) { console.log(`[RealtimeSms] ${studentId} no valid phones`); await guardRef.delete().catch(() => {}); return }
 
@@ -2966,6 +2991,16 @@ exports.registerTeacher = onCall({ enforceAppCheck: false, run: { cpu: 0.08, mem
   }
   await ref.set(payload)
   await otpSnap.ref.update({ used: true })
+
+  // Send welcome SMS to the teacher (best-effort, non-blocking)
+  const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
+  if (TERMII_API_KEY && normalized) {
+    const welcomeText = `Welcome to 274Lab, ${tName}! Your teacher account is active. Log in at 274lab.app to start managing your students. - 274Lab`
+    sendSmsTermii(TERMII_API_KEY, normalized, welcomeText, { source: 'teacher-welcome' })
+      .then(r => { if (!r.ok) console.error('[registerTeacher] welcome SMS failed:', r.error) })
+      .catch(e => console.error('[registerTeacher] welcome SMS error:', e?.message || e))
+  }
+
   return { ok: true, teacherId: ref.id, teacher: payload }
 })
 

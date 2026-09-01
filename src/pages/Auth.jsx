@@ -149,14 +149,16 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
       const spacedEmail = `${trimmed.toLowerCase().replace(/\s+/g, ' ')}@${'274lab.app'}`
       let signedIn = false
       const signInErrors = []
-      for (const attemptEmail of [email, spacedEmail]) {
-        try {
-          await signInWithEmailAndPassword(auth, attemptEmail, password)
-          signedIn = true
-          break
-        } catch (e) {
-          signInErrors.push(e && e.code)
-        }
+      // Try both email formats in parallel for faster sign-in
+      const [r1, r2] = await Promise.allSettled([
+        signInWithEmailAndPassword(auth, email, password).then(() => true),
+        signInWithEmailAndPassword(auth, spacedEmail, password).then(() => true),
+      ])
+      if (r1.status === 'fulfilled' && r1.value) signedIn = true
+      else if (r2.status === 'fulfilled' && r2.value) signedIn = true
+      else {
+        if (r1.status === 'rejected') signInErrors.push(r1.reason?.code)
+        if (r2.status === 'rejected') signInErrors.push(r2.reason?.code)
       }
       if (!signedIn) {
         const legacyCodes = ['auth/user-not-found', 'auth/wrong-password', 'auth/invalid-credential', 'auth/invalid-email']
@@ -238,6 +240,13 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
       setStudentUid(saved.uid)
       setStudent(saved)
       setRegistering(false)
+      // Send welcome SMS in background (non-blocking)
+      try {
+        const welcomeFn = httpsCallable(functions, 'sendStudentWelcomeSms')
+        welcomeFn({ studentId: saved.id }).catch((e) => {
+          console.error('[Auth] Welcome SMS failed:', e?.message || e)
+        })
+      } catch {}
       setView('supporters')
     } catch {
       setRegistering(false)
