@@ -149,16 +149,16 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
       const spacedEmail = `${trimmed.toLowerCase().replace(/\s+/g, ' ')}@${'274lab.app'}`
       let signedIn = false
       const signInErrors = []
-      // Try both email formats in parallel for faster sign-in
-      const [r1, r2] = await Promise.allSettled([
-        signInWithEmailAndPassword(auth, email, password).then(() => true),
-        signInWithEmailAndPassword(auth, spacedEmail, password).then(() => true),
-      ])
-      if (r1.status === 'fulfilled' && r1.value) signedIn = true
-      else if (r2.status === 'fulfilled' && r2.value) signedIn = true
-      else {
-        if (r1.status === 'rejected') signInErrors.push(r1.reason?.code)
-        if (r2.status === 'rejected') signInErrors.push(r2.reason?.code)
+      // Try email formats sequentially — Firebase Auth rejects concurrent
+      // sign-in attempts on the same auth instance.
+      for (const attemptEmail of [email, spacedEmail]) {
+        try {
+          await signInWithEmailAndPassword(auth, attemptEmail, password)
+          signedIn = true
+          break
+        } catch (e) {
+          signInErrors.push(e && e.code)
+        }
       }
       if (!signedIn) {
         const legacyCodes = ['auth/user-not-found', 'auth/wrong-password', 'auth/invalid-credential', 'auth/invalid-email']
