@@ -606,10 +606,12 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
             </button>
           ) : (
             <>
-              <button onClick={patchesUnlocked ? handleOpenPatchesModal : undefined} disabled={!patchesUnlocked}
-                className={`w-full rounded-xl py-3.5 text-sm font-bold transition-all font-display inline-flex items-center justify-center gap-1.5 ${patchesUnlocked ? 'bg-[#111] text-white hover:bg-[#222] active:scale-[0.99]' : 'bg-[#F3F3F2] text-[#CCC] cursor-not-allowed'}`}>
-                <HugeiconsIcon icon={HeartAddIcon} size={16} color="currentColor" /> ACTIVATE MY PATCHES
-              </button>
+              <div className={`${!patchesUnlocked ? 'pointer-events-none' : ''}`}>
+                <button onClick={patchesUnlocked ? handleOpenPatchesModal : undefined} disabled={!patchesUnlocked}
+                  className={`w-full rounded-xl py-3.5 text-sm font-bold transition-all font-display inline-flex items-center justify-center gap-1.5 ${patchesUnlocked ? 'bg-[#111] text-white hover:bg-[#222] active:scale-[0.99]' : 'bg-[#F3F3F2] text-[#CCC] cursor-not-allowed opacity-50'}`}>
+                  <HugeiconsIcon icon={HeartAddIcon} size={16} color="currentColor" /> ACTIVATE MY PATCHES
+                </button>
+              </div>
               {!patchesUnlocked && <p className="text-center text-[10px] text-[#CCC] font-label mt-1.5">Unlocks on February 14, 2027</p>}
             </>
           )}
