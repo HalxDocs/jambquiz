@@ -163,19 +163,30 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
       if (!signedIn) {
         const legacyCodes = ['auth/user-not-found', 'auth/wrong-password', 'auth/invalid-credential', 'auth/invalid-email']
         if (signInErrors.some((c) => legacyCodes.includes(c))) {
-          try {
-            const legacyFn = httpsCallable(functions, 'verifyLegacyLogin')
-            const res = await legacyFn({ name: trimmed, password })
-            if (res.data && res.data.ok && res.data.customToken) {
-              await signInWithCustomToken(auth, res.data.customToken)
-              if (password.length >= 6) {
-                try { await updatePassword(auth.currentUser, password) } catch {}
-              }
-            } else {
-              setErr('Wrong name or password'); recordAttempt(); setLoading(false); return
+          // Retry verifyLegacyLogin up to 3 times — cold starts can cause
+          // transient 500/abort errors that resolve on retry.
+          const legacyFn = httpsCallable(functions, 'verifyLegacyLogin')
+          let legacyRes = null
+          let lastLegacyErr = null
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              legacyRes = await legacyFn({ name: trimmed, password })
+              break
+            } catch (e) {
+              lastLegacyErr = e
+              console.warn(`[Auth] verifyLegacyLogin attempt ${attempt + 1} failed:`, e?.message || e)
+              if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
             }
-          } catch (legacyErr) {
-            console.error('[Auth] verifyLegacyLogin failed:', legacyErr)
+          }
+          if (legacyRes?.data && legacyRes.data.ok && legacyRes.data.customToken) {
+            await signInWithCustomToken(auth, legacyRes.data.customToken)
+            if (password.length >= 6) {
+              try { await updatePassword(auth.currentUser, password) } catch {}
+            }
+          } else if (legacyRes?.data && !legacyRes.data.ok) {
+            setErr('Wrong name or password'); recordAttempt(); setLoading(false); return
+          } else {
+            console.error('[Auth] verifyLegacyLogin failed:', lastLegacyErr)
             setErr('Could not verify account. Please check your connection and try again.')
             recordAttempt(); setLoading(false); return
           }
