@@ -38,6 +38,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
   const [currentPassword, setCurrentPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [nickname, setNickname] = useState('')
+  const [studentPhone, setStudentPhone] = useState('')
   const [year, setYear] = useState(String(new Date().getFullYear()))
   const [email, setEmail] = useState('')
   const [adminPw, setAdminPw] = useState('')
@@ -229,12 +230,15 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
       // Flag so onAuthStateChanged doesn't route the fresh account to the
       // dashboard before the Supporters hand-off.
       setRegistering(true)
+      const phoneClean = studentPhone.trim()
+      const phoneFull = phoneClean ? (phoneClean.startsWith('0') ? '+234' + phoneClean.slice(1) : phoneClean.startsWith('234') ? '+' + phoneClean : '+234' + phoneClean) : ''
       const saved = await registerStudent({
         name: trimmed,
         nickname: nickname.trim(),
         password,
         year,
         email: email.trim().toLowerCase(),
+        phone: phoneFull,
         parentPhone: '',
         teacherPhone: '',
         subjects: [],
@@ -603,6 +607,20 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                     </div>
                   )}
 
+                  {mode === 'register' && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Phone Number <span className="text-[#CCC] normal-case tracking-normal">for SMS updates</span>
+                      </label>
+                      <input
+                        type="tel"
+                        value={studentPhone}
+                        onChange={(e) => setStudentPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                        placeholder="e.g. 08012345678"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                    </div>
+                  )}
                   {mode === 'register' && (
                     <div>
                       <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
