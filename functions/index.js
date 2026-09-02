@@ -938,13 +938,21 @@ exports.sendStudentWelcomeSms = onCall(
     if (!studentSnap.exists) return { ok: false, message: 'Student not found' }
     const student = studentSnap.data()
     const name = student.name || 'Student'
-    const phone = normalizePhone(student.phone)
-    if (!phone) return { ok: false, message: 'No student phone on file' }
+    const phones = [
+      { label: 'student', phone: normalizePhone(student.phone) },
+      { label: 'parent', phone: normalizePhone(student.parentPhone) },
+      { label: 'teacher', phone: normalizePhone(student.teacherPhone) },
+    ].filter((p) => p.phone)
+    if (!phones.length) return { ok: false, message: 'No phone on file for this student' }
 
     const welcomeText = `Welcome to 274Lab, ${name}! Your JAMB prep journey starts now. Complete your profile to receive weekly SMS progress reports. Log in at 274lab.app. - 274Lab`
-    const r = await sendSmsTermii(TERMII_API_KEY, phone, welcomeText, { studentId, source: 'student-welcome' })
-    if (!r.ok) return { ok: false, message: r.error || 'SMS failed' }
-    return { ok: true, message: `Welcome SMS sent to ${phone}` }
+    let sent = 0
+    for (const p of phones) {
+      const r = await sendSmsTermii(TERMII_API_KEY, p.phone, welcomeText, { studentId, source: 'student-welcome' })
+      if (r.ok) sent++
+    }
+    if (!sent) return { ok: false, message: 'SMS failed to all phones' }
+    return { ok: true, message: `Welcome SMS sent to ${sent}/${phones.length} phone(s)` }
   }
 );
 
