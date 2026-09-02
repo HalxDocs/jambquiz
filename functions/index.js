@@ -873,7 +873,7 @@ exports.testSms = onCall(
     const resp = await fetch('https://api.termii.com/api/sms/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: TERMII_API_KEY, to: phone, from: TERMII_SENDER_ID, sms: smsText, type: 'plain', channel: 'generic' }),
+      body: JSON.stringify({ api_key: TERMII_API_KEY, to: phone, from: TERMII_SENDER_ID, sms: smsText, type: 'plain', channel: 'dnd' }),
     })
     const result = await resp.json()
     if (!resp.ok) return { ok: false, message: `Termii HTTP ${resp.status}: ${JSON.stringify(result)}` }
@@ -1428,7 +1428,7 @@ async function sendSmsTermii(apiKey, to, text, context = {}) {
     const resp = await fetch('https://api.termii.com/api/sms/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: apiKey, to, from: TERMII_SENDER_ID, sms: truncated, type: 'plain', channel: 'generic' }),
+      body: JSON.stringify({ api_key: apiKey, to, from: TERMII_SENDER_ID, sms: truncated, type: 'plain', channel: 'dnd' })
     })
     const result = await resp.json()
     if (!resp.ok) {
