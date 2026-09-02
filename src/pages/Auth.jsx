@@ -271,8 +271,21 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
     if (!adminPw) { setErr('Enter the admin password'); return }
     if (!checkOnline()) return
     setLoading(true); setErr('')
+    const callWithRetry = async (fn, args, retries = 3) => {
+      for (let i = 0; i < retries; i++) {
+        try { return await fn(args) }
+        catch (e) {
+          const msg = String(e?.message || e)
+          if (i < retries - 1 && (msg.includes('CORS') || msg.includes('ERR_FAILED') || msg.includes('internal'))) {
+            await new Promise(r => setTimeout(r, 1000 * (i + 1)))
+            continue
+          }
+          throw e
+        }
+      }
+    }
     try {
-      const existsRes = await httpsCallable(functions, 'adminExists')()
+      const existsRes = await callWithRetry(httpsCallable(functions, 'adminExists'))
       const exists = existsRes.data && existsRes.data.exists
       if (!exists) {
         setAdminSetupMode(true)
@@ -302,7 +315,20 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
     if (!checkOnline()) return
     setLoading(true); setErr('')
     try {
-      await httpsCallable(functions, 'setupAdmin')({ adminPassword: adminPw })
+      const callWithRetry = async (fn, args, retries = 3) => {
+        for (let i = 0; i < retries; i++) {
+          try { return await fn(args) }
+          catch (e) {
+            const msg = String(e?.message || e)
+            if (i < retries - 1 && (msg.includes('CORS') || msg.includes('ERR_FAILED') || msg.includes('internal'))) {
+              await new Promise(r => setTimeout(r, 1000 * (i + 1)))
+              continue
+            }
+            throw e
+          }
+        }
+      }
+      await callWithRetry(httpsCallable(functions, 'setupAdmin'), { adminPassword: adminPw })
       await signInWithEmailAndPassword(auth, ADMIN_EMAIL, adminPw)
       setAdminSetupMode(false)
       setAdminSetupConfirm('')
