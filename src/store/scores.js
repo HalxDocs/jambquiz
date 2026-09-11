@@ -35,7 +35,7 @@ async function submitQuiz(payload) {
 // reads the raw scoreDetails doc — that would leak the answer key during the
 // live window since owner reads are allowed by the rules.
 async function fetchDetails(scores) {
-  if (!scores.length) return scores
+  if (!scores?.length) return scores
   const byKey = {}
   for (const s of scores) {
     if (!s.studentId || !s.week) continue

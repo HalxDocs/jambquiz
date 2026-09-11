@@ -1,7 +1,7 @@
 import { HugeiconsIcon } from '@hugeicons/react'
 import { ArrowLeft01Icon, ArrowRight01Icon } from '@hugeicons/core-free-icons'
 
-export default function PaymentsPanel({ payments, loading, search, onSearch, page, onPrevPage, onNextPage, hasMore, stats }) {
+export default function PaymentsPanel({ payments = [], loading, search, onSearch, page, onPrevPage, onNextPage, hasMore, stats, onSyncPaystack }) {
   return (
     <div className="space-y-4">
       {(stats?.revenue) ? (
@@ -42,6 +42,11 @@ export default function PaymentsPanel({ payments, loading, search, onSearch, pag
           <p className="text-[10px] text-[#888] font-label mt-0.5">Expired</p>
         </div>
       </div>
+      {onSyncPaystack && (
+        <button onClick={onSyncPaystack} className="w-full mt-3 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] transition-colors font-label">
+          Sync Paystack (pull missing payments)
+        </button>
+      )}
 
       <input value={search} onChange={(e) => onSearch(e.target.value)}
         placeholder="Search by student name…"
@@ -57,14 +62,14 @@ export default function PaymentsPanel({ payments, loading, search, onSearch, pag
           <div className="flex justify-between items-center mb-3">
             <p className="text-sm font-bold text-[#111] font-display">Payments</p>
             <span className="text-[11px] font-semibold bg-[#F3F3F2] text-[#555] px-2.5 py-1 rounded-lg font-label">
-              {payments.length}{search ? ` matching` : ''}
+              {(payments || []).length}{search ? ` matching` : ''}
             </span>
           </div>
-          {payments.length === 0 ? (
+          {(payments || []).length === 0 ? (
             <p className="text-[#CCC] text-sm text-center py-6 font-label">No payments found</p>
           ) : (
             <div className="space-y-1">
-              {payments.map((p) => (
+              {(payments || []).map((p) => (
                 <div key={p.id} className="flex justify-between items-center py-2.5 border-b border-[#F3F3F2] last:border-0">
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-bold text-[#111] font-body truncate">{p.studentName || 'Unknown'}</p>

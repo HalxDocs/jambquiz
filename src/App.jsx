@@ -10,6 +10,7 @@ import Results from './pages/Results'
 import Admin from './pages/Admin'
 import SubjectDetail from './pages/SubjectDetail'
 import Subscribe from './pages/Subscribe'
+import Coins from './pages/Coins'
 import Leaderboard from './pages/Leaderboard'
 import Supporters from './pages/Supporters'
 import Contact from './pages/Contact'
@@ -143,7 +144,7 @@ export default function App() {
 
   // Intercept hardware back button — go to dashboard instead of closing the app
   useEffect(() => {
-    const subViews = ['quiz', 'results', 'leaderboard', 'subject-detail', 'subscribe', 'supporters', 'subjects', 'contact']
+    const subViews = ['quiz', 'results', 'leaderboard', 'subject-detail', 'subscribe', 'coins', 'supporters', 'subjects', 'contact']
     if (subViews.includes(view)) {
       window.history.pushState({ jamb: view }, '')
     } else if (view === 'home' && homeTab === 'teacher') {
@@ -157,7 +158,7 @@ export default function App() {
 
   useEffect(() => {
     const handler = () => {
-      const subViews = ['quiz', 'results', 'leaderboard', 'subject-detail', 'subscribe', 'supporters', 'subjects', 'contact']
+      const subViews = ['quiz', 'results', 'leaderboard', 'subject-detail', 'subscribe', 'coins', 'supporters', 'subjects', 'contact']
       if (subViews.includes(view)) {
         setView('dashboard')
         window.history.pushState({ jamb: 'dashboard' }, '')
@@ -269,6 +270,10 @@ export default function App() {
     if (paystackHandledRef.current === ref) return
     paystackHandledRef.current = ref
 
+    // Coin purchases go to the Coins page (which verifies + refreshes balance);
+    // everything else goes to Subscribe as before.
+    const isCoinRef = ref.includes('-COIN-')
+    const targetView = isCoinRef ? 'coins' : 'subscribe'
     if (urlRef) {
       try {
         const url = new URL(window.location.href)
@@ -276,12 +281,12 @@ export default function App() {
         url.searchParams.delete('trxref')
         window.history.replaceState({}, '', url.pathname + url.search + url.hash)
       } catch {}
-      // Keep the ref for Subscribe.jsx to verify and render the success page
+      // Keep the ref for the target page to verify and render its success state
       try { localStorage.setItem('pending_paystack_ref', ref) } catch {}
-      setView('subscribe')
+      setView(targetView)
     } else if (pendingRef) {
-      // Pending without URL — user is on landing after Paystack, nudge to Subscribe
-      setView('subscribe')
+      // Pending without URL — user is on landing after Paystack, nudge to the right page
+      setView(targetView)
     }
   }, [student])
 
@@ -365,8 +370,11 @@ export default function App() {
       {view === 'subscribe' && student && (
         <Subscribe student={student} setStudent={setStudent} setView={setView} />
       )}
+      {view === 'coins' && student && (
+        <Coins student={student} setStudent={setStudent} setView={setView} />
+      )}
       {view === 'leaderboard' && student && (
-        <Leaderboard student={student} setView={setView} />
+        <Leaderboard student={student} setStudent={setStudent} setView={setView} />
       )}
       {view === 'admin' && adminAuthed && (
         <Admin setView={setView} />

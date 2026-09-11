@@ -5,7 +5,7 @@ import { SUBJECTS, WEEKS, addQuestion, editQuestion, deleteQuestion, copyQuestio
 import { compressImage } from './ImageUpload'
 
 export default function QuestionForm({
-  questions,
+  questions = [],
   selectedSubject,
   selectedWeek,
   onSubjectChange,
@@ -218,10 +218,10 @@ export default function QuestionForm({
       <div className="bg-white border border-[#EBEBEB] rounded-xl p-4 mb-4">
         <div className="flex justify-between items-center">
           <div>
-            <p className="text-xs font-bold text-[#111] font-body">{questions.length} questions in pool</p>
+            <p className="text-xs font-bold text-[#111] font-body">{(questions || []).length} questions in pool</p>
             {(() => {
               const counts = [0, 0, 0, 0]
-              questions.forEach((q) => { if (q.answer >= 0 && q.answer <= 3) counts[q.answer]++ })
+              ;(questions || []).forEach((q) => { if (q.answer >= 0 && q.answer <= 3) counts[q.answer]++ })
               return counts.some((c) => c > 0) ? (
                 <p className="text-[10px] text-[#888] font-label mt-0.5">
                   A-{counts[0]} B-{counts[1]} C-{counts[2]} D-{counts[3]}
@@ -229,7 +229,7 @@ export default function QuestionForm({
               ) : null
             })()}
             <p className="text-[11px] text-[#AAA] font-label mt-0.5">
-              Each student gets {Math.min(localQuestionLimit, questions.length)} random questions
+              Each student gets {Math.min(localQuestionLimit, (questions || []).length)} random questions
               <span className="text-[#CCC]"> · default {defaultLimit}</span>
             </p>
           </div>
@@ -237,7 +237,7 @@ export default function QuestionForm({
             <input
               type="number"
               min={1}
-              max={questions.length || 100}
+              max={(questions || []).length || 100}
               value={localQuestionLimit}
               onChange={(e) => setLocalQuestionLimit(parseInt(e.target.value) || defaultLimit)}
               className="w-14 border border-[#E5E5E5] rounded-lg px-2 py-1.5 text-xs text-center bg-white focus:outline-none focus:border-[#111]"
@@ -427,16 +427,16 @@ export default function QuestionForm({
         <div className="flex justify-between items-center mb-4">
           <p className="text-sm font-bold text-[#111] font-display">Question Pool</p>
           <span className="text-[11px] font-semibold bg-[#F3F3F2] text-[#555] px-2.5 py-1 rounded-lg font-label">
-            {questions.length} total
+            {(questions || []).length} total
           </span>
         </div>
-        {questions.length === 0 ? (
+        {(questions || []).length === 0 ? (
           <p className="text-[#CCC] text-sm text-center py-6 font-label">
             No questions for {selectedSubject} · {selectedWeek}
           </p>
         ) : (
           <div className="space-y-2">
-            {questions.map((q, i) => (
+            {(questions || []).map((q, i) => (
               <div key={q.firestoreId} className="border border-[#F0F0F0] rounded-xl overflow-hidden">
                 <button
                   onClick={() => setExpandedQuestion(expandedQuestion === q.firestoreId ? null : q.firestoreId)}

@@ -1,15 +1,15 @@
 import { isRevisionCompleted, revisionTopicKey } from '../../lib/revisionQueue'
 
-export default function WeakTopicsModal({ weakTopics, onRetake, onClose, patchesActive }) {
+export default function WeakTopicsModal({ weakTopics = [], onRetake, onClose, patchesActive }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl max-h-[80vh] flex flex-col shadow-xl">
         <div className="flex items-center justify-between p-4 border-b border-[#EBEBEB]">
-          <p className="text-sm font-bold text-[#111] font-display">Weak Topics ({weakTopics.length})</p>
+          <p className="text-sm font-bold text-[#111] font-display">Weak Topics ({(weakTopics || []).length})</p>
           <button onClick={onClose} className="text-[#888] hover:text-[#111] text-lg leading-none">×</button>
         </div>
         <div className="overflow-y-auto p-4 space-y-2">
-          {weakTopics.length === 0 ? (
+          {(weakTopics || []).length === 0 ? (
             <p className="text-xs text-[#AAA] font-label text-center py-8">No weak topics. Great job!</p>
           ) : (
             weakTopics.map((item) => {

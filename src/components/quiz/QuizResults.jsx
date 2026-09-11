@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { normalizeTopic } from '../../store/useStore'
+import { normalizeTopic, shareResult } from '../../store/useStore'
+import { useToastStore } from '../../store/toast'
 import { safeUrl } from '../../lib/safeUrl'
 import { runAutopsy } from '../../lib/weakTopicAutopsy'
 import Corrections from './Corrections'
@@ -16,9 +17,61 @@ export default function QuizResults({
   const [expandedSubject, setExpandedSubject] = useState(null)
   const [autopsyOpen, setAutopsyOpen] = useState(false)
   const [autopsyCopied, setAutopsyCopied] = useState(false)
-  const total = allResults.reduce((a, r) => a + r.score, 0)
+  const [sharing, setSharing] = useState(false)
+  const [shared, setShared] = useState(false)
+  const total = (allResults || []).reduce((a, r) => a + r.score, 0)
+
+  // GOAT assist attribution (server-computed +4 per correct assisted answer)
+  const assistLines = (() => {
+    const byGoat = {}
+    ;(allResults || []).forEach((r) => {
+      ;(r.assists || []).forEach((a) => {
+        if (!a.goatName) return
+        if (!byGoat[a.goatName]) byGoat[a.goatName] = 0
+        byGoat[a.goatName] += a.points || 0
+      })
+    })
+    return Object.entries(byGoat)
+  })()
+
+  const handleShare = async () => {
+    const studentId = allResults?.[0]?.studentId
+    const week = allResults?.[0]?.week || weekLabel
+    const text = `I scored ${total}/${maxTotal} on 274Lab ${week}!${assistLines.length ? ' ' + assistLines.map(([n, p]) => `${n} assisted with ${p}pts`).join(' · ') : ''} — Think you can beat me? https://www.274lab.com/`
+    const award = async () => {
+      if (shared) return
+      setShared(true)
+      if (!studentId) return
+      try {
+        const res = await shareResult(studentId, week)
+        if (res?.ok && !res?.alreadyShared) {
+          useToastStore.getState().showToast('+5 coins for sharing!', 'success')
+        }
+      } catch {}
+    }
+    setSharing(true)
+    try {
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: 'My 274Lab score', text })
+          await award()
+        } catch {
+          // user dismissed the sheet — no coins
+        }
+      } else {
+        // No Web Share API (in-app browsers): WhatsApp deep link + clipboard, then award once
+        try { window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank') } catch {}
+        try {
+          if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text)
+        } catch {}
+        await award()
+      }
+    } finally {
+      setSharing(false)
+    }
+  }
   const autopsy = runAutopsy({ currentResults: allResults, historyResults: [] })
-  const maxTotal = allResults.length * 100
+  const maxTotal = (allResults || []).length * 100
   const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
   const pct = Math.round((total / maxTotal) * 100)
 
@@ -67,7 +120,7 @@ export default function QuizResults({
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
           <p className="text-[11px] font-bold text-[#888] uppercase tracking-[0.15em] font-label mb-3">Subject Breakdown</p>
           <div className="divide-y divide-[#F3F3F2]">
-            {allResults.map((r) => {
+            {(allResults || []).map((r) => {
               const sp = r.score
               const isExp = expandedSubject === r.subject
               return (
@@ -195,6 +248,29 @@ export default function QuizResults({
               })}
             </div>
           </div>
+        )}
+
+        {(assistLines.length > 0) && (
+          <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 mb-4">
+            <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest font-label mb-2">🐐 GOAT assists</p>
+            <div className="space-y-1">
+              {assistLines.map(([name, pts]) => (
+                <p key={name} className="text-xs text-[#555] font-body">
+                  <span className="font-bold text-[#111]">{name}</span> assisted with <span className="font-bold text-[#111]">{pts} point{pts === 1 ? '' : 's'}</span>
+                </p>
+              ))}
+            </div>
+            <button onClick={handleShare} disabled={sharing}
+              className="w-full mt-3 bg-[#25D366] text-white rounded-xl py-3 text-sm font-bold font-display hover:brightness-105 active:scale-[0.99] transition-all disabled:opacity-50">
+              {sharing ? 'Sharing…' : shared ? 'Shared ✓ +5 coins' : 'SHARE → get 5 coins'}
+            </button>
+          </div>
+        )}
+        {assistLines.length === 0 && (
+          <button onClick={handleShare} disabled={sharing}
+            className="w-full mb-4 bg-[#25D366] text-white rounded-xl py-3 text-sm font-bold font-display hover:brightness-105 active:scale-[0.99] transition-all disabled:opacity-50">
+            {sharing ? 'Sharing…' : shared ? 'Shared ✓ +5 coins' : 'SHARE my score → get 5 coins'}
+          </button>
         )}
 
         <button onClick={onViewResults} className="w-full bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm font-semibold text-[#555] hover:border-[#CCC] font-label transition-colors">

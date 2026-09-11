@@ -4,25 +4,29 @@ import { functions, httpsCallable } from '../firebase'
 import SEO from '../components/seo/SEO'
 
 export default function Supporters({ student, setStudent, setView }) {
-  const [parentPhone, setParentPhone] = useState('')
-  const [teacherPhone, setTeacherPhone] = useState('')
-  const [myPhone, setMyPhone] = useState('')
+  const stripInit = (p) => {
+    if (!p) return ''
+    let v = String(p).replace(/\D/g, '')
+    if (v.startsWith('234')) v = v.slice(3)
+    if (v.startsWith('0')) v = v.replace(/^0+/, '')
+    return v.slice(0, 10)
+  }
+  const [parentPhone, setParentPhone] = useState(stripInit(student?.parentPhone))
+  const [teacherPhone, setTeacherPhone] = useState(stripInit(student?.teacherPhone))
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
+  const isEditing = !!(student?.parentPhone || student?.teacherPhone)
 
   const handleSave = async () => {
     const p = parentPhone.trim()
     const t = teacherPhone.trim()
-    const m = myPhone.trim()
-    if (!p && !t && !m) { setErr('Enter at least one phone number'); return }
+    if (!p && !t) { setErr('Enter at least one phone number'); return }
     if (p && p.length < 7) { setErr('Enter a valid phone number'); return }
     if (t && t.length < 7) { setErr('Enter a valid phone number'); return }
-    if (m && m.length < 7) { setErr('Enter a valid phone number'); return }
     setLoading(true); setErr('')
     try {
       const updates = {}
       const phones = []
-      if (m) { const cleaned = m.replace(/^0+/, ''); const full = `+234${cleaned}`; updates.phone = full }
       if (p) { const cleaned = p.replace(/^0+/, ''); const full = `+234${cleaned}`; updates.parentPhone = full; phones.push(full) }
       if (t) { const cleaned = t.replace(/^0+/, ''); const full = `+234${cleaned}`; updates.teacherPhone = full; phones.push(full) }
       const fn = httpsCallable(functions, 'updateStudentProfile')
@@ -40,7 +44,12 @@ export default function Supporters({ student, setStudent, setView }) {
         console.error('[Supporters] Failed to send intro SMS:', e?.message || e)
       }
 
-      setView('subjects')
+      // If editing (already has subjects), go back to dashboard; otherwise continue onboarding
+      if (isEditing && student?.subjects?.length) {
+        setView('dashboard')
+      } else {
+        setView('subjects')
+      }
     } catch (e) {
       console.error('[Supporters] handleSave error:', e)
       setErr(e?.message || 'Failed to save. Check your connection.')
@@ -56,14 +65,17 @@ export default function Supporters({ student, setStudent, setView }) {
 
         {/* Header */}
         <div className="text-center mb-7 pt-4">
+          {isEditing && (
+            <button onClick={() => setView('dashboard')} className="mb-3 text-xs text-[#888] hover:text-[#111] font-label">← Back to dashboard</button>
+          )}
           <div className="w-16 h-16 mx-auto bg-[#111] rounded-2xl flex items-center justify-center mb-4 text-3xl">
             🤝
           </div>
           <h2 className="text-[1.6rem] font-bold text-[#111] leading-tight tracking-tight font-display mb-2">
-            Add your support system
+            {isEditing ? 'Edit your support system' : 'Add your support system'}
           </h2>
           <p className="text-[13px] text-[#555] font-body leading-snug">
-            This is one of the most important steps.
+            {isEditing ? 'Update your accountability partners. Changes take effect immediately.' : 'This is one of the most important steps.'}
           </p>
         </div>
 
@@ -85,30 +97,21 @@ export default function Supporters({ student, setStudent, setView }) {
         <div className="space-y-3.5 mb-4">
           <div>
             <label className="text-[11px] font-bold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-              YOUR PHONE <span className="text-[#CCC] normal-case tracking-normal">(so your teacher can add you)</span>
-            </label>
-            <div className="flex border border-[#E5E5E5] rounded-xl overflow-hidden focus-within:border-[#111] transition-colors bg-white">
-              <span className="px-3 py-3 text-sm font-semibold text-[#555] bg-[#F8F8F7] border-r border-[#E5E5E5] select-none font-label">+234</span>
-              <input
-                type="tel"
-                value={myPhone}
-                onChange={(e) => { setMyPhone(e.target.value.replace(/^\+?234/, '')); setErr('') }}
-                placeholder="803 000 0000"
-                className="flex-1 px-3 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none bg-white"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[11px] font-bold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
               PARENT / GUARDIAN / SIBLING PHONE
             </label>
             <div className="flex border border-[#E5E5E5] rounded-xl overflow-hidden focus-within:border-[#111] transition-colors bg-white">
               <span className="px-3 py-3 text-sm font-semibold text-[#555] bg-[#F8F8F7] border-r border-[#E5E5E5] select-none font-label">+234</span>
               <input
                 type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
                 value={parentPhone}
-                onChange={(e) => { setParentPhone(e.target.value.replace(/^\+?234/, '')); setErr('') }}
+                onChange={(e) => {
+                  let v = e.target.value.replace(/\D/g, '')
+                  if (v.startsWith('234')) v = v.slice(3)
+                  if (v.startsWith('0')) v = v.replace(/^0+/, '')
+                  setParentPhone(v.slice(0, 10)); setErr('')
+                }}
                 placeholder="803 000 0000"
                 className="flex-1 px-3 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none bg-white"
               />
@@ -123,8 +126,15 @@ export default function Supporters({ student, setStudent, setView }) {
               <span className="px-3 py-3 text-sm font-semibold text-[#555] bg-[#F8F8F7] border-r border-[#E5E5E5] select-none font-label">+234</span>
               <input
                 type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
                 value={teacherPhone}
-                onChange={(e) => { setTeacherPhone(e.target.value.replace(/^\+?234/, '')); setErr('') }}
+                onChange={(e) => {
+                  let v = e.target.value.replace(/\D/g, '')
+                  if (v.startsWith('234')) v = v.slice(3)
+                  if (v.startsWith('0')) v = v.replace(/^0+/, '')
+                  setTeacherPhone(v.slice(0, 10)); setErr('')
+                }}
                 placeholder="803 000 0000"
                 className="flex-1 px-3 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none bg-white"
               />
@@ -147,7 +157,7 @@ export default function Supporters({ student, setStudent, setView }) {
               : 'bg-[#111] text-white hover:bg-[#222]'
           }`}
         >
-          {loading ? 'Saving…' : 'Continue →'}
+          {loading ? 'Saving…' : isEditing ? 'Save changes' : 'Continue →'}
         </button>
 
         <p className="text-center text-[11px] text-[#AAA] mt-4 font-label leading-relaxed">

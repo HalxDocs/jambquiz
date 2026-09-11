@@ -1,7 +1,7 @@
 import { safeUrl } from '../../lib/safeUrl'
 
 export default function TopicsList({ topics, currentWeek, theme }) {
-  if (!topics.length) return null
+  if (!topics?.length) return null
   return (
     <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
       <div className="flex justify-between items-center mb-3">

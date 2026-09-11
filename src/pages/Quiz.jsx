@@ -1,11 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
 import SEO from '../components/seo/SEO'
-import { startQuiz, submitQuiz, getTopics, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, WEEKS, incrementFreeAttempts, logEvent } from '../store/useStore'
+import { db, doc, getDoc } from '../firebase'
+import { startQuiz, submitQuiz, getTopics, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, WEEKS, incrementFreeAttempts, logEvent, useLifeline, getCoinBalance, getWeekGoats, listGoats } from '../store/useStore'
+import { useToastStore } from '../store/toast'
 
 import QuizTimer from '../components/quiz/QuizTimer'
 import QuestionCard from '../components/quiz/QuestionCard'
 import QuestionNav from '../components/quiz/QuestionNav'
 import QuizResults from '../components/quiz/QuizResults'
+import LifelineBar from '../components/quiz/LifelineBar'
+import { GoatPicker, GoatResult } from '../components/quiz/GoatSheet'
+import { PeekPicker, PeekResult } from '../components/quiz/PeekSheet'
 import { markRevisionCompleted, revisionTopicKey } from '../lib/revisionQueue'
 
 function isInQuizWindow(quizDates) {
@@ -48,6 +53,19 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   const [paymentPrompt, setPaymentPrompt] = useState(null)
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
   const [err, setErr] = useState('')
+  // ── Lifelines ──
+  const [coins, setCoins] = useState(student.coins ?? 10)
+  const [usage, setUsage] = useState({ ask: 0, peek: 0, fifty: 0 })
+  const [narrowed, setNarrowed] = useState({}) // qKey -> { kind, eliminate?, shown? }
+  const assistLogRef = useRef([])
+  const [goatSheet, setGoatSheet] = useState(null) // null | { stage:'pick' } | { stage:'result', ...payload }
+  const [peekSheet, setPeekSheet] = useState(null) // null | { stage:'pick' } | { stage:'result', ...payload }
+  const [lifelineBusy, setLifelineBusy] = useState(null)
+  const [weekGoats, setWeekGoats] = useState([])
+  const [lifelineErr, setLifelineErr] = useState('')
+  // Squad lifeline picks (Peek a Friend) — chosen before the session starts
+  const [peekFriends, setPeekFriends] = useState([])
+  const [squadNames, setSquadNames] = useState({})
   const timerRef = useRef(null)
   const paymentTimerRef = useRef(null)
 
@@ -77,6 +95,42 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     getTopics(next).then((t) => setNextWeekTopics(t || {}))
   }, [currentWeek])
 
+  // Squad names for the pre-test picker (public profiles)
+  useEffect(() => {
+    const squad = Array.isArray(student.squad) ? student.squad : []
+    if (!squad.length) { setSquadNames({}); return }
+    let cancelled = false
+    Promise.all(squad.map((id) =>
+      getDoc(doc(db, 'student_profiles', id))
+        .then((s) => ({ id, name: s.exists() ? (s.data().name || 'Friend') : 'Friend' }))
+        .catch(() => ({ id, name: 'Friend' }))
+    )).then((rows) => {
+      if (cancelled) return
+      const m = {}
+      rows.forEach((r) => { m[r.id] = r.name })
+      setSquadNames(m)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [student.squad])
+
+  const proceedAfterGate = () => {
+    // Retakes and squad-less students skip straight to the session
+    const squad = Array.isArray(student.squad) ? student.squad.filter(Boolean) : []
+    if (retakeData || !squad.length) { setStep('loading'); return }
+    // Auto-use the previously selected pair when still valid (doc fallback)
+    try {
+      const prev = JSON.parse(localStorage.getItem('lifeline_peek_friends') || '[]')
+      const valid = prev.filter((id) => squad.includes(id)).slice(0, 2)
+      if (valid.length) {
+        setPeekFriends(valid)
+        try { localStorage.setItem('lifeline_peek_friends', JSON.stringify(valid)) } catch {}
+        setStep('loading')
+        return
+      }
+    } catch {}
+    setStep('squad')
+  }
+
   // Gate check: once dates + week are ready, decide what to show
   useEffect(() => {
     if (!quizDatesReady) return
@@ -86,8 +140,8 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     if (status === 'suspended') { setStep('suspended'); return }
     if (status === 'expired') { setStep('expired'); return }
     if (!retakeData && !isInQuizWindow(quizDates)) { setStep('locked'); return }
-    logEvent(student.id, 'quiz_loaded', { retake: !!retakeData })
-    setStep('loading')
+    logEvent(student.id, 'quiz_loaded', { page: 'dashboard' })
+    proceedAfterGate()
   }, [quizDatesReady, currentWeek])
 
   // Load quiz via a server-issued session (startQuiz). The server assigns the
@@ -133,6 +187,115 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       }
     })()
   }, [step])
+
+  // Lifeline setup: balance + this week's GOATs (names only revealed in-picker)
+  useEffect(() => {
+    let active = true
+    getCoinBalance(student.id).then((r) => { if (active && r?.ok) setCoins(r.coins) }).catch(() => {})
+    ;(async () => {
+      try {
+        const wk = retakeData?.week || weekLabel
+        const [ids, all] = await Promise.all([getWeekGoats(wk), listGoats()])
+        if (!active) return
+        const byId = Object.fromEntries(all.map((g) => [g.id, g]))
+        setWeekGoats(ids.map((id) => byId[id]).filter(Boolean))
+      } catch { if (active) setWeekGoats([]) }
+    })()
+    const saved = (() => { try { return JSON.parse(localStorage.getItem('lifeline_usage') || '{}') } catch { return {} } })()
+    if (saved && typeof saved === 'object') setUsage({ ask: 0, peek: 0, fifty: 0, ...saved })
+    return () => { active = false }
+  }, [])
+
+  const persistUsage = (u) => {
+    setUsage(u)
+    try { localStorage.setItem('lifeline_usage', JSON.stringify(u)) } catch {}
+  }
+
+  const qKeyOf = (subj, qi) => `${subj}::${qi}`
+
+  const logAssist = (entry) => {
+    const arr = assistLogRef.current
+    if (!arr.some((a) => a.subject === entry.subject && a.qIndex === entry.qIndex && a.kind === entry.kind)) {
+      arr.push(entry)
+    }
+  }
+
+  const callLifeline = async (kind, extra) => {
+    if (!sessionId || lifelineBusy) return null
+    setLifelineBusy(kind); setLifelineErr('')
+    try {
+      const res = await useLifeline({
+        studentId: student.id,
+        sessionId,
+        subject: activeSubject,
+        qIndex: quizDataRef.current[activeSubject]?.currentQ ?? 0,
+        kind,
+        ...extra,
+      })
+      if (res?.ok) {
+        if (typeof res.coins === 'number') setCoins(res.coins)
+        if (!res.cached) persistUsage({ ...usage, [kind]: (usage[kind] || 0) + 1 })
+        return res
+      }
+      throw new Error('Lifeline failed')
+    } catch (e) {
+      const msg = (e?.message || '').includes('Not enough coins')
+        ? 'Not enough coins — tap 🪙 Get more after this test'
+        : (e?.message || 'Lifeline failed. Try again.')
+      if (msg.includes('No uses left')) {
+        setUsage((u) => ({ ...u, [kind]: 3 }))
+      } else {
+        setLifelineErr(msg)
+        setTimeout(() => setLifelineErr(''), 3500)
+      }
+      return null
+    } finally {
+      setLifelineBusy(null)
+    }
+  }
+
+  const handleUseButton = (kind) => {
+    if (kind === 'ask') setGoatSheet({ stage: 'pick' })
+    else if (kind === 'peek') setPeekSheet({ stage: 'pick' })
+    else if (kind === 'fifty') handleFifty()
+  }
+
+  const handleFifty = async () => {
+    const subj = activeSubject
+    const qi = quizDataRef.current[subj]?.currentQ ?? 0
+    const res = await callLifeline('fifty', {})
+    if (res?.eliminate) {
+      setNarrowed((n) => ({ ...n, [qKeyOf(subj, qi)]: { kind: 'fifty', eliminate: res.eliminate } }))
+      logAssist({ subject: subj, qIndex: qi, kind: 'fifty' })
+      useToastStore.getState().showToast('50-50 applied — 2 wrong options crossed out', 'success')
+    }
+  }
+
+  const handlePickGoat = async (goat) => {
+    const subj = activeSubject
+    const qi = quizDataRef.current[subj]?.currentQ ?? 0
+    setGoatSheet({ stage: 'pick', busy: goat.id })
+    const res = await callLifeline('ask', { goatId: goat.id })
+    if (!res) { setGoatSheet({ stage: 'pick' }); return }
+    if (res.stars === 3) {
+      setGoatSheet({ stage: 'result', goatName: res.goatName || goat.name, stars: 3, explanation: res.explanation || '' })
+    } else {
+      const shown = res.shown || []
+      setNarrowed((n) => ({ ...n, [qKeyOf(subj, qi)]: { kind: 'ask', stars: res.stars, shown } }))
+      setGoatSheet({ stage: 'result', goatName: res.goatName || goat.name, stars: res.stars, shownOptions: shown })
+    }
+    logAssist({ subject: subj, qIndex: qi, kind: 'ask', goatId: res.goatId || goat.id, goatName: res.goatName || goat.name })
+  }
+
+  const handlePickFriend = async (friend) => {
+    setPeekSheet({ stage: 'pick', busy: friend.id })
+    const res = await callLifeline('peek', { friendId: friend.id })
+    if (!res?.optionText) { setPeekSheet({ stage: 'pick' }); return }
+    const subj = activeSubject
+    const qi = quizDataRef.current[subj]?.currentQ ?? 0
+    setPeekSheet({ stage: 'result', friendName: res.friendName || friend.name, optionText: res.optionText })
+    logAssist({ subject: subj, qIndex: qi, kind: 'peek' })
+  }
 
   // Timer — runs only during quiz
   useEffect(() => {
@@ -184,7 +347,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     })
 
     try {
-      const res = await submitQuiz({ sessionId, answers })
+      const res = await submitQuiz({ sessionId, answers, assistMeta: assistLogRef.current })
       const graded = res && res.results ? res.results : []
       // Merge the server grade with local question content for the corrections
       // view. During the live window corrections stay locked (released=false).
@@ -220,8 +383,16 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       }
       const total = results.reduce((a, r) => a + r.score, 0)
       const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
+      // Attach server-computed assist attribution for the results screen
+      const assistsBySubject = {}
+      graded.forEach((g) => { if (g.subject && Array.isArray(g.assists)) assistsBySubject[g.subject] = g.assists })
+      results.forEach((r) => { r.assists = assistsBySubject[r.subject] || [] })
       setAllResults(results)
       setMedalToast({ medal, total, max: results.length * 100 })
+      if (typeof res?.earnedCoins === 'number') {
+        setCoins((c) => (typeof c === 'number' ? c + 5 : c))
+        useToastStore.getState().showToast('+5 coins for completing the test!', 'success')
+      }
 
       try {
         const cached = load('jamb_scores_cache', [])
@@ -380,6 +551,53 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     )
   }
 
+  // ── SQUAD PICK (Peek-a-Friend setup) ───────────────────────────────────────
+  if (step === 'squad') {
+    const squad = (Array.isArray(student.squad) ? student.squad : []).filter(Boolean)
+    const toggle = (id) => {
+      setPeekFriends((prev) => prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id].slice(0, 2))
+    }
+    const confirm = () => {
+      try { localStorage.setItem('lifeline_peek_friends', JSON.stringify(peekFriends.slice(0, 2))) } catch {}
+      setStep('loading')
+    }
+    return (
+      <>
+      <SEO title="Pick Friends" />
+      <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
+        <div className="bg-white border border-[#EBEBEB] rounded-2xl p-6 max-w-sm w-full text-center">
+          <p className="text-3xl mb-2">👯</p>
+          <h2 className="text-lg font-bold text-[#111] font-display mb-1">Pick 2 friends to peek</h2>
+          <p className="text-xs text-[#888] font-label mb-4">Peek a Friend shows what they picked. Tap to select.</p>
+          <div className="space-y-2 mb-4 text-left">
+            {squad.map((id) => {
+              const on = peekFriends.includes(id)
+              return (
+                <button key={id} onClick={() => toggle(id)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all active:scale-[0.99] ${
+                    on ? 'bg-[#111] text-white border-[#111]' : 'bg-white text-[#333] border-[#E8E8E8]'
+                  }`}>
+                  <span className={`w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold shrink-0 ${on ? 'bg-white/20 border-white/40 text-white' : 'border-[#CCC] text-transparent'}`}>✓</span>
+                  <span className="text-sm font-semibold font-body truncate">{squadNames[id] || '…'}</span>
+                </button>
+              )
+            })}
+          </div>
+          <button onClick={confirm} disabled={!peekFriends.length}
+            className={`w-full rounded-xl py-3 text-sm font-bold font-display transition-all ${
+              peekFriends.length ? 'bg-[#111] text-white hover:bg-[#222]' : 'bg-[#EBEBEB] text-[#AAA] cursor-not-allowed'
+            }`}>
+            Next →
+          </button>
+          <button onClick={() => setView('leaderboard')} className="w-full mt-2 text-[11px] text-[#888] hover:text-[#111] font-label">
+            No squad yet? Find friends →
+          </button>
+        </div>
+      </div>
+      </>
+    )
+  }
+
   // ── ACTIVE QUIZ ────────────────────────────────────────────────────────────
   const subjectList = Object.keys(quizData)
   const current = activeSubject ? quizData[activeSubject] : null
@@ -387,8 +605,8 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
 
   const { questions, answers, currentQ } = current
   const q = questions[currentQ]
-  const totalAnswered = subjectList.reduce((a, s) => a + quizData[s].answers.filter((x) => x !== null).length, 0)
-  const totalQs = subjectList.reduce((a, s) => a + quizData[s].questions.length, 0)
+  const totalAnswered = subjectList.reduce((a, s) => a + (quizData[s]?.answers?.filter((x) => x !== null).length ?? 0), 0)
+  const totalQs = subjectList.reduce((a, s) => a + (quizData[s]?.questions?.length ?? 0), 0)
   const totalUnanswered = totalQs - totalAnswered
   const subjIdx = subjectList.indexOf(activeSubject)
   const isLastSubj = subjIdx === subjectList.length - 1
@@ -441,8 +659,38 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
         </div>
       </div>
 
+      <LifelineBar
+        coins={coins}
+        usage={usage}
+        maxUses={3}
+        disabled={submitting}
+        onUse={handleUseButton}
+        onGetMore={() => useToastStore.getState().showToast('Finish this test first — buy coins after submit', 'info')}
+      />
+      {lifelineErr && (
+        <div className="max-w-md mx-auto px-4 pt-2">
+          <div className="px-3.5 py-2 bg-red-50 border border-red-100 rounded-xl">
+            <p className="text-red-600 text-xs font-label">{lifelineErr}</p>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-md mx-auto px-4 pb-6">
-        <QuestionCard question={q} selectedAnswer={answers[currentQ]} onSelectAnswer={(i) => setAnswer(activeSubject, currentQ, i)} disabled={submitting} />
+        <QuestionCard
+          question={q}
+          selectedAnswer={answers[currentQ]}
+          onSelectAnswer={(i) => setAnswer(activeSubject, currentQ, i)}
+          disabled={submitting}
+          eliminated={(() => {
+            const n = narrowed[`${activeSubject}::${currentQ}`]
+            if (!n) return []
+            if (n.kind === 'fifty') return n.eliminate || []
+            if (n.kind === 'ask' && n.shown) {
+              return [0, 1, 2, 3].filter((i) => !n.shown.includes(i))
+            }
+            return []
+          })()}
+        />
 
         {/* Navigation */}
         <div className="flex gap-2.5 mb-4">
@@ -508,6 +756,43 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
             </div>
           </div>
         </div>
+      )}
+
+      {/* Lifeline sheets */}
+      {goatSheet?.stage === 'pick' && (
+        <GoatPicker
+          goats={weekGoats}
+          subject={activeSubject}
+          busyId={goatSheet.busy}
+          onPick={handlePickGoat}
+          onClose={() => !lifelineBusy && setGoatSheet(null)}
+        />
+      )}
+      {goatSheet?.stage === 'result' && (
+        <GoatResult
+          goatName={goatSheet.goatName}
+          stars={goatSheet.stars}
+          subject={activeSubject}
+          explanation={goatSheet.explanation}
+          shownOptions={goatSheet.shownOptions}
+          questionOptions={questions[currentQ]?.options}
+          onDone={() => setGoatSheet(null)}
+        />
+      )}
+      {peekSheet?.stage === 'pick' && (
+        <PeekPicker
+          friends={peekFriends.map((id) => ({ id, name: squadNames[id] || 'Friend' }))}
+          busyId={peekSheet.busy}
+          onPick={handlePickFriend}
+          onClose={() => !lifelineBusy && setPeekSheet(null)}
+        />
+      )}
+      {peekSheet?.stage === 'result' && (
+        <PeekResult
+          friendName={peekSheet.friendName}
+          optionText={peekSheet.optionText}
+          onDone={() => setPeekSheet(null)}
+        />
       )}
     </div>
     </>

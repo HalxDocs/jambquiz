@@ -57,9 +57,26 @@ export default function AdminNotifications() {
       const fn = httpsCallable(functions, 'testSms')
       const result = await fn({ phone })
       if (result.data.ok) {
-        setSmsStatus(result.data.message)
+        const d = result.data
+        let msg = d.message
+        if (d.senderId) msg += ` via ${d.senderId}`
+        if (d.channel) msg += ` [${d.channel}]`
+        // Authoritative balance is the independent get-balance check, not the send-response field
+        const liveBal = d.balanceCheck && d.balanceCheck.balance !== null && d.balanceCheck.balance !== undefined
+          ? Number(d.balanceCheck.balance) : null
+        if (d.balanceCheck && (d.balanceCheck.user || d.balanceCheck.balance !== null)) {
+          msg += ` [acct: ${d.balanceCheck.user || '?'} bal: ${d.balanceCheck.balance ?? '?'} ${d.balanceCheck.currency || ''}]`
+        } else if (d.balance !== null && d.balance !== undefined) {
+          msg += ` (balance: ${d.balance})`
+        }
+        if (liveBal !== null && liveBal <= 0) msg += ' — Termii balance is 0, fund your wallet or nothing will deliver'
+        if (d.channel === 'generic' && d.dndError) msg += ` — DND route unavailable (${String(d.dndError).slice(0, 120)}). Ask Termii support to enable DND route or DND lines won't receive SMS`
+        setSmsStatus(msg)
       } else {
-        setSmsStatus('Failed: ' + result.data.message)
+        const d = result.data || {}
+        let msg = 'Failed: ' + d.message
+        if (d.detail) msg += ` | ${JSON.stringify(d.detail).slice(0, 200)}`
+        setSmsStatus(msg)
       }
     } catch (err) {
       setSmsStatus('Error: ' + (err.message || 'Unknown'))

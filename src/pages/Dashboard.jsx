@@ -4,7 +4,7 @@ import { HeartAddIcon, Mail01Icon, Sun01Icon, Moon01Icon, Target01Icon } from '@
 import {
   listenActiveWeek, listenScores, getTopics, normalizeTopic,
   getAccessStatus, getConsistencyRank, listenQuizDates, WEEKS, logEvent,
-  getStudentScores,
+  getStudentScores, getCoinBalance, getWeekGoats, listGoats,
 } from '../store/useStore'
 import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED, computeCardLevel } from '../store/constants'
 import { db, doc, onSnapshot } from '../firebase'
@@ -16,6 +16,7 @@ import PatchesModal from '../components/dashboard/PatchesModal'
 import PatchTopicsModal from '../components/dashboard/PatchTopicsModal'
 import SEO from '../components/seo/SEO'
 import MedalTrack from '../components/dashboard/MedalTrack'
+import CoinPill from '../components/ui/CoinPill'
 import SubscriptionBanner from '../components/dashboard/SubscriptionBanner'
 import KeyPointsCard from '../components/dashboard/KeyPointsCard'
 import ScoreHero from '../components/dashboard/ScoreHero'
@@ -187,6 +188,33 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   }, [currentWeek])
 
   useEffect(() => { if (!student?.id) return; logEvent(student.id, 'page_view', { page: 'dashboard' }) }, [student?.id])
+
+  const [weekGoats, setWeekGoats] = useState([])
+
+  // Refresh coin balance + referral number (server is source of truth)
+  useEffect(() => {
+    let active = true
+    getCoinBalance(student.id)
+      .then((r) => { if (active && r && r.ok) setStudent({ ...student, coins: r.coins, referralNo: r.referralNo || student.referralNo }) })
+      .catch(() => {})
+    return () => { active = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [student.id])
+
+  // GOATs assigned to the current week (professions shown, names hidden)
+  useEffect(() => {
+    if (!currentWeek) return
+    let active = true
+    ;(async () => {
+      try {
+        const [ids, all] = await Promise.all([getWeekGoats(currentWeek), listGoats()])
+        if (!active) return
+        const byId = Object.fromEntries(all.map((g) => [g.id, g]))
+        setWeekGoats(ids.map((id) => byId[id]).filter(Boolean))
+      } catch { if (active) setWeekGoats([]) }
+    })()
+    return () => { active = false }
+  }, [currentWeek])
 
   useEffect(() => {
     if (!student?.id) return
@@ -542,6 +570,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
             </div>
             <div className="flex flex-col items-end gap-2">
               <div className="flex items-center gap-1.5">
+                <CoinPill coins={student.coins ?? null} onGetMore={() => setView('coins')} />
                 <button onClick={toggleTheme}
                   className="flex items-center gap-1.5 text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-2.5 py-2 font-label transition-colors shrink-0"
                 >
@@ -550,11 +579,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                 <button onClick={() => { if (setStudent) setStudent(null); setView('home') }}
                   className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0">Log out</button>
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${cardLevel >= 1 ? 'bg-gradient-to-b from-yellow-400 to-yellow-500 shadow-[0_0_8px_rgba(250,204,21,0.5)]' : 'bg-yellow-100'}`} />
-                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${cardLevel >= 2 ? 'bg-gradient-to-b from-yellow-400 to-yellow-500 shadow-[0_0_8px_rgba(250,204,21,0.5)]' : 'bg-yellow-100'}`} />
-                <div className={`w-4 h-6 rounded-[2px] transition-all duration-500 ${cardLevel >= 3 ? 'bg-gradient-to-b from-red-500 to-red-700 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'bg-red-100'}`} />
-              </div>
+              {/* Cards UI suspended — logic kept in constants.js. Coins live top-right now. */}
             </div>
           </div>
 
@@ -573,6 +598,21 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         <ScoreHero total={totalScore?.total} totalOut={totalScore?.totalOut} theme={P} onViewResults={() => setView('results')} />
 
         <TopicsList topics={thisWeekTopics} currentWeek={currentWeek} theme={P} />
+
+        {/* GOATs assisting this week — professions only, names stay hidden until Ask-a-GOAT */}
+        {weekGoats.length > 0 && (
+          <div className="bg-[#111] text-white rounded-2xl p-4 mb-4">
+            <p className="text-[11px] font-bold text-white/60 uppercase tracking-widest font-label mb-3">GOATs assisting this week</p>
+            <div className="grid grid-cols-2 gap-2">
+              {weekGoats.map((g) => (
+                <div key={g.id} className="bg-white/10 border border-white/10 rounded-xl px-3 py-2.5 text-center">
+                  <p className="text-xs font-bold font-display truncate">{g.profession || 'GOAT'}</p>
+                  <p className="text-[9px] text-white/40 font-label mt-0.5">??? · tap Ask a GOAT in-test</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mb-4">
           <div className="flex justify-between items-center mb-2">

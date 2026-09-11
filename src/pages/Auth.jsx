@@ -6,7 +6,6 @@ import {
   linkStudentUid,
   studentAuthEmail,
   ADMIN_EMAIL,
-  sendTeacherOtp,
   registerTeacher,
   teacherSignIn,
   getTeacherByUid,
@@ -38,6 +37,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
   const [currentPassword, setCurrentPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [nickname, setNickname] = useState('')
+  const [referrer, setReferrer] = useState('')
   const [studentPhone, setStudentPhone] = useState('')
   const [year, setYear] = useState(String(new Date().getFullYear()))
   const [email, setEmail] = useState('')
@@ -63,15 +63,11 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
   const [tName, setTName] = useState('')
   const [tEmail, setTEmail] = useState('')
   const [tPhone, setTPhone] = useState('')
-  const [tCode, setTCode] = useState('')
   const [tPass, setTPass] = useState('')
   const [tConfirm, setTConfirm] = useState('')
   const [tPioneerCode, setTPioneerCode] = useState('')
-  const [otpSent, setOtpSent] = useState(false)
-  const [otpSending, setOtpSending] = useState(false)
-  const [otpBusy, setOtpBusy] = useState(false)
-  const [otpCooldown, setOtpCooldown] = useState(0)
   const [teacherStep, setTeacherStep] = useState(1)
+  const [showPhoneConfirm, setShowPhoneConfirm] = useState(false)
 
   const theme = useThemeStore((s) => s.theme)
   const isDark = theme === 'dark'
@@ -242,6 +238,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
         parentPhone: '',
         teacherPhone: '',
         subjects: [],
+        referredBy: referrer.trim(),
         joinedAt: new Date().toISOString(),
       })
       if (!saved) { setErr('This name is already registered. Please lock in.'); setLoading(false); setRegistering(false); return }
@@ -347,30 +344,6 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
     setLoading(false)
   }
 
-  const handleSendOtp = async () => {
-    const phone = tPhone.trim()
-    if (phone.replace(/\D/g, '').length < 10) { setErr('Enter a valid phone number'); return }
-    if (!checkOnline()) return
-    setOtpSending(true); setErr('')
-    try {
-      await sendTeacherOtp(phone.replace(/^\+?234/, ''))
-      setOtpSent(true)
-      setOtpCooldown(60)
-    } catch (e) {
-      const msg = (e && e.message) || 'Could not send the code.'
-      if (msg.includes('resource-exhausted')) setErr(msg)
-      else if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Could not send the code. Check the number and try again.')
-    }
-    setOtpSending(false)
-  }
-
-  useEffect(() => {
-    if (otpCooldown <= 0) return
-    const id = setTimeout(() => setOtpCooldown((c) => c - 1), 1000)
-    return () => clearTimeout(id)
-  }, [otpCooldown])
-
   const handleTeacherNextStep = () => {
     const emailTrim = tEmail.trim().toLowerCase()
     if (tName.trim().length < 3) { setErr('Enter your full name (at least 3 characters)'); return }
@@ -381,44 +354,50 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
     setTeacherStep(2)
   }
 
-  const handleTeacherRegister = async () => {
+  // Teacher confirms the typed number in a modal instead of SMS OTP.
+  // The number can be corrected later from the dashboard (Edit phone number).
+  const openPhoneConfirm = () => {
     const phone = tPhone.trim()
     const emailTrim = tEmail.trim().toLowerCase()
     if (tName.trim().length < 3) { setErr('Enter your full name (at least 3 characters)'); return }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) { setErr('Enter a valid email address'); return }
     if (phone.replace(/\D/g, '').length < 10) { setErr('Enter a valid phone number'); return }
-    if (!tCode.trim() || !/^\d{6}$/.test(tCode.trim())) { setErr('Enter the 6-digit verification code'); return }
     if (tPass.length < 8) { setErr('Password must be at least 8 characters'); return }
     if (tPass !== tConfirm) { setErr('Passwords do not match'); return }
     if (tPioneerCode.trim() && !/^\d{4}$/.test(tPioneerCode.trim())) { setErr('Pioneer code must be 4 digits'); return }
     if (!checkOnline()) return
-    setLoading(true); setErr(''); setOtpBusy(true)
+    setErr('')
+    setShowPhoneConfirm(true)
+  }
+
+  const handleTeacherRegister = async () => {
+    const phone = tPhone.trim()
+    const emailTrim = tEmail.trim().toLowerCase()
+    if (!checkOnline()) return
+    setLoading(true); setErr('')
     try {
       const res = await registerTeacher({
         name: tName.trim(),
         email: emailTrim,
         phone: phone.replace(/^\+?234/, ''),
-        otp: tCode.trim(),
         password: tPass,
         pioneerCode: tPioneerCode.trim() || undefined,
       })
-      if (!res || !res.ok) { setErr('Registration failed. Please try again.'); setLoading(false); setOtpBusy(false); return }
+      if (!res || !res.ok) { setErr('Registration failed. Please try again.'); setLoading(false); return }
       // Sign the new teacher in client-side so App.jsx's onAuthStateChanged
       // sees the `teacher` claim and routes to the teacher dashboard.
       await teacherSignIn(emailTrim, tPass)
       const t = await getTeacherByUid(auth.currentUser.uid)
       setTeacherSession(t)
+      setShowPhoneConfirm(false)
       setView('teacher-dashboard')
     } catch (e) {
       const msg = (e && e.message) || 'Could not create your account.'
       if (msg.includes('already-exists')) setErr('This email is already registered.')
-      else if (msg.includes('expired')) setErr('This code has expired. Request a new one.')
-      else if (msg.includes('already used')) setErr('This code was already used. Request a new one.')
-      else if (msg.includes('Incorrect')) setErr('Incorrect verification code.')
       else if (!navigator.onLine) setErr('No internet connection. Check your network.')
       else setErr(msg)
     }
-    setLoading(false); setOtpBusy(false)
+    setLoading(false)
   }
 
   const handleTeacherLogin = async () => {
@@ -617,6 +596,20 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                         value={studentPhone}
                         onChange={(e) => setStudentPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
                         placeholder="e.g. 08012345678"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                      />
+                    </div>
+                  )}
+                  {mode === 'register' && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                        Friend's number <span className="text-[#CCC] normal-case tracking-normal">(optional · you both earn coins)</span>
+                      </label>
+                      <input
+                        value={referrer}
+                        onChange={(e) => setReferrer(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        inputMode="numeric"
+                        placeholder="e.g. 01"
                         className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
                       />
                     </div>
@@ -850,7 +843,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                   {['login', 'register'].map((m) => (
                     <button
                       key={m}
-                      onClick={() => { setMode(m); setErr(''); setTeacherStep(1); setOtpSent(false) }}
+                      onClick={() => { setMode(m); setErr(''); setTeacherStep(1); setShowPhoneConfirm(false) }}
                       className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all font-label ${
                         mode === m
                           ? 'bg-white text-[#111] shadow-sm'
@@ -991,50 +984,11 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                           if (v.startsWith('0')) v = v.replace(/^0+/, '')
                           setTPhone(v.slice(0, 10)); setErr('')
                         }}
-                        disabled={otpSent}
                         placeholder="803 000 0000"
-                        className="flex-1 px-3 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none bg-white disabled:bg-[#F3F3F2] disabled:text-[#AAA]"
+                        className="flex-1 px-3 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none bg-white"
                       />
                     </div>
                   </div>
-                  )}
-
-                  {mode === 'register' && teacherStep === 2 && (
-                    <div>
-                      {!otpSent ? (
-                        <button
-                          type="button"
-                          onClick={handleSendOtp}
-                          disabled={otpSending}
-                          className="w-full rounded-xl py-2.5 text-xs font-bold border border-[#E5E5E5] text-[#555] hover:text-[#111] hover:border-[#CCC] active:scale-[0.99] transition-all font-label disabled:opacity-50"
-                        >
-                          {otpSending ? 'Sending code…' : 'Send confirmation code'}
-                        </button>
-                      ) : (
-                        <div className="space-y-3">
-                          <div>
-                            <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">
-                              Verification Code
-                            </label>
-                            <input
-                              value={tCode}
-                              onChange={(e) => setTCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                              inputMode="numeric"
-                              placeholder="6-digit code"
-                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-center tracking-[0.3em] text-[#111] placeholder:text-[#CCC] placeholder:tracking-normal focus:outline-none focus:border-[#111] transition-colors bg-white"
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => { setOtpSent(false); setTCode('') }}
-                            disabled={otpCooldown > 0}
-                            className="text-[11px] text-[#888] hover:text-[#111] font-label underline underline-offset-2 transition-colors disabled:opacity-40"
-                          >
-                            {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : 'Resend code'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
                   )}
 
                   {mode === 'login' && (
@@ -1094,7 +1048,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                 ) : (
                   <>
                     <button
-                      onClick={handleTeacherRegister}
+                      onClick={openPhoneConfirm}
                       disabled={loading}
                       className={`w-full mt-4 rounded-xl py-3.5 text-sm font-bold tracking-wide transition-all active:scale-[0.99] font-display ${
                         loading
@@ -1102,7 +1056,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                           : 'bg-[#111] text-white hover:bg-[#222]'
                       }`}
                     >
-                      {loading ? (otpBusy ? 'Verifying…' : 'Please wait...') : 'Create Teacher Account'}
+                      Create Teacher Account
                     </button>
                     <button
                       type="button"
@@ -1117,18 +1071,40 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
 
                 {mode === 'register' && teacherStep === 1 && (
                   <p className="text-[11px] text-[#AAA] mt-3 font-label leading-relaxed">
-                    Next, we'll ask for your phone number and send a one-time code to verify it. Registration is free.
+                    Next, we'll ask for your phone number. Registration is free.
                   </p>
                 )}
-                {mode === 'register' && teacherStep === 2 && !otpSent && (
+                {mode === 'register' && teacherStep === 2 && (
                   <p className="text-[11px] text-[#AAA] mt-3 font-label leading-relaxed">
-                    We'll send a one-time code to verify this phone number.
+                    Students use this number to link you as their teacher.
                   </p>
                 )}
-                {mode === 'register' && teacherStep === 2 && otpSent && (
-                  <p className="text-[11px] text-[#AAA] mt-3 font-label leading-relaxed">
-                    Enter the code we just sent to +234{tPhone.replace(/^0+/, '')}. It expires in 10 minutes.
-                  </p>
+
+                {showPhoneConfirm && (
+                  <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !loading && setShowPhoneConfirm(false)}>
+                    <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl text-center" onClick={(e) => e.stopPropagation()}>
+                      <p className="text-[11px] font-semibold text-[#666] uppercase tracking-wide font-label mb-2">Confirm your number</p>
+                      <p className="text-sm text-[#555] font-body mb-1">Is this your phone number?</p>
+                      <p className="text-xl font-bold text-[#111] font-display tracking-wide mb-5">+234{tPhone.replace(/^0+/, '')}</p>
+                      <button
+                        onClick={handleTeacherRegister}
+                        disabled={loading}
+                        className={`w-full rounded-xl py-3 text-sm font-bold transition-all active:scale-[0.99] font-display ${
+                          loading ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed' : 'bg-[#111] text-white hover:bg-[#222]'
+                        }`}
+                      >
+                        {loading ? 'Creating account…' : 'Yes, it’s mine'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowPhoneConfirm(false)}
+                        disabled={loading}
+                        className="w-full mt-2 rounded-xl py-2.5 text-xs font-bold text-[#555] hover:text-[#111] border border-[#E5E5E5] hover:border-[#CCC] transition-all font-label disabled:opacity-40"
+                      >
+                        Edit number
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             )}

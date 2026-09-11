@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { MedalFirstPlaceIcon, MedalSecondPlaceIcon, MedalThirdPlaceIcon, CrownIcon, Award01Icon, BookOpen01Icon, StarIcon, StarCircleIcon, Search01Icon } from '@hugeicons/core-free-icons'
 import { db, collection, doc, onSnapshot, getDoc, getDocs, query, where } from '../firebase'
-import { WEEKS, logEvent } from '../store/useStore'
+import { WEEKS, logEvent, updateSquad } from '../store/useStore'
 import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED } from '../store/constants'
 import SEO from '../components/seo/SEO'
 
@@ -52,17 +52,49 @@ function getRankEmoji(diff) {
   return `🚀 ${diff} ranks behind — grind time!`
 }
 
-export default function Leaderboard({ student, setView }) {
+export default function Leaderboard({ student, setView, setStudent }) {
   const [activeTab, setActiveTab] = useState('overall')
   const [friendSearch, setFriendSearch] = useState('')
   const [friendResults, setFriendResults] = useState([])
   const [overallBoard, setOverallBoard] = useState([])
   const [myRank, setMyRank] = useState(null)
   const [selectedWeek, setSelectedWeek] = useState('')
+  const [squadNames, setSquadNames] = useState({})
+  const [squadBusy, setSquadBusy] = useState(null)
 
   const [subjectBoards, setSubjectBoards] = useState([])
 
   useEffect(() => { logEvent(student.id, 'page_view', { page: 'leaderboard' }) }, [])
+
+  const squad = Array.isArray(student.squad) ? student.squad : []
+
+  // Resolve squad member names via public profiles
+  useEffect(() => {
+    if (!squad.length) return
+    let cancelled = false
+    Promise.all(squad.map((id) =>
+      getDoc(doc(db, 'student_profiles', id)).then((s) => ({ id, name: s.exists() ? (s.data().name || 'Friend') : 'Friend' })).catch(() => ({ id, name: 'Friend' }))
+    )).then((rows) => {
+      if (cancelled) return
+      const m = {}
+      rows.forEach((r) => { m[r.id] = r.name })
+      setSquadNames(m)
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(squad)])
+
+  const toggleSquad = async (id) => {
+    if (id === student.id || squadBusy) return
+    const next = squad.includes(id) ? squad.filter((s) => s !== id) : [...squad, id].slice(0, 4)
+    if (!squad.includes(id) && squad.length >= 4) return
+    setSquadBusy(id)
+    try {
+      const res = await updateSquad(student.id, next)
+      if (res?.ok && setStudent) setStudent({ ...student, squad: res.squad })
+    } catch {}
+    setSquadBusy(null)
+  }
 
   // Per-week scores — fetched on-demand instead of subscribing to all scores
   const [weekScores, setWeekScores] = useState([])
@@ -479,6 +511,26 @@ export default function Leaderboard({ student, setView }) {
         {/* ── FIND FRIENDS ── */}
         {activeTab === 'friends' && (
           <div>
+            {/* My Squad */}
+            <div className="bg-[#111] text-white rounded-2xl p-4 mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold font-display">My Squad</p>
+                <span className="text-[10px] font-bold text-white/50 font-label">{squad.length} / 4</span>
+              </div>
+              {squad.length === 0 ? (
+                <p className="text-[11px] text-white/50 font-label">No squad yet — tap + on friends below to add them.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {squad.map((id) => (
+                    <button key={id} onClick={() => toggleSquad(id)}
+                      className="inline-flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-full pl-3 pr-1.5 py-1 text-[11px] font-bold font-label transition-all">
+                      {squadNames[id] || '…'}
+                      <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px]">−</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <input
               value={friendSearch}
               onChange={(e) => setFriendSearch(e.target.value)}
@@ -506,6 +558,15 @@ export default function Leaderboard({ student, setView }) {
                     <div key={s.id} className={`bg-white border ${isMe ? 'border-[#F59E0B]' : 'border-[#EBEBEB]'} rounded-2xl overflow-hidden`}>
                       <div className="p-3.5">
                         <div className="flex items-center gap-2.5">
+                          {!isMe && (
+                            <button onClick={() => toggleSquad(s.id)} disabled={squadBusy === s.id || (!squad.includes(s.id) && squad.length >= 4)}
+                              title={squad.includes(s.id) ? 'Remove from squad' : 'Add to squad'}
+                              className={`w-8 h-8 rounded-full text-base font-bold shrink-0 transition-all active:scale-90 disabled:opacity-30 ${
+                                squad.includes(s.id) ? 'bg-red-50 text-red-500 border border-red-200' : 'bg-[#111] text-white'
+                              }`}>
+                              {squad.includes(s.id) ? '−' : '+'}
+                            </button>
+                          )}
                           {rank > 0 ? (
                             <span className={`w-9 h-9 flex items-center justify-center rounded-xl text-base font-bold font-display shrink-0 ${rank <= 3 ? 'bg-gradient-to-br from-yellow-400 to-amber-600 text-white shadow-sm shadow-yellow-200' : 'bg-[#F3F3F2] text-[#888]'}`}>
                               {rank <= 3 ? <HugeiconsIcon icon={MEDAL_ICONS[rank - 1]} size={20} color="currentColor" /> : `#${rank}`}

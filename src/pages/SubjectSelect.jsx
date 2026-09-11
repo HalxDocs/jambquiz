@@ -5,6 +5,7 @@ import { functions, httpsCallable } from '../firebase'
 import SEO from '../components/seo/SEO'
 
 export default function SubjectSelect({ student, setStudent, setView }) {
+  const isEditing = (student?.subjects?.length || 0) > 0
   const [selected, setSelected] = useState(student?.subjects || [])
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
@@ -42,14 +43,17 @@ export default function SubjectSelect({ student, setStudent, setView }) {
 
         {/* Header */}
         <div className="pt-10 pb-6">
+          {isEditing && (
+            <button onClick={() => setView('dashboard')} className="mb-3 text-xs text-[#888] hover:text-[#111] font-label">← Back to dashboard</button>
+          )}
           <p className="text-[11px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-2">
-            Step 1 of 1
+            {isEditing ? 'Edit' : 'Step 1 of 1'}
           </p>
           <h2 className="text-2xl font-bold text-[#111] font-display leading-tight">
-            Choose Your 4 JAMB Subjects
+            {isEditing ? 'Edit Your 4 JAMB Subjects' : 'Choose Your 4 JAMB Subjects'}
           </h2>
           <p className="text-sm text-[#888] mt-1.5 font-label">
-            Hi {student?.name?.split(' ')[0]}, select exactly 4 subjects
+            Hi {student?.name?.split(' ')[0]}, {isEditing ? 'update your selection' : 'select exactly 4 subjects'}
           </p>
         </div>
 
@@ -134,7 +138,7 @@ export default function SubjectSelect({ student, setStudent, setView }) {
               : 'bg-[#EBEBEB] text-[#AAA] cursor-not-allowed'
           }`}
         >
-          {loading ? 'Saving…' : selected.length === 4 ? 'Confirm & Continue →' : `Select ${4 - selected.length} more`}
+          {loading ? 'Saving…' : selected.length === 4 ? (isEditing ? 'Save changes' : 'Confirm & Continue →') : `Select ${4 - selected.length} more`}
         </button>
 
       </div>

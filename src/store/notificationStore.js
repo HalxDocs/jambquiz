@@ -1,6 +1,50 @@
 // src/store/notificationStore.js
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
+
+const safeStorage = (() => {
+  const mem = new Map()
+  const memoryStorage = {
+    getItem: (k) => mem.get(k) ?? null,
+    setItem: (k, v) => mem.set(k, v),
+    removeItem: (k) => mem.delete(k),
+  }
+  const canUse = () => {
+    try {
+      const k = '__persist_test__'
+      window.localStorage.setItem(k, '1')
+      window.localStorage.removeItem(k)
+      return true
+    } catch {
+      return false
+    }
+  }
+  return {
+    getItem: (k) => {
+      try {
+        return canUse() ? window.localStorage.getItem(k) : memoryStorage.getItem(k)
+      } catch {
+        return memoryStorage.getItem(k)
+      }
+    },
+    setItem: (k, v) => {
+      try {
+        if (canUse()) window.localStorage.setItem(k, v)
+        else memoryStorage.setItem(k, v)
+      } catch {
+        memoryStorage.setItem(k, v)
+      }
+    },
+    removeItem: (k) => {
+      try {
+        if (canUse()) window.localStorage.removeItem(k)
+        else memoryStorage.removeItem(k)
+      } catch {
+        memoryStorage.removeItem(k)
+      }
+    },
+  }
+})()
 
 // Admin store
 export const useAdminNotificationStore = create(
@@ -29,7 +73,14 @@ export const useAdminNotificationStore = create(
           lastModifiedBy: by,
         }),
     }),
-    { name: 'admin-notification-state' }
+    {
+      name: 'admin-notification-state',
+      storage: createJSONStorage(() => safeStorage),
+      onRehydrateStorage: () => (state, error) => {
+        if (error) console.warn('[persist-admin]', error)
+      },
+      version: 1,
+    }
   )
 )
 
@@ -73,14 +124,13 @@ export const useUserNotificationStore = create(
 
       setPushSubscription: (sub) => set({ pushSubscription: sub }),
     }),
-    { 
+    {
       name: 'user-notification-state',
-      // Don't access localStorage during SSR
-      storage: typeof window !== 'undefined' ? undefined : {
-        getItem: () => null,
-        setItem: () => {},
-        removeItem: () => {},
+      storage: createJSONStorage(() => safeStorage),
+      onRehydrateStorage: () => (state, error) => {
+        if (error) console.warn('[persist-user]', error)
       },
+      version: 1,
     }
   )
 )

@@ -42,7 +42,7 @@ async function getQuestions(subject, week) {
 // For the admin editor: attach each question's answer from `questionAnswers`.
 async function getQuestionsWithAnswers(subject, week) {
   const qs = await getQuestions(subject, week)
-  if (!qs.length) return qs
+  if (!qs?.length) return qs
   const snaps = await Promise.all(qs.map((q) => getDoc(doc(db, 'questionAnswers', q.firestoreId))))
   return qs.map((q, i) => {
     const ans = snaps[i].exists() ? snaps[i].data().answer : (q.answer ?? -1)
@@ -54,7 +54,7 @@ function listenQuestions(subject, week, callback) {
   const q = query(collection(db, 'questions'), where('subject', '==', subject), where('week', '==', week))
   return onSnapshot(q, async (snapshot) => {
     const qs = snapshot.docs.map((d) => ({ firestoreId: d.id, ...d.data() }))
-    if (!qs.length) { callback(qs); return }
+    if (!qs?.length) { callback(qs); return }
     const snaps = await Promise.all(qs.map((q) => getDoc(doc(db, 'questionAnswers', q.firestoreId))))
     callback(qs.map((q, i) => ({
       ...q,

@@ -6,13 +6,13 @@ import { db, collection, query, where, getDocs, signInWithEmailAndPassword, func
 // sign up with name + email + phone (SMS OTP) and later add bank details for
 // payout. All teacher docs are written server-side and read back by the
 // caller's Firebase UID.
-export async function sendTeacherOtp(phone) {
-  const res = await httpsCallable(functions, 'sendTeacherOtp')({ phone })
+export async function registerTeacher(data) {
+  const res = await httpsCallable(functions, 'registerTeacher')(data)
   return res.data
 }
 
-export async function registerTeacher(data) {
-  const res = await httpsCallable(functions, 'registerTeacher')(data)
+export async function teacherUpdatePhone(phone) {
+  const res = await httpsCallable(functions, 'teacherUpdatePhone')({ phone })
   return res.data
 }
 
@@ -40,5 +40,20 @@ export async function getTeacherDashboard() {
 
 export async function adminGetTeachers() {
   const res = await httpsCallable(functions, 'adminTeacherDashboard')()
+  return res.data
+}
+
+export async function makePioneer(teacherId) {
+  const res = await httpsCallable(functions, 'makePioneer')({ teacherId })
+  return res.data
+}
+
+export async function removePioneer(teacherId) {
+  const res = await httpsCallable(functions, 'removePioneer')({ teacherId })
+  return res.data
+}
+
+export async function getPioneerDashboard() {
+  const res = await httpsCallable(functions, 'getPioneerDashboard')()
   return res.data
 }

@@ -9,6 +9,10 @@ export { db, load, save } from './db'
 
 export { normalizeTopic, setTopics, getTopics, listenTopics } from './topics'
 
+export { LIFELINE_COST, LIFELINE_USES_PER_TEST, getCoinBalance, listCoinPacks, shareResult, updateSquad, useLifeline, createCoinsCheckout } from './coins'
+
+export { sanitizeGoat, weekGoatDocId, listGoats, createGoat, updateGoat, deleteGoat, getWeekGoats, setWeekGoats } from './goats'
+
 export { getAccessStatus, registerStudent, getStudentByUid, getStudentById, changePassword, verifyAdminSession, updateStudent, deleteStudent, listenStudents, getStudentsPage, getStudentsCount, stripSensitive, stripPersisted, incrementFreeAttempts, studentAuthEmail, ADMIN_EMAIL, linkStudentUid } from './students'
 
 export { startQuiz, submitQuiz, listenScores, getStudentScores, getStudentScoresAdmin, fetchDetails } from './scores'
@@ -34,4 +38,4 @@ export { getConsistencyRank } from './ranks'
 
 export { logEvent } from './analytics'
 
-export { sendTeacherOtp, registerTeacher, teacherSignIn, getTeacherByUid, teacherUpdateDetails, getTeacherDashboard, adminGetTeachers, makePioneer, removePioneer, getPioneerDashboard } from './teachers'
+export { registerTeacher, teacherSignIn, getTeacherByUid, teacherUpdateDetails, teacherUpdatePhone, getTeacherDashboard, adminGetTeachers, makePioneer, removePioneer, getPioneerDashboard } from './teachers'

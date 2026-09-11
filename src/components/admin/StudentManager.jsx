@@ -6,6 +6,7 @@ import { functions, httpsCallable } from '../../firebase'
 import { useToastStore } from '../../store/toast'
 
 const ACCESS_OPTIONS = [
+  { label: '8 Days', days: 8, desc: '+8 days' },
   { label: 'This Month', months: null, desc: 'Until end of this month' },
   { label: 'Next Month', months: null, desc: 'Until end of next month' },
   { label: '1 Month', months: 1, desc: '+30 days' },
@@ -21,7 +22,7 @@ function endOfMonth(date) {
   return d
 }
 
-export default function StudentManager({ students, loading, yearFilter, onYearFilterChange, page, onPrevPage, onNextPage, hasMore, scoreCache, onLoadScores, total, onCountChange }) {
+export default function StudentManager({ students = [], loading, yearFilter, onYearFilterChange, page, onPrevPage, onNextPage, hasMore, scoreCache, onLoadScores, total, onCountChange }) {
   const [editingStudentId, setEditingStudentId] = useState(null)
   const [editNameValue, setEditNameValue] = useState('')
   const [editNameErr, setEditNameErr] = useState('')
@@ -33,10 +34,29 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
   const [addForm, setAddForm] = useState({ name: '', nickname: '', password: '', year: String(new Date().getFullYear()), email: '', parentPhone: '', teacherPhone: '' })
   const [addErr, setAddErr] = useState('')
   const [addLoading, setAddLoading] = useState(false)
+  const [dateFilter, setDateFilter] = useState('all')
+  const [customDate, setCustomDate] = useState('')
 
   const currentYear = new Date().getFullYear()
   const jamb_years = Array.from({ length: 10 }, (_, i) => String(currentYear + i))
   const filterYears = ['all', ...jamb_years]
+
+  const filteredStudents = students.filter((s) => {
+    if (dateFilter === 'all') return true
+    const raw = s.joinedAt || s.trialStartedAt || s.createdAt
+    if (!raw) return false
+    const d = new Date(raw)
+    const now = new Date()
+    if (dateFilter === 'today') return d.toDateString() === now.toDateString()
+    if (dateFilter === 'yesterday') {
+      const y = new Date(now); y.setDate(y.getDate() - 1)
+      return d.toDateString() === y.toDateString()
+    }
+    if (dateFilter === 'custom' && customDate) {
+      return d.toDateString() === new Date(customDate).toDateString()
+    }
+    return true
+  })
 
   const handleAddStudent = async () => {
     const trimmed = addForm.name.trim()
@@ -90,7 +110,13 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
   const handleGrantAccess = async (student, option) => {
     let expiry
     const now = new Date()
-    if (option.months) {
+    if (option.days) {
+      const current = student.subscriptionUntil ? new Date(student.subscriptionUntil).getTime() : 0
+      const anchor = Math.max(now.getTime(), current)
+      const next = new Date(anchor)
+      next.setDate(next.getDate() + option.days)
+      expiry = next.toISOString()
+    } else if (option.months) {
       const current = student.subscriptionUntil ? new Date(student.subscriptionUntil).getTime() : 0
       const anchor = Math.max(now.getTime(), current)
       const next = new Date(anchor)
@@ -161,6 +187,38 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
         ))}
       </div>
 
+      <div className="bg-white border border-[#EBEBEB] rounded-xl p-3 mb-4">
+        <p className="text-[11px] font-bold text-[#888] uppercase tracking-wide font-label mb-2">Filter by registration date</p>
+        <div className="flex gap-1.5 flex-wrap">
+          {[
+            { key: 'all', label: 'All time' },
+            { key: 'today', label: 'Today' },
+            { key: 'yesterday', label: 'Yesterday' },
+            { key: 'custom', label: 'Pick a day' },
+          ].map((opt) => (
+            <button key={opt.key} onClick={() => setDateFilter(opt.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors font-label ${
+                dateFilter === opt.key ? 'bg-[#111] text-white' : 'bg-[#F3F3F2] text-[#555] hover:bg-[#EBEBEB]'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {dateFilter === 'custom' && (
+          <input type="date" value={customDate} onChange={(e) => setCustomDate(e.target.value)}
+            className="mt-2 w-full border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white" />
+        )}
+        {dateFilter !== 'all' && (
+          <p className="text-[11px] text-[#888] font-label mt-2">
+            Showing {filteredStudents.length} of {students.length} on this page
+            {dateFilter === 'today' && ' — registered today'}
+            {dateFilter === 'yesterday' && ' — registered yesterday'}
+            {dateFilter === 'custom' && customDate && ` — ${new Date(customDate).toLocaleDateString('en-NG')}`}
+          </p>
+        )}
+      </div>
+
       <button onClick={() => { setShowAddForm(!showAddForm); setAddErr('') }}
         className={`mb-4 w-full h-10 flex items-center justify-center gap-1.5 rounded-xl text-xs font-bold font-label transition-colors ${
           showAddForm ? 'bg-[#F3F3F2] text-[#555]' : 'bg-[#111] text-white hover:bg-[#222]'
@@ -203,13 +261,15 @@ export default function StudentManager({ students, loading, yearFilter, onYearFi
           <div className="w-6 h-6 border-2 border-[#111] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
           <p className="text-[#CCC] text-sm font-label">Loading…</p>
         </div>
-      ) : students.length === 0 ? (
+      ) : filteredStudents.length === 0 ? (
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
-          <p className="text-[#CCC] text-sm font-label">No students found</p>
+          <p className="text-[#CCC] text-sm font-label">
+            {students.length === 0 ? 'No students found' : 'No students for this date — try All time'}
+          </p>
         </div>
       ) : (
         <div className="space-y-2.5">
-          {students.map((student) => {
+          {filteredStudents.map((student) => {
             const isExpanded = expandedId === student.id
             return (
               <div key={student.id} className="bg-white border border-[#EBEBEB] rounded-xl p-4">

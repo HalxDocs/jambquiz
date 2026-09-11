@@ -13,6 +13,10 @@ export async function registerPushNotifications() {
     console.warn('[Push] Not supported in this browser')
     return null
   }
+  if (typeof Notification === 'undefined' || !('Notification' in window)) {
+    console.warn('[Push] Notification not supported in this browser')
+    return null
+  }
 
   try {
     const permission = await Notification.requestPermission()

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { SUBJECTS, WEEKS, setTopics, getTopics, normalizeTopic } from '../../store/useStore'
+import { SUBJECTS, WEEKS, setTopics, getTopics, normalizeTopic, listGoats, getWeekGoats, setWeekGoats } from '../../store/useStore'
 import { useToastStore } from '../../store/toast'
 import { safeUrl } from '../../lib/safeUrl'
 
@@ -16,6 +16,9 @@ export default function TopicEditor({
   const [topicSuccess, setTopicSuccess] = useState('')
   const [openKeyPoints, setOpenKeyPoints] = useState(new Set())
   const [success, setSuccess] = useState('')
+  const [allGoats, setAllGoats] = useState([])
+  const [weekGoatIds, setWeekGoatIds] = useState([])
+  const [goatSaving, setGoatSaving] = useState(false)
 
   useEffect(() => {
     getTopics(topicWeek).then((raw) => {
@@ -28,6 +31,35 @@ export default function TopicEditor({
       onSetTopicInputs(normalized)
     })
   }, [topicWeek])
+
+  useEffect(() => {
+    listGoats().then(setAllGoats).catch(() => setAllGoats([]))
+    getWeekGoats(topicWeek).then(setWeekGoatIds).catch(() => setWeekGoatIds([]))
+  }, [topicWeek])
+
+  const toggleWeekGoat = (id) => {
+    setWeekGoatIds((prev) => {
+      if (prev.includes(id)) return prev.filter((g) => g !== id)
+      if (prev.length >= 4) {
+        useToastStore.getState().showToast('Only 4 GOATs per week — remove one first')
+        return prev
+      }
+      return [...prev, id]
+    })
+  }
+
+  const handleSaveWeekGoats = async () => {
+    if (weekGoatIds.length !== 4) {
+      useToastStore.getState().showToast('Select exactly 4 GOATs for the week')
+      return
+    }
+    setGoatSaving(true)
+    try {
+      await setWeekGoats(topicWeek, weekGoatIds)
+      useToastStore.getState().showToast(`GOATs saved for ${topicWeek}`, 'success')
+    } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to save GOATs') }
+    setGoatSaving(false)
+  }
 
   const handleSaveTopics = async () => {
     try {
@@ -207,6 +239,51 @@ export default function TopicEditor({
           className="w-full mt-4 bg-[#111] text-white rounded-xl py-3 text-sm font-bold hover:bg-[#222] transition-colors font-display"
         >
           Save Topics for {topicWeek}
+        </button>
+      </div>
+
+      <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mb-4">
+        <p className="text-sm font-bold text-[#111] font-display mb-1">GOATs for {topicWeek}</p>
+        <p className="text-xs text-[#AAA] font-label mb-3">
+          Pick exactly 4 celebs available as lifelines this week. {allGoats.length === 0 && 'Create GOATs in the GOATs tab first.'}
+        </p>
+        <div className="flex items-center gap-1.5 mb-3">
+          <span className={`text-[11px] font-bold font-label px-2.5 py-1 rounded-full ${weekGoatIds.length === 4 ? 'bg-[#111] text-white' : 'bg-[#EBEBEB] text-[#666]'}`}>
+            {weekGoatIds.length} / 4
+          </span>
+        </div>
+        <div className="space-y-2">
+          {allGoats.map((g) => {
+            const on = weekGoatIds.includes(g.id)
+            return (
+              <button key={g.id} type="button" onClick={() => toggleWeekGoat(g.id)}
+                className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
+                  on ? 'bg-[#111] text-white border-[#111]' : 'bg-white text-[#333] border-[#E8E8E8] hover:border-[#999]'
+                }`}>
+                <span className={`w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold shrink-0 ${on ? 'bg-white/20 border-white/40 text-white' : 'border-[#CCC] text-[#AAA]'}`}>
+                  {on ? '✓' : ''}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-xs font-semibold font-body truncate">{g.name}</span>
+                  <span className={`block text-[10px] font-label truncate ${on ? 'text-white/60' : 'text-[#AAA]'}`}>{g.profession || '—'}</span>
+                </span>
+              </button>
+            )
+          })}
+          {allGoats.length === 0 && (
+            <p className="text-xs text-[#CCC] font-label text-center py-3">No GOATs yet</p>
+          )}
+        </div>
+        <button
+          onClick={handleSaveWeekGoats}
+          disabled={goatSaving || weekGoatIds.length !== 4}
+          className={`w-full mt-4 rounded-xl py-3 text-sm font-bold transition-all font-display ${
+            weekGoatIds.length === 4 && !goatSaving
+              ? 'bg-[#111] text-white hover:bg-[#222]'
+              : 'bg-[#EBEBEB] text-[#AAA] cursor-not-allowed'
+          }`}
+        >
+          {goatSaving ? 'Saving…' : 'Save GOATs for this week'}
         </button>
       </div>
 

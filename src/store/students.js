@@ -103,6 +103,7 @@ async function registerStudent(student) {
     teacherPhone: normalizePhone(student.teacherPhone),
     phone: normalizePhone(student.phone),
     subjects: student.subjects || [],
+    referredBy: String(student.referredBy || '').replace(/\D/g, '').slice(0, 6) || '',
     uid,
     subscriptionUntil: null,
     freeAttemptsUsed: 0,

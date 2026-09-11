@@ -43,12 +43,12 @@ function PortalStats() {
     ? [
         { val: String(stats.totalStudents || 0), lab: 'Students' },
         { val: String(stats.totalQuizzesTaken || 0), lab: 'Tests Taken' },
-        { val: `${stats.averageScorePct ?? 0}%`, lab: 'Avg Score' },
+        { val: '319', lab: 'Top Score' },
       ]
     : [
         { val: '—', lab: 'Students' },
         { val: '—', lab: 'Tests Taken' },
-        { val: '—', lab: 'Avg Score' },
+        { val: '319', lab: 'Top Score' },
       ]
 
   return items.map((s) => (
@@ -613,7 +613,7 @@ export default function Home({ setView, setHomeMode, setHomeTab }) {
         </section>
 
         {/* ─── For Teachers ─── */}
-        <section className="relative py-16 sm:py-20">
+        <section id="teachers" className="relative py-16 sm:py-20">
           <div className="max-w-2xl mx-auto px-4 text-center">
             <motion.div
               initial={{ y: 30, opacity: 0 }}

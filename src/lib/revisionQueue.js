@@ -23,9 +23,9 @@ export function buildRevisionQueue(scores) {
   })
 
   return weak.sort((a, b) => {
-    const wi = WEEKS_SORTED.indexOf(a.week) - WEEKS_SORTED.indexOf(b.week)
+    const wi = (WEEKS_SORTED?.indexOf(a.week ?? '') ?? -1) - (WEEKS_SORTED?.indexOf(b.week ?? '') ?? -1)
     if (wi !== 0) return wi
-    return a.subject.localeCompare(b.subject)
+    return (a.subject ?? '').localeCompare(b.subject ?? '')
   })
 }
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon, Notification02Icon } from '@hugeicons/core-free-icons'
+import { UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon, Notification02Icon, StarIcon } from '@hugeicons/core-free-icons'
 import { db, getDoc, doc, httpsCallable, functions } from '../firebase'
 import { SUBJECTS, WEEKS, listenQuestions, getStudentsPage, getStudentsCount, getPaymentsPage, getStudentScoresAdmin, getActiveWeek, getQuestionLimit, setActiveWeek } from '../store/useStore'
 import StudentManager from '../components/admin/StudentManager'
@@ -9,8 +9,10 @@ import PaymentsPanel from '../components/admin/PaymentsPanel'
 import QuestionForm from '../components/admin/QuestionForm'
 import TopicEditor from '../components/admin/TopicEditor'
 import AdminNotifications from '../components/admin/AdminNotifications'
+import GoatManager from '../components/admin/GoatManager'
 import AnalyticsPanel from '../components/admin/AnalyticsPanel'
 import TeachersPanel from '../components/admin/TeachersPanel'
+import CoinPacksEditor from '../components/admin/CoinPacksEditor'
 import { useToastStore } from '../store/toast'
 import SEO from '../components/seo/SEO'
 
@@ -114,6 +116,30 @@ export default function Admin({ setView }) {
     })()
   }, [])
 
+  const handleSyncPaystack = async () => {
+    setStatsLoading(true)
+    try {
+      const fn = httpsCallable(functions, 'syncPaystackPayments')
+      const res = await fn()
+      const d = res.data || {}
+      useToastStore.getState().showToast(`Paystack sync: ${d.synced ?? 0} added, ${d.skipped ?? 0} skipped`, 'success')
+      // Recompute revenue so Total Revenue updates immediately
+      try { await httpsCallable(functions, 'computeAdminStats')() } catch {}
+      // Refresh payments list and stats
+      paymentCursors.current = [null]; setPaymentPage(0)
+      try {
+        const r = await getPaymentsPage('', null)
+        setPayments(r.payments); setPaymentHasMore(r.hasMore)
+        if (!paymentCursors.current[1]) paymentCursors.current[1] = r.lastDoc
+      } catch {}
+      const snap = await getDoc(doc(db, 'admin_stats', 'overview'))
+      if (snap.exists()) setAdminStats(snap.data())
+    } catch (e) {
+      useToastStore.getState().showToast(e?.message || 'Paystack sync failed', 'error')
+    }
+    setStatsLoading(false)
+  }
+
   const computeStatsFn = httpsCallable(functions, 'computeAdminStats')
   const handleComputeStats = async () => {
     setStatsLoading(true)
@@ -179,6 +205,7 @@ export default function Admin({ setView }) {
     { key: 'payments',  icon: Wallet01Icon,     label: 'Payments' },
     { key: 'questions', icon: HelpCircleIcon,   label: 'Questions' },
     { key: 'topics',    icon: Book01Icon,       label: 'Topics' },
+    { key: 'goats',     icon: StarIcon,         label: 'GOATs' },
     { key: 'usage',     icon: Analytics01Icon,  label: 'Usage' },
     { key: 'notifications', icon: Notification02Icon, label: 'Notifications' },
   ]
@@ -224,7 +251,9 @@ export default function Admin({ setView }) {
       />
     ),
     payments: (
-      <PaymentsPanel
+      <>
+        <CoinPacksEditor />
+        <PaymentsPanel
         payments={payments}
         loading={paymentLoading}
         search={paymentSearch}
@@ -234,7 +263,9 @@ export default function Admin({ setView }) {
         onNextPage={() => { if (paymentHasMore) setPaymentPage(p => p + 1) }}
         hasMore={paymentHasMore}
         stats={adminStats}
-      />
+        onSyncPaystack={handleSyncPaystack}
+        />
+      </>
     ),
     questions: (
       <QuestionForm
@@ -262,6 +293,7 @@ export default function Admin({ setView }) {
     notifications: <AdminNotifications />,
     usage: <AnalyticsPanel />,
     teachers: <TeachersPanel />,
+    goats: <GoatManager />,
   }
 
   return (

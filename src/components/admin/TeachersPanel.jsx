@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { adminGetTeachers } from '../../store/useStore'
 import { useToastStore } from '../../store/toast'
+import { functions, httpsCallable } from '../../firebase'
 
 function monthShort(m) {
   try {
@@ -12,6 +13,8 @@ function monthShort(m) {
 
 const naira = (n) => `N${Number(n || 0).toLocaleString('en-NG')}`
 
+function isPioneerBonusMonth(m) { return m >= '2026-10' && m <= '2026-12' }
+
 const LOGIN_MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 
 export default function TeachersPanel() {
@@ -21,6 +24,7 @@ export default function TeachersPanel() {
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState({})
   const [selectedMonth, setSelectedMonth] = useState(null)
+  const [pioneerBusy, setPioneerBusy] = useState(null)
 
   const load = async () => {
     setLoading(true); setError('')
@@ -52,10 +56,37 @@ export default function TeachersPanel() {
     if (error) useToastStore.getState().showToast(error, 'error')
   }, [error])
 
+  const handleMakePioneer = async (teacherId) => {
+    setPioneerBusy(teacherId)
+    try {
+      const fn = httpsCallable(functions, 'makePioneer')
+      const res = await fn({ teacherId })
+      useToastStore.getState().showToast(`Pioneer created — code ${res.data.code}`, 'success')
+      await load()
+    } catch (e) {
+      useToastStore.getState().showToast(e?.message || 'Failed to make Pioneer', 'error')
+    }
+    setPioneerBusy(null)
+  }
+
+  const handleRemovePioneer = async (teacherId) => {
+    if (!window.confirm('Remove Pioneer status and code?')) return
+    setPioneerBusy(teacherId)
+    try {
+      const fn = httpsCallable(functions, 'removePioneer')
+      await fn({ teacherId })
+      useToastStore.getState().showToast('Pioneer removed', 'success')
+      await load()
+    } catch (e) {
+      useToastStore.getState().showToast(e?.message || 'Failed', 'error')
+    }
+    setPioneerBusy(null)
+  }
+
   const monthOptions = [...new Set(
     teachers.reduce((acc, t) => {
       Object.keys(t.monthsEarnings || {}).forEach((m) => acc.push(m))
-      t.students.forEach((s) => Object.keys(s.monthlyCounts || {}).forEach((m) => acc.push(m)))
+      ;(t.students || []).forEach((s) => Object.keys(s.monthlyCounts || {}).forEach((m) => acc.push(m)))
       return acc
     }, [])
   )].sort()
@@ -141,6 +172,26 @@ export default function TeachersPanel() {
               </div>
             </button>
 
+            <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
+              {t.isPioneer ? (
+                <>
+                  <span className="text-[11px] font-bold bg-yellow-100 text-yellow-800 border border-yellow-200 rounded-lg px-2 py-1 flex items-center gap-1">
+                    <span>👑</span> PIONEER {t.pioneerCode}
+                  </span>
+                  <button onClick={() => handleRemovePioneer(t.teacherId)} disabled={pioneerBusy === t.teacherId} className="text-[11px] text-red-600 hover:underline font-label disabled:opacity-50">
+                    Remove
+                  </button>
+                  <span className="text-[11px] text-[#888] font-label">
+                    Bonus {naira((t.pioneerEarnings || {})[selectedMonth] || 0)} {selectedMonth && isPioneerBonusMonth(selectedMonth) ? '(Oct-Dec cap 20)' : ''}
+                  </span>
+                </>
+              ) : (
+                <button onClick={() => handleMakePioneer(t.teacherId)} disabled={pioneerBusy === t.teacherId} className="text-[11px] font-bold bg-[#111] text-white rounded-lg px-3 py-1.5 hover:bg-[#222] font-label disabled:opacity-50">
+                  {pioneerBusy === t.teacherId ? '...' : 'Make PIONEER'}
+                </button>
+              )}
+            </div>
+
             {open && (
               <div className="border-t border-[#F1F1F0] px-4 py-3">
                 <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
@@ -167,13 +218,13 @@ export default function TeachersPanel() {
                   </div>
                 </div>
 
-                {t.students.length === 0 ? (
+                {(t.students || []).length === 0 ? (
                   <p className="text-xs text-[#AAA] font-label">No linked students yet.</p>
                 ) : (
                   <div className="overflow-x-auto">
                     {(() => {
                       const months = [...new Set(
-                        t.students.reduce((acc, s) => acc.concat(Object.keys(s.monthlyCounts || {})), [])
+                        (t.students || []).reduce((acc, s) => acc.concat(Object.keys(s.monthlyCounts || {})), [])
                       )].sort().slice(-6)
                       return (
                         <table className="w-full text-left text-xs">
@@ -186,7 +237,7 @@ export default function TeachersPanel() {
                             </tr>
                           </thead>
                           <tbody>
-                            {t.students.map((s) => (
+                            {(t.students || []).map((s) => (
                               <tr key={s.studentId} className="border-t border-[#F6F6F5]">
                                 <td className="py-2 pr-3 font-semibold text-[#111]">
                                   {s.name}

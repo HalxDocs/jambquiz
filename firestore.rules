@@ -27,8 +27,10 @@ service cloud.firestore {
                     && (!('freeAttemptsUsed' in request.resource.data)
                         || request.resource.data.freeAttemptsUsed == 0)
                     && (!('suspended' in request.resource.data) || request.resource.data.suspended == false)
-                    && (!('missedStreak' in request.resource.data) || request.resource.data.missedStreak == 0)
-                    && (!('role' in request.resource.data) || request.resource.data.role == 'student');
+                     && (!('missedStreak' in request.resource.data) || request.resource.data.missedStreak == 0)
+                     && (!('role' in request.resource.data) || request.resource.data.role == 'student')
+                     && (!('coins' in request.resource.data))
+                     && (!('referralNo' in request.resource.data));
 
       allow update: if (request.auth.uid == resource.data.uid
                         && request.resource.data.diff(resource.data).affectedKeys()
@@ -260,6 +262,13 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ─── PIONEER CODES ───
+    // Lookup for referral codes — server-only writes, public read for signup validation via function.
+    match /pioneerCodes/{code} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // ─── LEADERBOARD (aggregated) ───
     // Public read. Writes only from cloud function.
     match /leaderboard/{docId} {
@@ -286,6 +295,73 @@ service cloud.firestore {
                     && request.resource.data.eventType.size() > 0
                     && request.resource.data.eventType.size() <= 50;
       allow update, delete: if false;
+    }
+
+    // ─── CHECKOUT MAPPINGS (Paystack / Bachs) ───
+    // Server-only — contains access codes and could be used to hijack payments.
+    match /paystackCheckouts/{id} {
+      allow read, write: if false;
+    }
+    match /bachsCheckouts/{id} {
+      allow read, write: if false;
+    }
+
+    // ─── LEADERBOARD WEEK RANKS ───
+    match /leaderboard_week_ranks/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ─── RATE LIMITS / INTERNAL ───
+    match /rate_limits/{id} {
+      allow read, write: if false;
+    }
+
+    // ─── GOATS (lifelines) ───
+    // Public read (dashboard frame, in-test picker). Admin writes only;
+    // all coin deductions happen server-side in `useLifeline`.
+    match /goats/{goatId} {
+      allow read: if true;
+      allow create, update: if request.auth.token.admin == true
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() > 0
+                    && request.resource.data.name.size() <= 60
+                    && request.resource.data.profession is string
+                    && request.resource.data.profession.size() <= 60
+                    && request.resource.data.stars is map
+                    && request.resource.data.explanations is map;
+      allow delete: if request.auth.token.admin == true;
+    }
+
+    // ─── WEEK GOATS (which 4 GOATs assist a given week) ───
+    match /goatWeeks/{weekId} {
+      allow read: if true;
+      allow create, update: if request.auth.token.admin == true
+                    && request.resource.data.goatIds is list
+                    && request.resource.data.goatIds.size() == 4;
+      allow delete: if request.auth.token.admin == true;
+    }
+
+    // ─── COIN LEDGER (audit trail, per student) ───
+    // Owner read only. Server-only writes (Admin SDK bypasses rules).
+    match /coinLedger/{entryId} {
+      allow read: if request.auth.uid == resource.data.uid
+                  || request.auth.token.admin == true;
+      allow write: if false;
+    }
+
+    // ─── COIN PACKS (admin-configurable prices) ───
+    // Public read so the Coins page can render prices. Admin writes.
+    match /coinPacks/{packId} {
+      allow read: if true;
+      allow create, update: if request.auth.token.admin == true
+                    && request.resource.data.coins is int
+                    && request.resource.data.coins > 0
+                    && request.resource.data.coins <= 1000
+                    && request.resource.data.priceNgn is int
+                    && request.resource.data.priceNgn > 0
+                    && request.resource.data.priceNgn <= 100000;
+      allow delete: if request.auth.token.admin == true;
     }
   }
 }

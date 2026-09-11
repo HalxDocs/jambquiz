@@ -8,9 +8,11 @@ export default function Subscribe({ student, setStudent, setView }) {
   const [paying, setPaying] = useState(false)
   const [err, setErr] = useState('')
   const [success, setSuccess] = useState('')
+  const [successInfo, setSuccessInfo] = useState(null)
   const [history, setHistory] = useState([])
   const [email, setEmail] = useState(student.email || '')
   const bachsInit = useRef(false)
+  const paystackVerifying = useRef(false)
 
   useEffect(() => {
     if (typeof window.Bachs !== 'undefined' && !bachsInit.current) {
@@ -28,6 +30,51 @@ export default function Subscribe({ student, setStudent, setView }) {
     return () => unsub()
   }, [student])
 
+  // Paystack redirect callback — Paystack appends ?reference=...&trxref=... to the
+  // callback_url (or the hosting root if none is set). Verify it immediately so
+  // the student sees their subscription extended without waiting for the webhook.
+  useEffect(() => {
+    let ref = null
+    let pending = null
+    try { ref = new URLSearchParams(window.location.search).get('reference') || new URLSearchParams(window.location.search).get('trxref') } catch {}
+    try { pending = localStorage.getItem('pending_paystack_ref') } catch {}
+    const target = ref || pending
+    if (!target || paystackVerifying.current) return
+    if (!student?.id) return
+    // Coin purchases are verified on the Coins page, not here
+    if (target.includes('-COIN-')) return
+    // Only auto-verify a reference that belongs to this student (our refs embed the studentId)
+    if (!target.includes(student.id)) return
+    paystackVerifying.current = true
+    setPaying(true)
+    const verify = async () => {
+      try {
+        const fn = httpsCallable(functions, 'completePaystackCheckout')
+        await fn({ reference: target })
+        // Optimistic: show Active immediately without waiting for Firestore propagation
+        applyOptimisticActive()
+        setSuccess('Payment received — access extended by 1 month!')
+        setSuccessInfo({ reference: target, email: email || student.email || '', amount: SUBSCRIPTION_PRICE_NGN })
+        localStorage.removeItem('pending_paystack_ref')
+        // Clean the URL so a refresh does not re-verify
+        try {
+          const url = new URL(window.location.href)
+          url.searchParams.delete('reference')
+          url.searchParams.delete('trxref')
+          window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+        } catch {}
+        await refreshStudent()
+      } catch (e) {
+        // Not a hard error — the webhook may still fulfill it a moment later.
+        // Only surface a message if this was an explicit redirect (ref in URL).
+        if (ref) setErr(e?.message || 'Could not verify Paystack payment. If you were charged, contact support with ref: ' + target)
+        // Keep the pending ref so the student can retry via the button
+      }
+      setPaying(false)
+    }
+    verify()
+  }, [student])
+
   const status = getAccessStatus(student)
 
   const refreshStudent = async () => {
@@ -35,26 +82,21 @@ export default function Subscribe({ student, setStudent, setView }) {
     if (fresh) setStudent(fresh)
   }
 
-  const handlePay = async () => {
-    const cleanEmail = email.trim().toLowerCase()
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      setErr('Enter a valid email address for your receipt')
-      return
-    }
+  const applyOptimisticActive = () => {
+    const base = student.subscriptionUntil && new Date(student.subscriptionUntil).getTime() > Date.now()
+      ? new Date(student.subscriptionUntil)
+      : new Date()
+    base.setMonth(base.getMonth() + 1)
+    const iso = base.toISOString()
+    setStudent({ ...student, subscriptionUntil: iso })
+  }
 
+  const openBachsCheckout = async (cleanEmail) => {
     if (typeof window.Bachs === 'undefined') {
       setErr('Payment library not loaded. Refresh and try again.')
+      setPaying(false)
       return
     }
-
-    setPaying(true)
-    setErr('')
-    setSuccess('')
-
-    if (cleanEmail !== student.email) {
-      try { await updateStudent(student.id, { email: cleanEmail }) } catch { /* non-fatal */ }
-    }
-
     try {
       const fn = httpsCallable(functions, 'createBachsCheckout')
       const result = await fn({ studentId: student.id, type: 'subscription' })
@@ -67,7 +109,9 @@ export default function Subscribe({ student, setStudent, setView }) {
             try {
               const verifyFn = httpsCallable(functions, 'completeBachsCheckout')
               await verifyFn({ checkoutId: checkout_id })
+              applyOptimisticActive()
               setSuccess('Payment received — access extended by 1 month!')
+              setSuccessInfo({ reference: checkout_id, email: cleanEmail, amount: SUBSCRIPTION_PRICE_NGN })
               await refreshStudent()
             } catch (e) {
               console.error(e)
@@ -85,9 +129,58 @@ export default function Subscribe({ student, setStudent, setView }) {
         },
       })
     } catch (e) {
-      setErr(e?.message || 'Failed to start payment. Please try again.')
+      setErr(e?.message || 'Failed to start Bachs payment. Please try again.')
       setPaying(false)
     }
+  }
+
+  const handlePay = async () => {
+    const cleanEmail = email.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setErr('Enter a valid email address for your receipt')
+      return
+    }
+
+    setPaying(true)
+    setErr('')
+    setSuccess('')
+
+    if (cleanEmail !== student.email) {
+      try { await updateStudent(student.id, { email: cleanEmail }) } catch { /* non-fatal */ }
+    }
+
+    // ── Primary: Paystack ──────────────────────────────────────────────
+    try {
+      const callbackUrl = window.location.origin + '/'
+      const fn = httpsCallable(functions, 'createPaystackCheckout')
+      const result = await fn({ studentId: student.id, type: 'subscription', callbackUrl })
+      const { authorization_url, reference } = result.data
+      if (authorization_url && reference) {
+        try { localStorage.setItem('pending_paystack_ref', reference) } catch {}
+        try { localStorage.setItem('pending_paystack_student', student.id) } catch {}
+        // Paystack's hosted checkout (standard.paystack.co) — redirect the
+        // whole page. Paystack will append ?trxref=&reference= to the
+        // callbackUrl and the App root will auto-verify it.
+        window.location.href = authorization_url
+        return
+      }
+      throw new Error('Paystack did not return an authorization URL')
+    } catch (e) {
+      const msg = (e && e.message) || ''
+      const notConfigured = msg.includes('PAYSTACK_SECRET_KEY') || msg.includes('not configured') || msg.includes('failed-precondition')
+      if (notConfigured) {
+        // Paystack not set up — silently fall through to Bachs backup.
+        console.log('[Paystack] not configured, falling back to Bachs:', msg)
+      } else {
+        console.warn('[Paystack] init failed, falling back to Bachs:', msg)
+        // For transient Paystack errors we still try Bachs so the student is not blocked.
+        // Surface a soft hint but keep paying=true while Bachs opens.
+        setErr('Paystack is temporarily unavailable — trying backup gateway…')
+      }
+    }
+
+    // ── Backup: Bachs ──────────────────────────────────────────────────
+    await openBachsCheckout(cleanEmail)
   }
 
   const statusBadge = {
@@ -95,6 +188,38 @@ export default function Subscribe({ student, setStudent, setView }) {
     freebie: { color: 'yellow', label: `${status.freeAttemptsLeft} free quiz left` },
     expired: { color: 'red', label: 'Expired' },
   }[status.status]
+
+  if (success && successInfo) {
+    return (
+      <>
+        <SEO title="Payment Successful" />
+        <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white border border-[#EBEBEB] rounded-2xl p-6 text-center">
+            <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-2xl">✓</span>
+            </div>
+            <h2 className="text-xl font-bold text-[#111] font-display mb-2">Payment Successful</h2>
+            <p className="text-sm text-[#555] font-body mb-1">{success}</p>
+            <p className="text-xs text-[#888] font-label mb-4">
+              Receipt sent to <span className="font-semibold text-[#111]">{successInfo.email}</span> from Paystack
+            </p>
+            <div className="bg-[#F8F8F7] border border-[#EBEBEB] rounded-xl px-4 py-3 text-left mb-4">
+              <p className="text-[11px] font-bold text-[#888] uppercase tracking-wide font-label mb-1">Details</p>
+              <p className="text-xs text-[#111] font-label">Amount: <span className="font-bold">₦{successInfo.amount.toLocaleString()}</span></p>
+              <p className="text-xs text-[#111] font-label break-all">Ref: <span className="font-mono text-[11px]">{successInfo.reference}</span></p>
+            </div>
+            <button
+              onClick={() => { setSuccess(''); setSuccessInfo(null); setView('dashboard') }}
+              className="w-full bg-[#111] text-white rounded-xl py-3 text-sm font-bold hover:bg-[#222] transition-colors font-display"
+            >
+              Go to Dashboard →
+            </button>
+            <p className="text-[11px] text-[#AAA] font-label mt-3">Your subscription has been extended by 1 month</p>
+          </div>
+        </div>
+      </>
+    )
+  }
 
   return (
     <>
@@ -191,7 +316,7 @@ export default function Subscribe({ student, setStudent, setView }) {
           </button>
 
           <p className="text-[10px] text-[#AAA] text-center mt-3 font-label">
-            Secured by Bachs · 2 free quizzes on signup
+            Secured by Paystack · Bachs as backup · 2 free quizzes on signup
           </p>
         </div>
 

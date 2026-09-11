@@ -47,6 +47,22 @@
         { "fieldPath": "week", "order": "ASCENDING" },
         { "fieldPath": "total", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "leaderboard_week_ranks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "week", "order": "ASCENDING" },
+        { "fieldPath": "total", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "coinLedger",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "studentId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

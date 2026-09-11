@@ -658,7 +658,7 @@ function getStatus(s) {
   return 'expired';
 }
 
-exports.computeAdminStats = onCall({ enforceAppCheck: false }, async (request) => {
+exports.computeAdminStats = onCall({ invoker: "public", cors: true, enforceAppCheck: false }, async (request) => {
   assertAdmin(request);
   try {
     const [studentsSnap, scoresSnap, paymentsSnap] = await Promise.all([
@@ -861,7 +861,7 @@ exports.testPushToAll = onCall(
 );
 
 exports.testSms = onCall(
-  { secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } },
+  { cors: true, secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } },
   async (request) => {
     const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
     if (!TERMII_API_KEY) return { ok: false, message: 'TERMII_API_KEY secret not set. Run: firebase functions:secrets:set TERMII_API_KEY' }
@@ -869,16 +869,22 @@ exports.testSms = onCall(
     const phone = normalizePhone(request.data?.phone || '')
     if (!phone) return { ok: false, message: 'Invalid phone number. Use international format (e.g. 2348012345678)' }
 
+    // Independent balance check — names the Termii account the key belongs to.
+    // If this balance/user differs from your funded dashboard, the secret key
+    // is from another workspace/account.
+    let balanceCheck = null
+    try {
+      const bRes = await fetch('https://api.termii.com/api/get-balance?api_key=' + encodeURIComponent(TERMII_API_KEY))
+      const bBody = await bRes.json().catch(() => ({}))
+      balanceCheck = { balance: bBody.balance ?? null, currency: bBody.currency || 'NGN', user: bBody.user || null }
+    } catch (e) {
+      balanceCheck = { error: e?.message || String(e) }
+    }
+
     const smsText = 'This is a test SMS from 274Lab. Your SMS integration is working correctly!'
-    const resp = await fetch('https://api.termii.com/api/sms/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: TERMII_API_KEY, to: phone, from: TERMII_SENDER_ID, sms: smsText, type: 'plain', channel: 'dnd' }),
-    })
-    const result = await resp.json()
-    if (!resp.ok) return { ok: false, message: `Termii HTTP ${resp.status}: ${JSON.stringify(result)}` }
-    if (result?.message?.err || result?.error) return { ok: false, message: result?.message?.err || result?.error }
-    return { ok: true, message: `Test SMS sent to ${phone}` }
+    const r = await sendSmsTermii(TERMII_API_KEY, phone, smsText, { phone, source: 'testSms' })
+    if (!r.ok) return { ok: false, message: r.error || 'Failed to send test SMS', detail: r.result || null, balanceCheck, channel: r.channel || null, dndError: r.dndError || null }
+    return { ok: true, message: `Test SMS sent to ${phone}`, senderId: TERMII_SENDER_ID, message_id: r.result?.message_id || null, balance: r.result?.balance ?? null, balanceCheck, channel: r.channel || null, dndError: r.dndError || null }
   }
 );
 
@@ -956,7 +962,7 @@ exports.sendStudentWelcomeSms = onCall(
   }
 );
 
-exports.updateStudentProfile = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.updateStudentProfile = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   const { studentId, ...fields } = request.data || {}
   if (!request.auth) throw new HttpsError('unauthenticated', 'Not authenticated')
   if (!studentId) throw new HttpsError('invalid-argument', 'Missing studentId')
@@ -987,7 +993,7 @@ exports.updateStudentProfile = onCall({ enforceAppCheck: false, run: { cpu: 0.08
 // Write the public `student_profiles/{studentId}` doc (safe subset) used by the
 // leaderboard friend-search, which must NOT read the full `students` docs
 // (owner/admin-only). Owner or admin may call.
-exports.syncStudentProfile = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.syncStudentProfile = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   const { studentId } = request.data || {}
   if (!request.auth) throw new HttpsError('unauthenticated', 'Not authenticated')
   if (!studentId) throw new HttpsError('invalid-argument', 'Missing studentId')
@@ -996,7 +1002,7 @@ exports.syncStudentProfile = onCall({ enforceAppCheck: false, run: { cpu: 0.08, 
 });
 
 // Admin-only backfill: (re)write every student_profiles doc from students.
-exports.syncAllStudentProfiles = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.syncAllStudentProfiles = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const snap = await db.collection('students').get()
   const chunks = []
@@ -1432,24 +1438,39 @@ function buildSmsBody(name, week, subjectsWithScore, topicNames) {
 
 async function sendSmsTermii(apiKey, to, text, context = {}) {
   const truncated = text.slice(0, 765)
-  try {
+  const tryChannel = async (channel) => {
     const resp = await fetch('https://api.termii.com/api/sms/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: apiKey, to, from: TERMII_SENDER_ID, sms: truncated, type: 'plain', channel: 'dnd' })
+      body: JSON.stringify({ api_key: apiKey, to, from: TERMII_SENDER_ID, sms: truncated, type: 'plain', channel })
     })
-    const result = await resp.json()
-    if (!resp.ok) {
-      const err = `Termii HTTP ${resp.status}: ${JSON.stringify(result)}`
-      await recordSmsFailure(to, text, err, context)
-      return { ok: false, error: err }
+    const result = await resp.json().catch(() => ({}))
+    return { resp, result }
+  }
+  try {
+    // DND-first: most Nigerian lines are on DND by default. The generic route
+    // returns "sent" but operators drop it for DND numbers. DND route delivers
+    // to both DND and non-DND (requires approved sender ID). Fall back to
+    // generic only if DND explicitly fails.
+    let usedChannel = 'dnd'
+    let { resp, result } = await tryChannel('dnd')
+    let termiiOk = result && (result.code === 'ok' || result.message === 'Successfully Sent' || result.balance !== undefined) && !result?.message?.err && !result?.error
+    let dndError = null
+    if (!resp.ok || !termiiOk) {
+      dndError = result?.message?.err || result?.error || result?.message || `Termii HTTP ${resp.status}`
+      console.log(`[Termii] dnd failed for ${to}, trying generic:`, dndError)
+      const retry = await tryChannel('generic')
+      resp = retry.resp; result = retry.result
+      usedChannel = 'generic'
+      termiiOk = result && (result.code === 'ok' || result.message === 'Successfully Sent' || result.balance !== undefined) && !result?.message?.err && !result?.error
     }
-    if (result?.message?.err || result?.error) {
-      const err = result?.message?.err || result?.error
-      await recordSmsFailure(to, text, err, context)
-      return { ok: false, error: err }
+    if (!resp.ok || !termiiOk) {
+      const err = result?.message?.err || result?.error || result?.message || `Termii HTTP ${resp.status}: ${JSON.stringify(result)}`
+      await recordSmsFailure(to, text, `${err} [channel=${usedChannel}]`, context)
+      return { ok: false, error: err, result, channel: usedChannel, dndError }
     }
-    return { ok: true, result }
+    console.log(`[Termii] Sent to ${to} via ${usedChannel}:`, result.message || result.code, 'msg_id:', result.message_id, 'balance:', result.balance)
+    return { ok: true, result, channel: usedChannel, dndError }
   } catch (e) {
     const err = (e?.message || String(e))
     await recordSmsFailure(to, text, err, context)
@@ -1928,7 +1949,7 @@ exports.sendQuizSmsReport = onSchedule(
   }
 )
 
-exports.clearSmsGuards = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
+exports.clearSmsGuards = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
   const batch = db.batch()
   let count = 0
   const reminderSnap = await db.collection('reminder_sent').get()
@@ -1943,7 +1964,7 @@ exports.clearSmsGuards = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memo
 
 // Diagnostic helper (admin callable) — returns the exact data the scheduled SMS
 // passes see, so "why is nothing sending" is answerable from the admin panel.
-exports.debugSmsState = onCall({ secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
+exports.debugSmsState = onCall({ invoker: "public", cors: true, secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
   const week = await getActiveWeek()
 
   const settingsSnap = await db.collection('settings').get()
@@ -2045,10 +2066,12 @@ async function retrieveBachsCheckout(checkoutId) {
 }
 
 // Store checkout mapping so webhooks know which student/type this checkout belongs to.
-async function saveBachsCheckoutMapping(checkoutId, studentId, type) {
-  await db.collection('bachsCheckouts').doc(checkoutId).set({
+async function savePaystackCheckoutMapping(checkoutId, studentId, type, accessCode, extra) {
+  await db.collection('paystackCheckouts').doc(checkoutId).set({
     studentId,
     type,
+    accessCode: accessCode || '',
+    ...(extra || {}),
     status: 'PENDING',
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   })
@@ -2182,7 +2205,7 @@ function computeExpiry(currentIso, months) {
     // One-time admin setup: create the admin Firebase Auth user (if needed) and
     // grant the `admin` custom claim. Admin sign-in then uses Firebase Auth and
     // the claim is checked by the security rules.
-    exports.setupAdmin = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+    exports.setupAdmin = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
       const { adminPassword } = request.data || {}
       if (!adminPassword || adminPassword.length < 8) throw new HttpsError('invalid-argument', 'Password must be at least 8 characters')
       try {
@@ -2200,7 +2223,7 @@ function computeExpiry(currentIso, months) {
       return { ok: true }
     })
 
-    exports.adminExists = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
+    exports.adminExists = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
       try {
         await admin.auth().getUserByEmail(ADMIN_EMAIL)
         return { exists: true }
@@ -2213,7 +2236,7 @@ function computeExpiry(currentIso, months) {
     // If name+password matches, create the Firebase user and sign in with a
     // custom token. Sets the Firebase password to the user's existing password
     // so the client can sign in directly next time without the legacy fallback.
-    exports.verifyLegacyLogin = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+    exports.verifyLegacyLogin = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
       assertAppCheck(request)
       const { name, password } = request.data || {}
       if (!name || !password) throw new HttpsError('invalid-argument', 'Missing name or password')
@@ -2258,7 +2281,7 @@ function computeExpiry(currentIso, months) {
     })
 
     // Stamp `uid` from any existing Firebase user onto legacy student docs.
-    exports.migrateLegacyAuth = onCall({ enforceAppCheck: true, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
+    exports.migrateLegacyAuth = onCall({ invoker: "public", cors: true, enforceAppCheck: true, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
       const BATCH = 500
       const snap = await db.collection('students').where('uid', '==', null).limit(BATCH).get()
       let migrated = 0
@@ -2280,7 +2303,7 @@ function computeExpiry(currentIso, months) {
     // Link a Firebase Auth uid to a student doc. Called when the user can
     // sign in (Firebase Auth account exists) but the student doc has no matching
     // uid field — common for accounts created before uid was added to the schema.
-    exports.linkStudentUid = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+    exports.linkStudentUid = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
       if (!request.auth) throw new HttpsError('unauthenticated', 'Not authenticated')
       const { name } = request.data || {}
       if (!name || String(name).trim().length < 3) throw new HttpsError('invalid-argument', 'Name required')
@@ -2307,7 +2330,7 @@ function computeExpiry(currentIso, months) {
 
     // Forgot-password flow (no current password required). Creates/migrates the    // Forgot-password flow (no current password required). Creates/migrates the
     // Firebase account if needed, then sets the new password via Admin SDK.
-    exports.resetPassword = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+    exports.resetPassword = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
       assertAppCheck(request)
       const { name, newPassword } = request.data || {}
       if (!name || !newPassword) throw new HttpsError('invalid-argument', 'Missing name or new password')
@@ -2360,7 +2383,7 @@ function assertOwnsStudent(request, student) {
   }
 }
 
-exports.adminGrantSubscription = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.adminGrantSubscription = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const { studentId, expiry } = request.data || {}
   if (!studentId || !expiry) throw new HttpsError('invalid-argument', 'Missing studentId or expiry')
@@ -2374,7 +2397,7 @@ exports.adminGrantSubscription = onCall({ enforceAppCheck: false, run: { cpu: 0.
   return { ok: true, subscriptionUntil: expiry }
 })
 
-exports.adminDeleteStudent = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.adminDeleteStudent = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const { studentId } = request.data || {}
   if (!studentId) throw new HttpsError('invalid-argument', 'Missing studentId')
@@ -2410,7 +2433,7 @@ exports.adminDeleteStudent = onCall({ enforceAppCheck: false, run: { cpu: 0.08, 
 })
 
 // Create a Bachs checkout session and store the student mapping for webhook fulfillment.
-exports.createBachsCheckout = onCall({ enforceAppCheck: false, secrets: ['BACHS_API_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.createBachsCheckout = onCall({ invoker: "public", cors: true, enforceAppCheck: false, secrets: ['BACHS_API_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
   assertAppCheck(request)
   const { studentId, type, successUrl, cancelUrl } = request.data || {}
@@ -2461,7 +2484,7 @@ exports.createBachsCheckout = onCall({ enforceAppCheck: false, secrets: ['BACHS_
 })
 
 // Called from the client after the overlay completes or on redirect return.
-exports.completeBachsCheckout = onCall({ enforceAppCheck: false, secrets: ['BACHS_API_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.completeBachsCheckout = onCall({ invoker: "public", cors: true, enforceAppCheck: false, secrets: ['BACHS_API_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
   const { checkoutId } = request.data || {}
   if (!checkoutId) throw new HttpsError('invalid-argument', 'Missing checkoutId')
@@ -2557,7 +2580,11 @@ async function fulfillPaystackCheckout(reference, paystackData) {
   if (!data || data.status !== 'success') throw new HttpsError('failed-precondition', 'Payment not successful yet')
 
   // Verify amount and currency match what we charged — prevents underpayment attacks (P0)
-  const expectedNgn = map.type === 'subscription' ? SUBSCRIPTION_PRICE_NGN : RESUME_PRICE_NGN
+  // For coin packs the expected price was snapshotted into the mapping at create time.
+  const expectedNgn = map.type === 'subscription' ? SUBSCRIPTION_PRICE_NGN
+    : map.type === 'resume' ? RESUME_PRICE_NGN
+    : Number(map.priceNgn || 0)
+  if (map.type === 'coins' && !(expectedNgn > 0)) throw new HttpsError('failed-precondition', 'Unknown coin pack for this checkout')
   const paidNgn = Math.round((Number(data.amount) || 0) / 100)
   if (data.currency && data.currency !== 'NGN') throw new HttpsError('failed-precondition', 'Invalid currency')
   if (paidNgn < expectedNgn) throw new HttpsError('failed-precondition', `Underpayment: expected ₦${expectedNgn}, got ₦${paidNgn}`)
@@ -2592,6 +2619,14 @@ async function fulfillPaystackCheckout(reference, paystackData) {
       const iso = computeExpiry(student.subscriptionUntil, 1)
       updates.subscriptionUntil = iso
       paymentRecord.extendsTo = iso
+    } else if (fresh.type === 'coins') {
+      const packCoins = Number(fresh.coins || 0)
+      if (!(packCoins > 0)) throw new HttpsError('failed-precondition', 'Unknown coin pack for this checkout')
+      const next = Number(student.coins || 0) + packCoins
+      updates.coins = next
+      paymentRecord.type = 'coin_purchase'
+      paymentRecord.coins = packCoins
+      ledgerEntry(t, fresh.studentId, student.uid, packCoins, 'buy', data.reference || reference)
     } else if (fresh.type === 'resume') {
       updates.missedStreak = 0
       updates.suspended = false
@@ -2606,12 +2641,12 @@ async function fulfillPaystackCheckout(reference, paystackData) {
   })
 }
 
-exports.createPaystackCheckout = onCall({ enforceAppCheck: false, secrets: ['PAYSTACK_SECRET_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.createPaystackCheckout = onCall({ invoker: "public", cors: true, enforceAppCheck: false, secrets: ['PAYSTACK_SECRET_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
   assertAppCheck(request)
-  const { studentId, type, callbackUrl: clientCallbackUrl } = request.data || {}
+  const { studentId, type, packId, callbackUrl: clientCallbackUrl } = request.data || {}
   if (!studentId || !type) throw new HttpsError('invalid-argument', 'Missing studentId or type')
-  if (!['subscription', 'resume'].includes(type)) throw new HttpsError('invalid-argument', 'Type must be "subscription" or "resume"')
+  if (!['subscription', 'resume', 'coins'].includes(type)) throw new HttpsError('invalid-argument', 'Type must be "subscription", "resume" or "coins"')
 
   if (!(await rateLimit(`paystack:${request.auth.uid}`, 10, 60 * 60 * 1000))) {
     throw new HttpsError('resource-exhausted', 'Too many checkouts. Try again later.')
@@ -2623,9 +2658,22 @@ exports.createPaystackCheckout = onCall({ enforceAppCheck: false, secrets: ['PAY
   assertOwnsStudent(request, student)
 
   const secret = paystackSecretOrThrow()
-  const amountNgn = type === 'subscription' ? SUBSCRIPTION_PRICE_NGN : RESUME_PRICE_NGN
+  let amountNgn, tag, packCoins = 0
+  if (type === 'coins') {
+    // Price comes from the server-side pack doc — never trust the client amount
+    const packSnap = await db.collection('coinPacks').doc(String(packId || '')).get().catch(() => null)
+    const pack = (packSnap && packSnap.exists) ? packSnap.data()
+      : DEFAULT_COIN_PACKS.find((p) => p.id === packId)
+    if (!pack) throw new HttpsError('invalid-argument', 'Unknown coin pack')
+    amountNgn = pack.priceNgn
+    packCoins = pack.coins
+    tag = 'COIN'
+  } else {
+    amountNgn = type === 'subscription' ? SUBSCRIPTION_PRICE_NGN : RESUME_PRICE_NGN
+    tag = type === 'subscription' ? 'SUB' : 'RES'
+  }
   const amountKobo = amountNgn * 100
-  const reference = `274L-${type === 'subscription' ? 'SUB' : 'RES'}-${studentId}-${Date.now()}`
+  const reference = `274L-${tag}-${studentId}-${Date.now()}`
   const email = (student.email || '').trim() || `${student.name.toLowerCase().replace(/\s+/g, '.')}@274lab.app`
 
   let callbackUrl = (clientCallbackUrl || '').trim() || (process.env.PAYSTACK_CALLBACK_URL || '').trim() || 'https://www.274lab.com/'
@@ -2641,7 +2689,7 @@ exports.createPaystackCheckout = onCall({ enforceAppCheck: false, secrets: ['PAY
     amount: String(amountKobo),
     reference,
     currency: 'NGN',
-    metadata: { studentId, type, studentName: student.name },
+    metadata: { studentId, type, studentName: student.name, packId: packId || null, coins: packCoins || null },
   }
   if (callbackUrl) body.callback_url = callbackUrl
 
@@ -2655,7 +2703,7 @@ exports.createPaystackCheckout = onCall({ enforceAppCheck: false, secrets: ['PAY
     throw new HttpsError('internal', 'Paystack initialize failed: ' + (data.message || res.statusText))
   }
 
-  await savePaystackCheckoutMapping(data.data.reference, studentId, type, data.data.access_code)
+  await savePaystackCheckoutMapping(data.data.reference, studentId, type, data.data.access_code, { packId: packId || null, coins: packCoins || null, priceNgn: amountNgn })
   return {
     authorization_url: data.data.authorization_url,
     access_code: data.data.access_code,
@@ -2663,7 +2711,7 @@ exports.createPaystackCheckout = onCall({ enforceAppCheck: false, secrets: ['PAY
   }
 })
 
-exports.completePaystackCheckout = onCall({ enforceAppCheck: false, secrets: ['PAYSTACK_SECRET_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.completePaystackCheckout = onCall({ invoker: "public", cors: true, enforceAppCheck: false, secrets: ['PAYSTACK_SECRET_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
   if (!(await rateLimit(`completePaystack:${request.auth.uid}`, 20, 60 * 1000))) {
     throw new HttpsError('resource-exhausted', 'Too many verification attempts. Try again later.')
@@ -2671,7 +2719,7 @@ exports.completePaystackCheckout = onCall({ enforceAppCheck: false, secrets: ['P
   const { reference } = request.data || {}
   if (!reference) throw new HttpsError('invalid-argument', 'Missing reference')
   // Basic reference format check — prevents probing random IDs
-  if (!/^274L-(SUB|RES)-[a-zA-Z0-9_-]+-\d+$/.test(reference)) {
+  if (!/^274L-(SUB|RES|COIN)-[a-zA-Z0-9_-]+-\d+$/.test(reference)) {
     throw new HttpsError('invalid-argument', 'Invalid reference format')
   }
 
@@ -2715,7 +2763,7 @@ exports.paystackWebhook = onRequest({ cors: true, secrets: ['PAYSTACK_SECRET_KEY
 
 // Sync missing Paystack payments into Firestore — run when Paystack shows payments but admin revenue is 0
 // (webhook was down due to quota). Pulls last 100 successful Paystack transactions with 274L- refs.
-exports.syncPaystackPayments = onCall({ secrets: ['PAYSTACK_SECRET_KEY'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.syncPaystackPayments = onCall({ invoker: "public", cors: true, secrets: ['PAYSTACK_SECRET_KEY'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const secret = paystackSecretOrThrow()
   const res = await fetch('https://api.paystack.co/transaction?perPage=100', { headers: { Authorization: 'Bearer ' + secret } })
@@ -2730,7 +2778,7 @@ exports.syncPaystackPayments = onCall({ secrets: ['PAYSTACK_SECRET_KEY'], enforc
     if (!mapSnap || !mapSnap.exists) {
       const meta = trx.metadata || {}
       const sid = meta.studentId || (trx.reference.split('-')[2] || '')
-      const type = meta.type || (trx.reference.includes('-SUB-') ? 'subscription' : 'subscription')
+      const type = meta.type || (trx.reference.includes('-COIN-') ? 'coins' : 'subscription')
       if (!sid) { failed++; continue }
       const stuSnap = await db.collection('students').doc(sid).get().catch(() => null)
       if (!stuSnap || !stuSnap.exists) { failed++; continue }
@@ -2747,7 +2795,345 @@ exports.syncPaystackPayments = onCall({ secrets: ['PAYSTACK_SECRET_KEY'], enforc
   return { ok: true, synced, skipped, failed }
 })
 
-exports.verifyRecoveryCode = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+// ─── COINS ECONOMY (lifelines) ──────────────────────────────────────────
+// All coin movement is server-side and transactional — clients can NEVER grant
+// themselves coins. Every earn/spend writes a coinLedger audit entry.
+// Earn: registration +10, referral +5 (to referrer), test complete +5,
+// share result +5 (once per test). Spend: lifelines via useLifeline.
+// Buy: coin packs (admin-configurable in coinPacks) via Paystack type 'coins'.
+
+const COINS_ON_REGISTER = 10
+const COINS_ON_REFERRAL = 5
+const COINS_ON_TEST_COMPLETE = 5
+const COINS_ON_SHARE = 5
+const LIFELINE_COST = { ask3: 10, ask2: 6, ask1: 2, peek: 2, fifty: 2 }
+const LIFELINE_USES_PER_TEST = 3
+const DEFAULT_COIN_PACKS = [
+  { id: 'pack10', coins: 10, priceNgn: 250 },
+  { id: 'pack20', coins: 20, priceNgn: 500 },
+]
+
+async function ledgerEntry(t, studentId, uid, delta, reason, ref) {
+  t.set(db.collection('coinLedger').doc(), {
+    studentId,
+    uid: uid || '',
+    delta,
+    reason,
+    ref: ref || null,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  })
+}
+
+// Add coins (earn path). Must run inside a transaction passed by caller.
+function creditCoinsTxn(t, studentRef, student, amount, reason, ref) {
+  const cur = Number(student.coins || 0)
+  const next = cur + amount
+  t.update(studentRef, { coins: next })
+  ledgerEntry(t, studentRef.id, student.uid, amount, reason, ref)
+  return next
+}
+
+// Deduct coins (spend path). Throws failed-precondition when insufficient.
+function debitCoinsTxn(t, studentRef, student, amount, reason, ref) {
+  const cur = Number(student.coins || 0)
+  if (cur < amount) throw new HttpsError('failed-precondition', 'Not enough coins')
+  const next = cur - amount
+  t.update(studentRef, { coins: next })
+  ledgerEntry(t, studentRef.id, student.uid, -amount, reason, ref)
+  return next
+}
+
+// Allocate the next sequential referral number (01, 02, …) atomically.
+async function allocateReferralNo(t) {
+  const counterRef = db.collection('counters').doc('referrals')
+  const snap = await t.get(counterRef)
+  const cur = snap.exists ? Number(snap.data().next || 1) : 1
+  t.set(counterRef, { next: cur + 1 }, { merge: true })
+  return String(cur).padStart(2, '0')
+}
+
+// Student doc creation hook: coins + referral number + referral bonus.
+// Runs on every new students doc (client registration writes directly).
+exports.onStudentCreated = onDocumentCreated('students/{studentId}', async (event) => {
+  const snap = event.data
+  if (!snap) return
+  const studentId = event.params.studentId
+  const data = snap.data() || {}
+  if (data.coinsSeeded) return
+  try {
+    await db.runTransaction(async (t) => {
+      const fresh = await t.get(db.collection('students').doc(studentId))
+      if (!fresh.exists) return
+      const s = fresh.data()
+      if (s.coinsSeeded) return
+      const referralNo = await allocateReferralNo(t)
+      const updates = { coins: COINS_ON_REGISTER, referralNo, coinsSeeded: true }
+      t.update(fresh.ref, updates)
+      ledgerEntry(t, studentId, s.uid, COINS_ON_REGISTER, 'register', null)
+      // Referral bonus to the referrer (by number, once)
+      const refNo = String(data.referredBy || '').trim().padStart(2, '0')
+      if (refNo) {
+        const refSnap = await db.collection('students').where('referralNo', '==', refNo).limit(1).get()
+        if (!refSnap.empty) {
+          const refDoc = refSnap.docs[0]
+          if (refDoc.id !== studentId) {
+            const rd = refDoc.data()
+            const next = Number(rd.coins || 0) + COINS_ON_REFERRAL
+            t.update(refDoc.ref, { coins: next })
+            ledgerEntry(t, refDoc.id, rd.uid, COINS_ON_REFERRAL, 'referral', studentId)
+          }
+        }
+      }
+    })
+  } catch (e) {
+    console.error('[onStudentCreated] coin seeding failed:', e?.message || e)
+  }
+})
+
+// Read-only coin balance for the owner (client polls after earn/spend).
+exports.getCoinBalance = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
+  const { studentId } = request.data || {}
+  if (!studentId) throw new HttpsError('invalid-argument', 'Missing studentId')
+  const snap = await db.collection('students').doc(studentId).get()
+  if (!snap.exists) throw new HttpsError('not-found', 'Student not found')
+  assertOwnsStudent(request, snap.data())
+  const s = snap.data()
+  // Lazily seed legacy accounts (created before coins existed) so balance is never undefined
+  if (!s.coinsSeeded) {
+    try {
+      await db.runTransaction(async (t) => {
+        const fresh = await t.get(db.collection('students').doc(studentId))
+        if (!fresh.exists || fresh.data().coinsSeeded) return
+        const fs = fresh.data()
+        const referralNo = await allocateReferralNo(t)
+        t.update(fresh.ref, { coins: COINS_ON_REGISTER, referralNo, coinsSeeded: true })
+        ledgerEntry(t, studentId, fs.uid, COINS_ON_REGISTER, 'register', null)
+      })
+      const fresh2 = await db.collection('students').doc(studentId).get()
+      const s2 = fresh2.data() || {}
+      return { ok: true, coins: Number(s2.coins || 0), referralNo: s2.referralNo || null }
+    } catch (e) {
+      console.error('[getCoinBalance] lazy seed failed:', e?.message || e)
+    }
+  }
+  return { ok: true, coins: Number(s.coins || 0), referralNo: s.referralNo || null }
+})
+
+// Share-result +5, once per student-week (atomic via sharedTests map on the student).
+exports.shareResult = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
+  const { studentId, week, scoreId } = request.data || {}
+  if (!studentId || (!week && !scoreId)) throw new HttpsError('invalid-argument', 'Missing studentId or week')
+  if (!(await rateLimit(`share:${request.auth.uid}`, 20, 60 * 60 * 1000))) {
+    throw new HttpsError('resource-exhausted', 'Too many shares. Try again later.')
+  }
+  return db.runTransaction(async (t) => {
+    const studentSnap = await t.get(db.collection('students').doc(studentId))
+    if (!studentSnap.exists) throw new HttpsError('not-found', 'Student not found')
+    assertOwnsStudent(request, studentSnap.data())
+    let weekKey = String(week || '').trim()
+    if (!weekKey && scoreId) {
+      const scoreSnap = await t.get(db.collection('scores').doc(String(scoreId)))
+      if (!scoreSnap.exists) throw new HttpsError('not-found', 'Score not found')
+      if (scoreSnap.data().studentId !== studentId) throw new HttpsError('permission-denied', 'Not your score')
+      weekKey = String(scoreSnap.data().week || '').trim()
+    }
+    if (!weekKey) throw new HttpsError('invalid-argument', 'Missing week')
+    const sharedTests = { ...(studentSnap.data().sharedTests || {}) }
+    if (sharedTests[weekKey]) {
+      return { ok: true, alreadyShared: true, coins: Number(studentSnap.data().coins || 0) }
+    }
+    sharedTests[weekKey] = true
+    t.update(studentSnap.ref, { sharedTests })
+    const coins = creditCoinsTxn(t, studentSnap.ref, studentSnap.data(), COINS_ON_SHARE, 'share', weekKey)
+    return { ok: true, coins }
+  })
+})
+
+// Admin: list + upsert coin packs (prices configurable, no deploy needed).
+exports.listCoinPacks = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async () => {
+  const snap = await db.collection('coinPacks').get().catch(() => null)
+  if (!snap || snap.empty) return { ok: true, packs: DEFAULT_COIN_PACKS }
+  const packs = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  packs.sort((a, b) => (a.coins || 0) - (b.coins || 0))
+  return { ok: true, packs }
+})
+
+exports.upsertCoinPack = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  assertAdmin(request)
+  const { id, coins, priceNgn } = request.data || {}
+  const c = parseInt(coins, 10), p = parseInt(priceNgn, 10)
+  if (!c || c < 1 || c > 1000) throw new HttpsError('invalid-argument', 'Coins must be 1–1000')
+  if (!p || p < 1 || p > 100000) throw new HttpsError('invalid-argument', 'Price must be ₦1–₦100,000')
+  const packId = String(id || `pack${c}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30) || `pack${c}`
+  await db.collection('coinPacks').doc(packId).set({
+    coins: c, priceNgn: p, updatedAt: new Date().toISOString(),
+  })
+  return { ok: true, id: packId }
+})
+
+// Squad: up to 4 friends (existing students, not self). Validated server-side.
+exports.updateSquad = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
+  const { studentId, squad } = request.data || {}
+  if (!studentId) throw new HttpsError('invalid-argument', 'Missing studentId')
+  if (!Array.isArray(squad)) throw new HttpsError('invalid-argument', 'Squad must be a list')
+  const ids = [...new Set(squad.map(String))].filter((id) => id && id !== studentId).slice(0, 4)
+  const studentSnap = await db.collection('students').doc(studentId).get()
+  if (!studentSnap.exists) throw new HttpsError('not-found', 'Student not found')
+  assertOwnsStudent(request, studentSnap.data())
+  for (const fid of ids) {
+    const f = await db.collection('students').doc(fid).get()
+    if (!f.exists) throw new HttpsError('invalid-argument', 'A squad member no longer exists')
+  }
+  await studentSnap.ref.update({ squad: ids })
+  return { ok: true, squad: ids }
+})
+
+// Lifeline engine: validates budget (3 uses per lifeline per test), deducts
+// coins and returns the effect — all inside ONE transaction. The answer key
+// never leaves the server: narrowing (50-50 / 2-star / 1-star) is computed
+// here and cached on the session so refresh/retry never double-charges.
+exports.useLifeline = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
+  if (!(await rateLimit(`lifeline:${request.auth.uid}`, 30, 60 * 60 * 1000))) {
+    throw new HttpsError('resource-exhausted', 'Too many lifeline uses. Try again later.')
+  }
+  const { studentId, sessionId, subject, qIndex, kind, goatId, friendId } = request.data || {}
+  if (!studentId || !sessionId || !subject || !Number.isInteger(qIndex)) {
+    throw new HttpsError('invalid-argument', 'Missing studentId, sessionId, subject or question')
+  }
+  if (!['ask', 'peek', 'fifty'].includes(kind)) throw new HttpsError('invalid-argument', 'Unknown lifeline')
+
+  const sessionRef = db.collection('quiz_sessions').doc(sessionId)
+  const sessionSnap = await sessionRef.get()
+  if (!sessionSnap.exists) throw new HttpsError('not-found', 'Quiz session not found')
+  const session = sessionSnap.data()
+  if (session.uid !== request.auth.uid) throw new HttpsError('permission-denied', 'Not your session')
+  if (session.status === 'submitted') throw new HttpsError('failed-precondition', 'Test already submitted')
+  const qIds = (session.assignments || {})[subject]
+  if (!Array.isArray(qIds) || qIndex < 0 || qIndex >= qIds.length) {
+    throw new HttpsError('invalid-argument', 'Question not in this test')
+  }
+  const questionId = qIds[qIndex]
+  const qKey = `${subject}::${qIndex}`
+
+  return db.runTransaction(async (t) => {
+    const sSnap = await t.get(sessionRef)
+    if (!sSnap.exists) throw new HttpsError('not-found', 'Quiz session not found')
+    const sess = sSnap.data()
+    if (sess.status === 'submitted') throw new HttpsError('failed-precondition', 'Test already submitted')
+    const studentSnap = await t.get(db.collection('students').doc(studentId))
+    if (!studentSnap.exists) throw new HttpsError('not-found', 'Student not found')
+    const student = studentSnap.data()
+    if (student.uid && student.uid !== request.auth.uid) throw new HttpsError('permission-denied', 'Not your account')
+
+    const usage = { ask: 0, peek: 0, fifty: 0, ...(sess.lifelineUsage || {}) }
+    if ((usage[kind] || 0) >= LIFELINE_USES_PER_TEST) {
+      throw new HttpsError('failed-precondition', 'No uses left for this lifeline in this test')
+    }
+    const narrowed = sess.narrowed || {}
+    // Idempotent: already-narrowed questions return the cached effect free
+    if ((kind === 'fifty' || kind === 'ask') && narrowed[qKey]) {
+      const cached = narrowed[qKey]
+      return { ok: true, cached: true, coins: Number(student.coins || 0), ...cached }
+    }
+
+    let cost = 0
+    let payload = {}
+    if (kind === 'fifty') {
+      cost = LIFELINE_COST.fifty
+      const key = await getAnswerKey(subject, sess.week)
+      const correctIdx = key.has(questionId) ? key.get(questionId) : -1
+      if (correctIdx < 0) throw new HttpsError('failed-precondition', 'Answer key unavailable')
+      const wrong = [0, 1, 2, 3].filter((i) => i !== correctIdx)
+      // Deterministic rotation by question id so retries match
+      let h = 0
+      for (const ch of String(questionId)) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+      const elim = [wrong[h % wrong.length], wrong[(h + 1) % wrong.length]].sort((a, b) => a - b)
+      payload = { eliminate: elim }
+      narrowed[qKey] = { kind: 'fifty', eliminate: elim }
+    } else if (kind === 'ask') {
+      if (!goatId) throw new HttpsError('invalid-argument', 'Pick a GOAT first')
+      const gSnap = await db.collection('goats').doc(String(goatId)).get()
+      if (!gSnap.exists) throw new HttpsError('not-found', 'GOAT not found')
+      const goat = gSnap.data()
+      const weekGoatDoc = await t.get(db.collection('goatWeeks').doc(String(sess.week || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50) || 'Week_1'))
+      const weekGoats = ((weekGoatDoc.data() || {}).goatIds) || []
+      if (!weekGoats.includes(gSnap.id)) throw new HttpsError('failed-precondition', 'This GOAT is not assisting this week')
+      const stars = Math.max(0, Math.min(3, parseInt((goat.stars || {})[subject], 10) || 0))
+      if (!stars) throw new HttpsError('failed-precondition', 'This GOAT has no rating in this subject')
+      cost = stars === 3 ? LIFELINE_COST.ask3 : stars === 2 ? LIFELINE_COST.ask2 : LIFELINE_COST.ask1
+      const key = await getAnswerKey(subject, sess.week)
+      const correctIdx = key.has(questionId) ? key.get(questionId) : -1
+      if (correctIdx < 0) throw new HttpsError('failed-precondition', 'Answer key unavailable')
+      if (stars === 3) {
+        payload = {
+          goatId: gSnap.id, goatName: goat.name || '', stars,
+          explanation: ((goat.explanations || {})[subject] || '').trim(),
+        }
+      } else {
+        const wrong = [0, 1, 2, 3].filter((i) => i !== correctIdx)
+        let h = 0
+        for (const ch of String(questionId)) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+        const keepCount = stars === 2 ? 1 : 2
+        const kept = []
+        for (let i = 0; i < keepCount; i++) kept.push(wrong[(h + i) % wrong.length])
+        const shown = [...kept, correctIdx].sort((a, b) => a - b)
+        payload = { goatId: gSnap.id, goatName: goat.name || '', stars, shown }
+        narrowed[qKey] = { kind: 'ask', stars, shown, goatId: gSnap.id, goatName: goat.name || '' }
+      }
+    } else {
+      // peek — friend must be in squad AND have submitted this week
+      cost = LIFELINE_COST.peek
+      if (!friendId) throw new HttpsError('invalid-argument', 'Pick a friend first')
+      const squad = Array.isArray(student.squad) ? student.squad : []
+      if (!squad.includes(String(friendId))) throw new HttpsError('permission-denied', 'Not in your squad')
+      const fDetailId = `${friendId}_${String(sess.week || '').replace(/\s+/g, '_')}`
+      const fSnap = await t.get(db.collection('scoreDetails').doc(fDetailId))
+      if (!fSnap.exists) throw new HttpsError('failed-precondition', 'This friend has not taken the test yet')
+      const fData = fSnap.data() || {}
+      const fSubs = fData.subjects || []
+      const fAns = fData.answers || []
+      const subQ = (fSubs.find((s) => s.subject === subject) || {}).questions || []
+      const subA = (fAns.find((s) => s.subject === subject) || {}).answers || []
+      // Same question if both were assigned it, else friend's latest answered question
+      let friendName = 'Friend'
+      try {
+        const fStu = await db.collection('students').doc(String(friendId)).get()
+        if (fStu.exists) friendName = fStu.data().name || 'Friend'
+      } catch {}
+      const j = subQ.findIndex((q) => q && q.id === questionId)
+      // Same question if both were assigned it (exact wording match possible),
+      // else the friend's latest answered question in this subject.
+      let pickedText = null
+      if (j >= 0 && subA[j] !== null && subA[j] !== undefined && subA[j] !== -1) {
+        const opts = (subQ[j] || {}).options
+        if (Array.isArray(opts) && opts[subA[j]] != null) pickedText = opts[subA[j]]
+      }
+      if (pickedText == null) {
+        for (let qi = subA.length - 1; qi >= 0; qi--) {
+          const a = subA[qi]
+          const opts = (subQ[qi] || {}).options
+          if (a !== null && a !== undefined && a !== -1 && Array.isArray(opts) && opts[a] != null) {
+            pickedText = opts[a]
+            break
+          }
+        }
+      }
+      if (!pickedText) throw new HttpsError('failed-precondition', 'Could not read that answer')
+      payload = { friendId: String(friendId), friendName, optionText: String(pickedText) }
+    }
+
+    const coins = debitCoinsTxn(t, studentSnap.ref, student, cost, `lifeline_${kind}`, sessionId)
+    usage[kind] = (usage[kind] || 0) + 1
+    t.update(sessionRef, { lifelineUsage: usage, narrowed })
+    return { ok: true, coins, cost, ...payload }
+  })
+})
+
+exports.verifyRecoveryCode = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
   const { studentId, code } = request.data || {}
   if (!studentId || !code) throw new HttpsError('invalid-argument', 'Missing studentId or code')
@@ -2898,37 +3284,8 @@ async function findTeacherStudents(teacherId, teacherPhone) {
   return students
 }
 
-exports.sendTeacherOtp = onCall(
-  { secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } },
-  async (request) => {
-    const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
-    if (!TERMII_API_KEY) throw new HttpsError('failed-precondition', 'SMS service not configured')
-    const { phone } = request.data || {}
-    const normalized = normalizePhone(phone)
-    if (!normalized) throw new HttpsError('invalid-argument', 'Enter a valid phone number')
-    if (!(await rateLimit(`teacherOtp:${normalized}`, 5, 15 * 60 * 1000))) {
-      throw new HttpsError('resource-exhausted', 'Too many requests. Try again in a few minutes.')
-    }
-    const code = Math.floor(100000 + Math.random() * 900000).toString()
-    await db.collection('teacher_otps').doc(normalized).set({
-      code,
-      phone: normalized,
-      used: false,
-      attempts: 0,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    })
-    const text = `Your 274Lab teacher verification code is ${code}. It expires in 10 minutes. Do not share it. - 274Lab`
-    const r = await sendSmsTermii(TERMII_API_KEY, normalized, text, { phone: normalized, source: 'teacher-otp' })
-    if (!r.ok) {
-      throw new HttpsError('aborted', 'Could not send the code. Check the number and try again.')
-    }
-    return { ok: true }
-  }
-)
-
-exports.registerTeacher = onCall({ secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
-  const { name, email, phone, otp, password, pioneerCode } = request.data || {}
+exports.registerTeacher = onCall({ invoker: "public", cors: true, secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'], enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  const { name, email, phone, password, pioneerCode } = request.data || {}
   const tName = (name || '').trim()
   if (tName.length < 3) throw new HttpsError('invalid-argument', 'Name must be at least 3 characters')
   const tEmail = (email || '').trim().toLowerCase()
@@ -2936,8 +3293,8 @@ exports.registerTeacher = onCall({ secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID
   const normalized = normalizePhone(phone)
   if (!normalized) throw new HttpsError('invalid-argument', 'Enter a valid phone number')
   if (!password || password.length < 8) throw new HttpsError('invalid-argument', 'Password must be at least 8 characters')
-  const code = String(otp || '').trim()
-  if (!/^\d{6}$/.test(code)) throw new HttpsError('invalid-argument', 'Enter the 6-digit verification code')
+  // NOTE: no SMS OTP — the teacher confirms the number in a modal on submit
+  // and can correct it later from the dashboard (teacherUpdatePhone).
   // Validate pioneer referral code if supplied (4-digit random, 2-level only, no self-referral)
   let referredByPioneerId = null
   const rawPioneerCode = String(pioneerCode || '').trim()
@@ -2949,20 +3306,6 @@ exports.registerTeacher = onCall({ secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID
     const pioneerSnap = await db.collection('teachers').doc(pid).get()
     if (!pioneerSnap.exists || !pioneerSnap.data().isPioneer) throw new HttpsError('invalid-argument', 'Invalid pioneer code')
     referredByPioneerId = pid
-  }
-
-  const otpSnap = await db.collection('teacher_otps').doc(normalized).get()
-  if (!otpSnap.exists) throw new HttpsError('failed-precondition', 'Request a verification code first')
-  const otpData = otpSnap.data()
-  if (otpData.used) throw new HttpsError('failed-precondition', 'This code was already used')
-  if (new Date(otpData.expiresAt || 0).getTime() < Date.now()) {
-    throw new HttpsError('failed-precondition', 'This code has expired. Request a new one.')
-  }
-  if ((otpData.code || '') !== code) {
-    const attempts = (otpData.attempts || 0) + 1
-    await otpSnap.ref.update({ attempts })
-    if (attempts >= 5) await otpSnap.ref.update({ used: true })
-    throw new HttpsError('unauthenticated', 'Incorrect verification code')
   }
 
   const existing = await findTeacherByPhone(normalized)
@@ -2998,7 +3341,6 @@ exports.registerTeacher = onCall({ secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID
     createdAt: new Date().toISOString(),
   }
   await ref.set(payload)
-  await otpSnap.ref.update({ used: true })
 
   // Send welcome SMS to the teacher (best-effort, non-blocking)
   const TERMII_API_KEY = (process.env.TERMII_API_KEY || '').trim()
@@ -3017,7 +3359,7 @@ exports.registerTeacher = onCall({ secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID
 // can enter that code on signup; they appear under the pioneer. Pioneer earns
 // N200 per qualifying student (3+ tests) of their referrals, Oct-Dec only, cap 20.
 
-exports.makePioneer = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.makePioneer = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const { teacherId } = request.data || {}
   if (!teacherId) throw new HttpsError('invalid-argument', 'Missing teacherId')
@@ -3039,7 +3381,7 @@ exports.makePioneer = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory:
   return { ok: true, code }
 })
 
-exports.removePioneer = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.removePioneer = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const { teacherId } = request.data || {}
   if (!teacherId) throw new HttpsError('invalid-argument', 'Missing teacherId')
@@ -3054,7 +3396,7 @@ exports.removePioneer = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memor
   return { ok: true }
 })
 
-exports.getPioneerDashboard = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.getPioneerDashboard = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   const { teacherId, teacher } = await assertTeacher(request)
   if (!teacher.isPioneer) throw new HttpsError('permission-denied', 'Not a Pioneer')
   const refSnap = await db.collection('teachers').where('referredByPioneerId', '==', teacherId).get()
@@ -3205,7 +3547,47 @@ exports.teacherUpdateDetails = onCall(
   }
 )
 
-exports.getTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+// Teacher corrects their own phone number (no OTP — confirmed via modal on
+// submit). Linked students are migrated so earnings/students are preserved:
+// every student whose teacherPhone matches the OLD number is re-pointed at
+// the new canonical number.
+exports.teacherUpdatePhone = onCall(
+  { invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } },
+  async (request) => {
+    const { phone } = request.data || {}
+    const normalized = normalizePhone(phone)
+    if (!normalized) throw new HttpsError('invalid-argument', 'Enter a valid phone number')
+    const { teacherId, teacher } = await assertTeacher(request)
+    const oldPhone = normalizePhone(teacher.phone) || teacher.phone
+    if (normalized === oldPhone) return { ok: true, phone: normalized, unchanged: true }
+    const clash = await findTeacherByPhone(normalized)
+    if (clash && clash.id !== teacherId) {
+      throw new HttpsError('already-exists', 'Another teacher already uses this phone number')
+    }
+    if (!(await rateLimit(`teacherPhone:${teacherId}`, 5, 60 * 60 * 1000))) {
+      throw new HttpsError('resource-exhausted', 'Too many changes. Try again in an hour.')
+    }
+    await db.collection('teachers').doc(teacherId).update({
+      phone: normalized,
+      phoneUpdatedAt: new Date().toISOString(),
+    })
+    // Re-point linked students (both canonical and '+' variants) to the new number
+    let migrated = 0
+    try {
+      const variants = [oldPhone, `+${oldPhone}`].filter(Boolean)
+      const snap = await db.collection('students').where('teacherPhone', 'in', variants).limit(500).get()
+      const batch = db.batch()
+      snap.docs.forEach((d) => batch.update(d.ref, { teacherPhone: normalized }))
+      if (!snap.empty) await batch.commit()
+      migrated = snap.size
+    } catch (e) {
+      console.error('[teacherUpdatePhone] student migration failed:', e?.message || e)
+    }
+    return { ok: true, phone: normalized, migrated }
+  }
+)
+
+exports.getTeacherDashboard = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   const { teacherId, teacher } = await assertTeacher(request)
   const studentsMap = await findTeacherStudents(teacherId, teacher.phone)
   const countsList = []
@@ -3266,7 +3648,7 @@ exports.getTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 0.08,
 
 // Admin tracking: every teacher, how many students linked them, their payout
 // bank details, and monthly earnings.
-exports.adminTeacherDashboard = onCall({ enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.adminTeacherDashboard = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const snap = await db.collection('teachers').get()
   const teachers = []
@@ -3361,7 +3743,7 @@ function gradeSubject(questionAnswers, submittedAnswers) {
 
 // Start a graded quiz session. Returns the sessionId + the student's assigned
 // questions (public content only — the answer key never leaves the server).
-exports.startQuiz = onCall({ ...HOT }, async (request) => {
+exports.startQuiz = onCall({ invoker: "public", cors: true, ...HOT }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
   assertAppCheck(request)
   const uid = request.auth.uid
@@ -3441,14 +3823,17 @@ exports.startQuiz = onCall({ ...HOT }, async (request) => {
 // replays return the same results without writing again (transaction on the
 // session doc guards the race). Writes are reduced by collapsing per-subject
 // scoreDetails into one doc per student-week.
-exports.submitQuiz = onCall({ ...HOT, secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'] }, async (request) => {
+exports.submitQuiz = onCall({ invoker: "public", cors: true, ...HOT, secrets: ['TERMII_API_KEY', 'TERMII_SENDER_ID'] }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
   assertAppCheck(request)
   const uid = request.auth.uid
-  const { sessionId, answers } = request.data || {}
+  const { sessionId, answers, assistMeta } = request.data || {}
   if (!sessionId || !answers || typeof answers !== 'object') {
     throw new HttpsError('invalid-argument', 'Missing sessionId or answers')
   }
+  // Lifeline assist attribution reported by the client (verified against the
+  // session below; points computed server-side from graded answers).
+  const assistList = Array.isArray(assistMeta) ? assistMeta.slice(0, 60) : []
 
   const sessionRef = db.collection('quiz_sessions').doc(sessionId)
 
@@ -3516,7 +3901,33 @@ exports.submitQuiz = onCall({ ...HOT, secrets: ['TERMII_API_KEY', 'TERMII_SENDER
       }
     })
 
-    results.push({ subject, week: session.week, score, outOf: 100, correct, wrong, unanswered, total, released, questions: released ? qContent : null, answers: released ? submitted : null })
+    // Assist attribution: which lifeline-assisted questions ended correct (+4 JAMB points each)
+    const assists = []
+    assistList
+      .filter((a) => a && a.subject === subject && Number.isInteger(a.qIndex) && a.qIndex >= 0 && a.qIndex < questionIds.length)
+      .forEach((a) => {
+        const picked = submitted[a.qIndex]
+        const key = correctAnswers[a.qIndex]
+        if (picked !== null && picked !== undefined && picked !== -1 && key !== -1 && picked === key) {
+          assists.push({
+            kind: String(a.kind || 'ask').slice(0, 12),
+            goatId: String(a.goatId || '').slice(0, 40) || null,
+            goatName: String(a.goatName || '').slice(0, 60) || null,
+            qIndex: a.qIndex,
+            points: 4,
+          })
+        } else {
+          assists.push({
+            kind: String(a.kind || 'ask').slice(0, 12),
+            goatId: String(a.goatId || '').slice(0, 40) || null,
+            goatName: String(a.goatName || '').slice(0, 60) || null,
+            qIndex: a.qIndex,
+            points: 0,
+          })
+        }
+      })
+
+    results.push({ subject, week: session.week, score, outOf: 100, correct, wrong, unanswered, total, released, questions: released ? qContent : null, answers: released ? submitted : null, assists })
     // Persist question content WITHOUT the answer key (scoreDetails is
     // owner-readable via rules). The correct index is served only through the
     // `getScoreDetails` callable once correctionsReleased(week) is true.
@@ -3576,7 +3987,19 @@ exports.submitQuiz = onCall({ ...HOT, secrets: ['TERMII_API_KEY', 'TERMII_SENDER
     t.set(db.collection('scoreDetails').doc(detailId), detailData)
     t.update(sessionRef, sessionUpdate)
 
-    return { ok: true, results, scoreId: detailId }
+    // +5 coins for completing a full weekly test (not retakes, once per session)
+    let earnedCoins = null
+    if (!session.isRetake) {
+      const stuSnap = await t.get(db.collection('students').doc(session.studentId))
+      if (stuSnap.exists) {
+        const stu = stuSnap.data()
+        earnedCoins = Number(stu.coins || 0) + COINS_ON_TEST_COMPLETE
+        t.update(stuSnap.ref, { coins: earnedCoins })
+        ledgerEntry(t, session.studentId, stu.uid, COINS_ON_TEST_COMPLETE, 'test_complete', detailId)
+      }
+    }
+
+    return { ok: true, results, scoreId: detailId, earnedCoins }
   })
 
   // Update incremental leaderboard aggregates (best-effort, after the txn).
@@ -3606,7 +4029,7 @@ exports.submitQuiz = onCall({ ...HOT, secrets: ['TERMII_API_KEY', 'TERMII_SENDER
 // index per question from the in-memory answer key cache. During the live
 // window this returns released:false and no answer data (server-gated, not
 // client-gated). Owner or admin only.
-exports.getScoreDetails = onCall({ ...HOT }, async (request) => {
+exports.getScoreDetails = onCall({ invoker: "public", cors: true, ...HOT }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
   assertAppCheck(request)
   const { studentId, week } = request.data || {}
@@ -3713,7 +4136,7 @@ async function updateLeaderboardAggregates(studentId, week, results) {
 // Migrate existing questions: copy each question's inline `answer` field into the
 // admin-only `questionAnswers/{questionId}` doc, then strip `answer` from the
 // public question doc. Run repeatedly until `remaining` is 0.
-exports.migrateQuestionAnswers = onCall({ enforceAppCheck: true, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+exports.migrateQuestionAnswers = onCall({ invoker: "public", cors: true, enforceAppCheck: true, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request)
   const BATCH = 300
   const snap = await db.collection('questions').where('answer', '>=', 0).limit(BATCH).get()
@@ -3728,3 +4151,5 @@ exports.migrateQuestionAnswers = onCall({ enforceAppCheck: true, run: { cpu: 0.0
   return { migrated, remaining: snap.size === BATCH ? 'more' : 0 }
 })
 
+
+// Deploy marker 2026-09-07b: rebind functions to latest Termii secret versions.
