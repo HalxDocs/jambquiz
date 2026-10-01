@@ -34,7 +34,9 @@ export default function TeachersPanel() {
       if (res && res.ok) {
         setTeachers(res.teachers || [])
         setLatestMonth(res.latestMonth || null)
-        setSelectedMonth((prev) => prev || res.latestMonth || null)
+        const now = new Date()
+        const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+        setSelectedMonth((prev) => prev || thisMonth)
       } else {
         setError('Could not load teachers')
       }
@@ -103,12 +105,16 @@ export default function TeachersPanel() {
     setPioneerBusy(null)
   }
 
+  // Always include the current calendar month (even with zero data) so the
+  // page opens on "now" instead of getting stuck on the last active month.
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const monthOptions = [...new Set(
     teachers.reduce((acc, t) => {
       Object.keys(t.monthsEarnings || {}).forEach((m) => acc.push(m))
       ;(t.students || []).forEach((s) => Object.keys(s.monthlyCounts || {}).forEach((m) => acc.push(m)))
       return acc
-    }, [])
+    }, [currentMonth])
   )].sort()
 
   return (

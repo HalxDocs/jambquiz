@@ -84,12 +84,14 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
         if (res.pioneerQualifiedCounts) setPioneerQualified(res.pioneerQualifiedCounts)
         // Update teacher object with fresh pioneer info (code etc)
         if (res.teacher) setTeacher((prev) => ({ ...prev, ...res.teacher }))
-        const all = new Set(Object.keys(res.monthsEarnings || {}))
+        const now = new Date()
+        const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+        const all = new Set([thisMonth, ...Object.keys(res.monthsEarnings || {})])
         ;(res.students || []).forEach((s) => Object.keys(s.monthlyCounts || {}).forEach((m) => all.add(m)))
         if (res.pioneerEarnings) Object.keys(res.pioneerEarnings).forEach((m) => all.add(m))
         const ordered = [...all].sort()
         setMonths(ordered)
-        setSelected((prev) => prev || ordered[ordered.length - 1])
+        setSelected((prev) => prev || thisMonth)
         // If pioneer, load referred teachers
         const isPio = res.teacher?.isPioneer || teacher?.isPioneer
         if (isPio) {
