@@ -39,11 +39,17 @@ function usePortalStats() {
 function PortalStats() {
   const stats = usePortalStats()
 
+  // Top Score = all-time highest single-week total. It persists until a
+  // higher weekly total beats it — a lower week never pulls it down.
+  // '319' is only the placeholder until real results exist.
+  const topScoreVal = stats?.topWeeklyScore > 0 ? String(stats.topWeeklyScore)
+    : stats?.topScore > 0 ? String(stats.topScore)
+    : '319'
   const items = stats
     ? [
         { val: String(stats.totalStudents || 0), lab: 'Students' },
         { val: String(stats.totalQuizzesTaken || 0), lab: 'Tests Taken' },
-        { val: '319', lab: 'Top Score' },
+        { val: topScoreVal, lab: 'Top Score' },
       ]
     : [
         { val: '—', lab: 'Students' },

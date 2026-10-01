@@ -1,7 +1,7 @@
 import { functions, httpsCallable } from '../firebase'
 
 export const LIFELINE_COST = { ask3: 10, ask2: 6, ask1: 2, peek: 2, fifty: 2 }
-export const LIFELINE_USES_PER_TEST = 3
+export const LIFELINE_USES_PER_TEST = 5
 
 export async function getCoinBalance(studentId) {
   const res = await httpsCallable(functions, 'getCoinBalance')({ studentId })
@@ -25,6 +25,11 @@ export async function updateSquad(studentId, squad) {
 
 export async function useLifeline(payload) {
   const res = await httpsCallable(functions, 'useLifeline')(payload)
+  return res.data
+}
+
+export async function peekStatus(payload) {
+  const res = await httpsCallable(functions, 'peekStatus')(payload)
   return res.data
 }
 

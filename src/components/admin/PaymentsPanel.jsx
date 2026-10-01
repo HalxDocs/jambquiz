@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { ArrowLeft01Icon, ArrowRight01Icon } from '@hugeicons/core-free-icons'
+import Receipt from '../payments/Receipt'
 
 export default function PaymentsPanel({ payments = [], loading, search, onSearch, page, onPrevPage, onNextPage, hasMore, stats, onSyncPaystack }) {
+  const [receiptFor, setReceiptFor] = useState(null)
   return (
     <div className="space-y-4">
       {(stats?.revenue) ? (
@@ -77,17 +80,36 @@ export default function PaymentsPanel({ payments = [], loading, search, onSearch
                       {new Date(p.paidAt).toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       {' · '}
                       <span className={p.method === 'bachs' ? 'text-blue-600' : 'text-[#888]'}>{p.method || 'unknown'}</span>
+                      {(p.type === 'coin_purchase' || p.type === 'coins') && p.coins ? ` · +${p.coins} coins` : ''}
                     </p>
                     {p.reference && <p className="text-[9px] text-[#CCC] font-label truncate mt-0.5">{p.reference}</p>}
                   </div>
                   <div className="text-right shrink-0 ml-2">
                     <p className="text-sm font-bold text-green-600 font-display">₦{(p.amount || 0).toLocaleString()}</p>
-                    {p.extendsTo && <p className="text-[10px] text-[#AAA] font-label">until {new Date(p.extendsTo).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })}</p>}
+                    <button onClick={() => setReceiptFor(p)}
+                      className="mt-1 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-[#E5E5E5] text-[#555] hover:text-[#111] font-label">
+                      Receipt
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Receipt modal — admin can view + share any receipt for support */}
+      {receiptFor && (
+        <div className="fixed inset-0 z-[100] bg-black/60 flex items-end sm:items-center justify-center sm:p-4"
+          onClick={() => setReceiptFor(null)}>
+          <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <Receipt
+              payment={receiptFor}
+              emailSentTo={receiptFor.email || ''}
+              onDone={() => setReceiptFor(null)}
+              doneLabel="Close ✓"
+            />
+          </div>
         </div>
       )}
 

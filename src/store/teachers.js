@@ -43,6 +43,11 @@ export async function adminGetTeachers() {
   return res.data
 }
 
+export async function adminDeleteTeacher(teacherId) {
+  const res = await httpsCallable(functions, 'adminDeleteTeacher')({ teacherId })
+  return res.data
+}
+
 export async function makePioneer(teacherId) {
   const res = await httpsCallable(functions, 'makePioneer')({ teacherId })
   return res.data

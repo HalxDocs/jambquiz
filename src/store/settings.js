@@ -44,4 +44,24 @@ function listenQuizDates(week, callback) {
   }, () => callback({ date1: '', date2: '' }))
 }
 
-export { setActiveWeek, getActiveWeek, listenActiveWeek, setQuizDates, getQuizDates, listenQuizDates }
+// Normal weekend window: Fri / Sat / Sun, session starting 5–6pm (2h session).
+// Anything the admin schedules outside that is a BONUS quiz: free for everyone,
+// never consumes a free-trial attempt. Uses device-local time (students are WAT).
+function isStandardWindowDate(d) {
+  if (!d) return false
+  const t = new Date(d)
+  if (Number.isNaN(t.getTime())) return false
+  const day = t.getDay() // 0=Sun, 5=Fri, 6=Sat
+  if (day !== 0 && day !== 5 && day !== 6) return false
+  const mins = t.getHours() * 60 + t.getMinutes()
+  return mins >= 17 * 60 && mins < 19 * 60
+}
+
+function isBonusQuiz(quizDates) {
+  if (!quizDates || (!quizDates.date1 && !quizDates.date2)) return false
+  const dates = [quizDates.date1, quizDates.date2].filter(Boolean)
+  if (!dates.length) return false
+  return !dates.some(isStandardWindowDate)
+}
+
+export { setActiveWeek, getActiveWeek, listenActiveWeek, setQuizDates, getQuizDates, listenQuizDates, isStandardWindowDate, isBonusQuiz }

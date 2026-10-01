@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { StarIcon } from '@hugeicons/core-free-icons'
 import { SUBJECTS, listGoats, createGoat, updateGoat, deleteGoat } from '../../store/useStore'
 import { useToastStore } from '../../store/toast'
 
-const emptyForm = () => ({ name: '', profession: '', stars: {}, explanations: {} })
+const emptyForm = () => ({ name: '', profession: '', stars: {}, explanations: {}, comments: {} })
 
 function StarPicker({ value, onChange }) {
   return (
@@ -17,7 +19,7 @@ function StarPicker({ value, onChange }) {
           }`}
           title={`${n} star${n > 1 ? 's' : ''}`}
         >
-          ⭐
+          <HugeiconsIcon icon={StarIcon} size={18} color={n <= value ? '#EAB308' : '#DDD'} />
         </button>
       ))}
     </div>
@@ -46,6 +48,7 @@ export default function GoatManager() {
 
   const setStar = (subject, n) => setForm((f) => ({ ...f, stars: { ...f.stars, [subject]: n } }))
   const setExplanation = (subject, v) => setForm((f) => ({ ...f, explanations: { ...f.explanations, [subject]: v } }))
+  const setComment = (subject, v) => setForm((f) => ({ ...f, comments: { ...f.comments, [subject]: v } }))
 
   const handleSave = async () => {
     setSaving(true)
@@ -68,7 +71,7 @@ export default function GoatManager() {
 
   const handleEdit = (g) => {
     setEditingId(g.id)
-    setForm({ name: g.name || '', profession: g.profession || '', stars: { ...(g.stars || {}) }, explanations: { ...(g.explanations || {}) } })
+    setForm({ name: g.name || '', profession: g.profession || '', stars: { ...(g.stars || {}) }, explanations: { ...(g.explanations || {}) }, comments: { ...(g.comments || {}) } })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -110,10 +113,16 @@ export default function GoatManager() {
                 <StarPicker value={form.stars[sub] || 0} onChange={(n) => setStar(sub, n)} />
               </div>
               {(form.stars[sub] || 0) > 0 && (
-                <textarea value={form.explanations[sub] || ''} onChange={(e) => setExplanation(sub, e.target.value)}
-                  placeholder={`What does ${form.name || 'this GOAT'} say for ${sub}? (shown on 3-star Ask)`}
-                  rows={2} maxLength={1000}
-                  className="mt-2 w-full border border-[#E5E5E5] rounded-lg px-2.5 py-2 text-xs text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111]" />
+                <>
+                  <textarea value={form.comments[sub] || ''} onChange={(e) => setComment(sub, e.target.value)}
+                    placeholder={`Comment from ${form.name || 'this GOAT'} for ${sub} — shown FIRST, tap OK to continue`}
+                    rows={2} maxLength={1000}
+                    className="mt-2 w-full border border-[#E5E5E5] rounded-lg px-2.5 py-2 text-xs text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111]" />
+                  <textarea value={form.explanations[sub] || ''} onChange={(e) => setExplanation(sub, e.target.value)}
+                    placeholder={`Fallback explanation for ${sub} — used only when the question itself has no explanation (3-star shows the question's own explanation)`}
+                    rows={2} maxLength={1000}
+                    className="mt-2 w-full border border-amber-200 bg-[#FFFBEB] rounded-lg px-2.5 py-2 text-xs text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111]" />
+                </>
               )}
             </div>
           ))}
@@ -169,11 +178,18 @@ export default function GoatManager() {
                     {subs.map((s) => (
                       <div key={s} className="flex items-center justify-between gap-2 text-xs">
                         <span className="text-[#555] font-body">{s}</span>
-                        <span className="font-label">{'⭐'.repeat(g.stars[s] || 0)}</span>
+                        <span className="inline-flex gap-0.5">
+                          {[1, 2, 3].map((n) => (
+                            <HugeiconsIcon key={n} icon={StarIcon} size={14} color={n <= (g.stars[s] || 0) ? '#EAB308' : '#E5E5E5'} />
+                          ))}
+                        </span>
                       </div>
                     ))}
                     {subs.some((s) => g.explanations?.[s]) && (
                       <p className="text-[10px] text-[#AAA] font-label pt-1">Explanations saved for: {subs.filter((s) => g.explanations?.[s]).join(', ')}</p>
+                    )}
+                    {subs.some((s) => g.comments?.[s]) && (
+                      <p className="text-[10px] text-[#AAA] font-label pt-1">Comments saved for: {subs.filter((s) => g.comments?.[s]).join(', ')}</p>
                     )}
                   </div>
                 )}

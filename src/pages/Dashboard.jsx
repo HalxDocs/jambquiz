@@ -4,9 +4,9 @@ import { HeartAddIcon, Mail01Icon, Sun01Icon, Moon01Icon, Target01Icon } from '@
 import {
   listenActiveWeek, listenScores, getTopics, normalizeTopic,
   getAccessStatus, getConsistencyRank, listenQuizDates, WEEKS, logEvent,
-  getStudentScores, getCoinBalance, getWeekGoats, listGoats,
+  getStudentScores, getCoinBalance, getWeekGoats, listGoats, getStudentById,
 } from '../store/useStore'
-import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED, computeCardLevel } from '../store/constants'
+import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED, computeCardLevel, isLifelinesEnabled } from '../store/constants'
 import { db, doc, onSnapshot } from '../firebase'
 import { registerPushNotifications, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
@@ -17,6 +17,7 @@ import PatchTopicsModal from '../components/dashboard/PatchTopicsModal'
 import SEO from '../components/seo/SEO'
 import MedalTrack from '../components/dashboard/MedalTrack'
 import CoinPill from '../components/ui/CoinPill'
+import FeaturePopup from '../components/dashboard/FeaturePopup'
 import SubscriptionBanner from '../components/dashboard/SubscriptionBanner'
 import KeyPointsCard from '../components/dashboard/KeyPointsCard'
 import ScoreHero from '../components/dashboard/ScoreHero'
@@ -53,7 +54,7 @@ function isQuizTime(quizDates) {
   const h = nowD.getHours()
   const m = nowD.getMinutes()
   const mins = h * 60 + m
-  return (day === 5 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
+  return (day === 0 || day === 5 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
 }
 
 function getTimeUntilQuiz(quizDates) {
@@ -190,10 +191,33 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   useEffect(() => { if (!student?.id) return; logEvent(student.id, 'page_view', { page: 'dashboard' }) }, [student?.id])
 
   const [weekGoats, setWeekGoats] = useState([])
+  const [showFeatures, setShowFeatures] = useState(false)
+  useEffect(() => {
+    if (!currentWeek) return
+    if (!isLifelinesEnabled(currentWeek)) { setShowFeatures(false); return }
+    try { if (localStorage.getItem('274lab_seen_lifelines_popup') !== '1') setShowFeatures(true) } catch { setShowFeatures(true) }
+  }, [currentWeek])
 
-  // Refresh coin balance + referral number (server is source of truth)
+  // Refresh full profile + coin balance (server is source of truth). This is
+  // what unlocks paid features the moment a payment fulfills — even if the
+  // webhook landed while the app was closed or on another screen.
   useEffect(() => {
     let active = true
+    getStudentById(student.id)
+      .then((fresh) => {
+        if (active && fresh) {
+          setStudent((prev) => {
+            const merged = { ...fresh, coins: prev?.coins ?? fresh.coins }
+            const prevUntil = prev?.subscriptionUntil ? new Date(prev.subscriptionUntil).getTime() : 0
+            const freshUntil = fresh?.subscriptionUntil ? new Date(fresh.subscriptionUntil).getTime() : 0
+            if (prevUntil > Date.now() && freshUntil <= Date.now()) {
+              merged.subscriptionUntil = prev.subscriptionUntil
+            }
+            return merged
+          })
+        }
+      })
+      .catch(() => {})
     getCoinBalance(student.id)
       .then((r) => { if (active && r && r.ok) setStudent({ ...student, coins: r.coins, referralNo: r.referralNo || student.referralNo }) })
       .catch(() => {})
@@ -483,6 +507,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     <>
       <SEO title="Dashboard" />
     <div className="min-h-screen bg-[#F8F8F7]">
+      {showFeatures && <FeaturePopup onClose={() => setShowFeatures(false)} />}
       <RankToast rank={rankUpToast} onDismiss={() => setRankUpToast(null)} />
       {patchesToast && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm">
@@ -553,11 +578,11 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
       <div className="max-w-md mx-auto px-4 pb-10">
         <div className="pt-8 pb-5">
-          <div className="flex justify-between items-start">
-            <div>
+          <div className="flex justify-between items-start gap-2">
+            <div className="min-w-0 flex-1">
               <p className="text-[11px] font-semibold text-[#888] uppercase tracking-[0.2em] font-label mb-0.5">Welcome back</p>
-              <h2 className={`text-xl font-bold font-display leading-tight ${P.textColor}`}>{student.name}</h2>
-              <div className="flex items-center gap-1.5 mt-1.5 mb-3">
+              <h2 className={`text-lg sm:text-xl font-bold font-display leading-tight break-words ${P.textColor}`}>{student.name}</h2>
+              <div className="flex items-center gap-1.5 mt-1.5 mb-3 flex-wrap">
                 <span className="text-[10px] text-[#888] font-label">Consistency Rank</span>
                 <span
                   title={rankData.nextRank ? `${rankData.toNext} session${rankData.toNext !== 1 ? 's' : ''} to ${rankData.nextRank}` : 'Max rank!'}
@@ -568,9 +593,8 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
               </div>
               
             </div>
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex items-center gap-1.5">
-                <CoinPill coins={student.coins ?? null} onGetMore={() => setView('coins')} />
+            <div className="flex flex-col items-end gap-2 shrink-0">
+              <div className="flex items-center justify-end gap-1.5">
                 <button onClick={toggleTheme}
                   className="flex items-center gap-1.5 text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-2.5 py-2 font-label transition-colors shrink-0"
                 >
@@ -579,7 +603,8 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                 <button onClick={() => { if (setStudent) setStudent(null); setView('home') }}
                   className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0">Log out</button>
               </div>
-              {/* Cards UI suspended — logic kept in constants.js. Coins live top-right now. */}
+              <CoinPill coins={student.coins ?? null} onGetMore={() => setView('coins')} />
+              {/* Cards UI suspended — logic kept in constants.js. */}
             </div>
           </div>
 
@@ -679,9 +704,9 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         </div>
 
         <div className="flex gap-2">
-          <button onMouseEnter={() => prefetch('student-scores', () => getStudentScores(student.id))} onClick={() => setView('results')} className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label">My Results</button>
-          <button onClick={() => setView('leaderboard')} className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label">🏆 Leaderboard</button>
-          <button onClick={() => setView('contact')} className="flex-1 bg-white border border-[#EBEBEB] rounded-xl py-3 text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label inline-flex items-center justify-center gap-1"><HugeiconsIcon icon={Mail01Icon} size={14} color="currentColor" /> Contact</button>
+          <button onMouseEnter={() => prefetch('student-scores', () => getStudentScores(student.id))} onClick={() => setView('results')} className="flex-1 min-w-0 bg-white border border-[#EBEBEB] rounded-xl py-3 px-1 text-xs sm:text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label whitespace-nowrap overflow-hidden text-ellipsis">My Results</button>
+          <button onClick={() => setView('leaderboard')} className="flex-1 min-w-0 bg-white border border-[#EBEBEB] rounded-xl py-3 px-1 text-xs sm:text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label whitespace-nowrap overflow-hidden text-ellipsis">🏆 Leaderboard</button>
+          <button onClick={() => setView('contact')} className="flex-1 min-w-0 bg-white border border-[#EBEBEB] rounded-xl py-3 px-1 text-xs sm:text-sm text-[#888] hover:text-[#111] hover:border-[#CCC] transition-colors font-label inline-flex items-center justify-center gap-1 whitespace-nowrap overflow-hidden"> <HugeiconsIcon icon={Mail01Icon} size={14} color="currentColor" /> Contact</button>
         </div>
       </div>
     </div>

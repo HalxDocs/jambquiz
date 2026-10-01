@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon, Notification02Icon, StarIcon } from '@hugeicons/core-free-icons'
+import { UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon, Notification02Icon, StarIcon, Share01Icon } from '@hugeicons/core-free-icons'
 import { db, getDoc, doc, httpsCallable, functions } from '../firebase'
 import { SUBJECTS, WEEKS, listenQuestions, getStudentsPage, getStudentsCount, getPaymentsPage, getStudentScoresAdmin, getActiveWeek, getQuestionLimit, setActiveWeek } from '../store/useStore'
 import StudentManager from '../components/admin/StudentManager'
@@ -11,6 +11,7 @@ import TopicEditor from '../components/admin/TopicEditor'
 import AdminNotifications from '../components/admin/AdminNotifications'
 import GoatManager from '../components/admin/GoatManager'
 import AnalyticsPanel from '../components/admin/AnalyticsPanel'
+import GrowthPanel from '../components/admin/GrowthPanel'
 import TeachersPanel from '../components/admin/TeachersPanel'
 import CoinPacksEditor from '../components/admin/CoinPacksEditor'
 import { useToastStore } from '../store/toast'
@@ -207,6 +208,7 @@ export default function Admin({ setView }) {
     { key: 'topics',    icon: Book01Icon,       label: 'Topics' },
     { key: 'goats',     icon: StarIcon,         label: 'GOATs' },
     { key: 'usage',     icon: Analytics01Icon,  label: 'Usage' },
+    { key: 'growth',    icon: Share01Icon,       label: 'Growth' },
     { key: 'notifications', icon: Notification02Icon, label: 'Notifications' },
   ]
 
@@ -292,6 +294,7 @@ export default function Admin({ setView }) {
     ),
     notifications: <AdminNotifications />,
     usage: <AnalyticsPanel />,
+    growth: <GrowthPanel />,
     teachers: <TeachersPanel />,
     goats: <GoatManager />,
   }

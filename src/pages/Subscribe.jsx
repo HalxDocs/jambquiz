@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { functions, httpsCallable } from '../firebase'
 import { listenPayments, getAccessStatus, SUBSCRIPTION_PRICE_NGN, getStudentById, updateStudent, logEvent } from '../store/useStore'
+import Receipt from '../components/payments/Receipt'
 
 import SEO from '../components/seo/SEO'
 
@@ -11,6 +12,7 @@ export default function Subscribe({ student, setStudent, setView }) {
   const [successInfo, setSuccessInfo] = useState(null)
   const [history, setHistory] = useState([])
   const [email, setEmail] = useState(student.email || '')
+  const [viewingReceipt, setViewingReceipt] = useState(null)
   const bachsInit = useRef(false)
   const paystackVerifying = useRef(false)
 
@@ -50,11 +52,22 @@ export default function Subscribe({ student, setStudent, setView }) {
     const verify = async () => {
       try {
         const fn = httpsCallable(functions, 'completePaystackCheckout')
-        await fn({ reference: target })
+        const res = await fn({ reference: target })
         // Optimistic: show Active immediately without waiting for Firestore propagation
         applyOptimisticActive()
-        setSuccess('Payment received — access extended by 1 month!')
-        setSuccessInfo({ reference: target, email: email || student.email || '', amount: SUBSCRIPTION_PRICE_NGN })
+        const pay = res?.data?.payment || null
+        const isResume = target.includes('-RES-')
+        setSuccess(isResume ? 'Payment received — account reactivated!' : 'Payment received — access extended by 1 month!')
+        setSuccessInfo({
+          reference: target,
+          email: pay?.email || email || student.email || '',
+          amount: pay?.amount || SUBSCRIPTION_PRICE_NGN,
+          method: pay?.method || 'paystack',
+          type: pay?.type || (isResume ? 'account_resume' : 'subscription'),
+          paidAt: pay?.paidAt || new Date().toISOString(),
+          extendsTo: pay?.extendsTo || '',
+          studentName: student.name || '',
+        })
         localStorage.removeItem('pending_paystack_ref')
         // Clean the URL so a refresh does not re-verify
         try {
@@ -108,10 +121,11 @@ export default function Subscribe({ student, setStudent, setView }) {
           if (event.type === 'checkout.completed') {
             try {
               const verifyFn = httpsCallable(functions, 'completeBachsCheckout')
-              await verifyFn({ checkoutId: checkout_id })
+              const verifyRes = await verifyFn({ checkoutId: checkout_id })
               applyOptimisticActive()
+              const bpay = verifyRes?.data?.payment || null
               setSuccess('Payment received — access extended by 1 month!')
-              setSuccessInfo({ reference: checkout_id, email: cleanEmail, amount: SUBSCRIPTION_PRICE_NGN })
+              setSuccessInfo({ reference: checkout_id, email: bpay?.email || cleanEmail, amount: bpay?.amount || SUBSCRIPTION_PRICE_NGN, method: 'bachs', type: 'subscription', paidAt: bpay?.paidAt || new Date().toISOString(), extendsTo: bpay?.extendsTo || '', studentName: student?.name || '' })
               await refreshStudent()
             } catch (e) {
               console.error(e)
@@ -194,27 +208,23 @@ export default function Subscribe({ student, setStudent, setView }) {
       <>
         <SEO title="Payment Successful" />
         <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-white border border-[#EBEBEB] rounded-2xl p-6 text-center">
-            <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-2xl">✓</span>
-            </div>
-            <h2 className="text-xl font-bold text-[#111] font-display mb-2">Payment Successful</h2>
-            <p className="text-sm text-[#555] font-body mb-1">{success}</p>
-            <p className="text-xs text-[#888] font-label mb-4">
-              Receipt sent to <span className="font-semibold text-[#111]">{successInfo.email}</span> from Paystack
-            </p>
-            <div className="bg-[#F8F8F7] border border-[#EBEBEB] rounded-xl px-4 py-3 text-left mb-4">
-              <p className="text-[11px] font-bold text-[#888] uppercase tracking-wide font-label mb-1">Details</p>
-              <p className="text-xs text-[#111] font-label">Amount: <span className="font-bold">₦{successInfo.amount.toLocaleString()}</span></p>
-              <p className="text-xs text-[#111] font-label break-all">Ref: <span className="font-mono text-[11px]">{successInfo.reference}</span></p>
-            </div>
-            <button
-              onClick={() => { setSuccess(''); setSuccessInfo(null); setView('dashboard') }}
-              className="w-full bg-[#111] text-white rounded-xl py-3 text-sm font-bold hover:bg-[#222] transition-colors font-display"
-            >
-              Go to Dashboard →
-            </button>
-            <p className="text-[11px] text-[#AAA] font-label mt-3">Your subscription has been extended by 1 month</p>
+          <div className="w-full max-w-sm">
+            <Receipt
+              payment={{
+                type: successInfo.type || 'subscription',
+                amount: successInfo.amount,
+                reference: successInfo.reference,
+                email: successInfo.email,
+                studentName: successInfo.studentName || student?.name || '',
+                paidAt: successInfo.paidAt,
+                extendsTo: successInfo.extendsTo,
+                method: successInfo.method || 'paystack',
+              }}
+              emailSentTo={successInfo.email}
+              footerNote={successInfo.email ? 'Paystack also emailed your receipt.' : success}
+              onDone={() => { setSuccess(''); setSuccessInfo(null); setView('dashboard') }}
+              doneLabel="Go to Dashboard →"
+            />
           </div>
         </div>
       </>
@@ -334,11 +344,27 @@ export default function Subscribe({ student, setStudent, setView }) {
                       {p.method && ` · ${p.method}`}
                     </p>
                   </div>
-                  <span className="text-[10px] font-bold text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full font-label">
-                    Paid
-                  </span>
+                  <button onClick={() => setViewingReceipt(p)}
+                    className="text-[10px] font-bold px-2.5 py-1 rounded-lg border border-[#E5E5E5] text-[#555] hover:text-[#111] font-label shrink-0">
+                    Receipt
+                  </button>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Receipt modal for a past payment */}
+        {viewingReceipt && (
+          <div className="fixed inset-0 z-[100] bg-black/60 flex items-end sm:items-center justify-center sm:p-4"
+            onClick={() => setViewingReceipt(null)}>
+            <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <Receipt
+                payment={viewingReceipt}
+                emailSentTo={viewingReceipt.email || ''}
+                onDone={() => setViewingReceipt(null)}
+                doneLabel="Close ✓"
+              />
             </div>
           </div>
         )}

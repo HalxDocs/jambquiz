@@ -5,9 +5,16 @@ const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
 const webpush = require('web-push');
 
-// Cap total CPU — `us-central1` quota is ~8 vCPU. 30+ functions × 1 vCPU × 100 instances = 3000 vCPU > quota.
-// Global cap keeps every service at max 3 instances, so 30 × 0.08 × 3 = ~7.2 vCPU → fits after per-function CPU cut below.
-setGlobalOptions({ region: 'us-central1', maxInstances: 3 });
+// Cap total CPU — `us-central1` quota is ~8 vCPU. 50 functions × 1 vCPU × 100 instances = 5000 vCPU > quota.
+// Global cap keeps every non-HOT service at max 1 instance with a fractional
+// CPU: ~47 × 0.08 × 1 = ~3.8 vCPU + HOT (3 × 0.25 × 2 = 1.5) = ~5.3 vCPU → fits.
+// The explicit cpu/memory default is load-bearing: Cloud Run gives functions
+// WITHOUT an explicit cpu a FULL 1 vCPU each (seen live as availableCpu: 1),
+// which is what blew the ~8 vCPU quota. Single instances still handle 80
+// concurrent requests each; quiz bursts are covered by the HOT overrides.
+// If deploys ever fail with "Quota exceeded for total allowable CPU",
+// request a quota increase instead of raising these numbers.
+setGlobalOptions({ region: 'us-central1', maxInstances: 1 });
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -287,7 +294,7 @@ exports.sendKeyPointNotifications = onSchedule(
       const studentData = studentSnap.data();
       const subUntil = studentData.subscriptionUntil ? new Date(studentData.subscriptionUntil).getTime() : 0;
       const freeUsed = studentData.freeAttemptsUsed || 0;
-      if (subUntil <= Date.now() && freeUsed >= 2) return;
+      if (subUntil <= Date.now() && (freeUsed >= FREE_TRIAL_ATTEMPTS || !trialActiveFor(studentData))) return;
 
       const subjects = await getStudentSubjects(studentId);
       if (!subjects.length) return;
@@ -634,6 +641,21 @@ exports.refreshPublicStats = onSchedule(
       } catch { topScoreLastWeek = 0; }
     }
 
+    // Highest single-week total ever (all-time best weekly result). This is
+    // what Home shows as "Top Score" — it persists until a higher weekly
+    // total beats it, and never drops when a newer week scores lower.
+    let topWeeklyScore = 0;
+    try {
+      const bestWeekSnap = await db.collection('leaderboard_week_ranks').orderBy('total', 'desc').limit(1).get();
+      if (!bestWeekSnap.empty) topWeeklyScore = Math.round(bestWeekSnap.docs[0].data().total || 0);
+      if (!topWeeklyScore) {
+        const snap = await db.collection('leaderboard_week_ranks').limit(500).get();
+        let max = 0;
+        snap.docs.forEach((d) => { const t = d.data().total || 0; if (t > max) max = t; });
+        topWeeklyScore = Math.round(max);
+      }
+    } catch { topWeeklyScore = 0; }
+
     await db.collection('public_stats').doc('overview').set({
       totalStudents: studentsCount.data().count,
       activeSubscriptions: c.activeSubscriptions || 0,
@@ -643,22 +665,64 @@ exports.refreshPublicStats = onSchedule(
       topScore,
       topScorePct,
       topScoreLastWeek,
+      topWeeklyScore,
       activeWeek,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   }
 );
 
+// Free trial: 2 quiz attempts within 14 days of registration (mirrors the
+// client getAccessStatus). Legacy docs without timestamps are grandfathered in.
+const FREE_TRIAL_ATTEMPTS = 2;
+const FREE_TRIAL_DAYS = 14;
+function trialActiveFor(s, now = Date.now()) {
+  const startRaw = (s && (s.trialStartedAt || s.joinedAt)) || null;
+  if (!startRaw) return true;
+  const t = new Date(startRaw).getTime();
+  if (!Number.isFinite(t)) return true;
+  return now - t < FREE_TRIAL_DAYS * 24 * 60 * 60 * 1000;
+}
+
 function getStatus(s) {
   const now = Date.now();
   const subUntil = s.subscriptionUntil ? new Date(s.subscriptionUntil).getTime() : 0;
   if (subUntil > now) return 'active';
   const freeUsed = s.freeAttemptsUsed || 0;
-  if (freeUsed < 2) return 'freebie';
+  // Trial starts on the FIRST test, not on registration: a student who has
+  // never taken any test always still has their free attempts.
+  if (freeUsed === 0) return 'freebie';
+  if (freeUsed < FREE_TRIAL_ATTEMPTS && trialActiveFor(s, now)) return 'freebie';
   return 'expired';
 }
 
-exports.computeAdminStats = onCall({ invoker: "public", cors: true, enforceAppCheck: false }, async (request) => {
+// Consume one free-trial attempt after a successful submit. Starts the
+// 14-day trial clock on the FIRST test (sets trialStartedAt once), so late
+// starters are never pay-walled with zero tests taken. Idempotent per call,
+// cheat-proof (server-side transaction; the client can no longer just bump
+// the counter or reset the clock).
+exports.consumeFreeAttempt = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required');
+  if (!(await rateLimit(`consumeFree:${request.auth.uid}`, 20, 60 * 60 * 1000))) {
+    throw new HttpsError('resource-exhausted', 'Too many attempts. Try again later.');
+  }
+  const { studentId } = request.data || {};
+  if (!studentId) throw new HttpsError('invalid-argument', 'Missing studentId');
+  return db.runTransaction(async (t) => {
+    const snap = await t.get(db.collection('students').doc(studentId));
+    if (!snap.exists) throw new HttpsError('not-found', 'Student not found');
+    const s = snap.data();
+    assertOwnsStudent(request, s);
+    const used = Number(s.freeAttemptsUsed || 0);
+    if (used >= FREE_TRIAL_ATTEMPTS) return { ok: true, consumed: false, freeAttemptsUsed: used };
+    const updates = { freeAttemptsUsed: used + 1 };
+    if (used === 0) updates.trialStartedAt = new Date().toISOString();
+    t.update(snap.ref, updates);
+    return { ok: true, consumed: true, freeAttemptsUsed: used + 1 };
+  });
+});
+
+exports.computeAdminStats = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   assertAdmin(request);
   try {
     const [studentsSnap, scoresSnap, paymentsSnap] = await Promise.all([
@@ -1068,6 +1132,7 @@ exports.getPortalStats = onRequest(
           topScore: d.topScore ?? d.topScorePct ?? 0,
           topScorePct: d.topScorePct || 0,
           topScoreLastWeek: d.topScoreLastWeek ?? 0,
+          topWeeklyScore: d.topWeeklyScore ?? 0,
           activeWeek: d.activeWeek || 'Week 1',
         },
       });
@@ -1142,7 +1207,7 @@ exports.sendQuizReminders = onSchedule(
           if (!studentSnap.exists) return;
           const s = studentSnap.data();
           const subUntil = s.subscriptionUntil ? new Date(s.subscriptionUntil).getTime() : 0;
-          if (subUntil <= now && (s.freeAttemptsUsed || 0) >= 2) return;
+          if (subUntil <= now && ((s.freeAttemptsUsed || 0) >= FREE_TRIAL_ATTEMPTS || !trialActiveFor(s, now))) return;
 
           try {
             await webpush.sendNotification(
@@ -1166,7 +1231,7 @@ exports.sendQuizReminders = onSchedule(
 const MAX_MESSAGE_LENGTH = 500;
 const MAX_NAME_LENGTH = 60;
 
-exports.guestbook = onRequest({ cors: true }, async (req, res) => {
+exports.guestbook = onRequest({ cors: true, run: { cpu: 0.08, memory: '256MiB' } }, async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.set('Access-Control-Max-Age', '3600').status(204).send('');
     return;
@@ -2432,6 +2497,40 @@ exports.adminDeleteStudent = onCall({ invoker: "public", cors: true, enforceAppC
   return { ok: true }
 })
 
+exports.adminDeleteTeacher = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  assertAdmin(request)
+  const { teacherId } = request.data || {}
+  if (!teacherId) throw new HttpsError('invalid-argument', 'Missing teacherId')
+  const tSnap = await db.collection('teachers').doc(teacherId).get()
+  if (!tSnap.exists) throw new HttpsError('not-found', 'Teacher not found')
+  const t = tSnap.data()
+  const uid = t.uid
+
+  // Clean up everything tied to this teacher: pioneer code, the doc itself,
+  // and legacy explicit student links (students matched by teacherPhone simply
+  // stop resolving to anyone — their data is untouched).
+  const linkedSnap = await db.collection('students').where('teacherId', '==', teacherId).limit(500).get().catch(() => null)
+  const batch = db.batch()
+  if (t.pioneerCode) {
+    batch.delete(db.collection('pioneerCodes').doc(t.pioneerCode))
+  }
+  if (linkedSnap && !linkedSnap.empty) {
+    linkedSnap.docs.forEach((d) => batch.update(d.ref, { teacherId: admin.firestore.FieldValue.delete() }))
+  }
+  batch.delete(tSnap.ref)
+  await batch.commit().catch((e) => { throw new HttpsError('internal', e?.message || 'Delete failed') })
+
+  // Revoke the Firebase Auth account so the teacher can no longer sign in.
+  if (uid) {
+    try {
+      await admin.auth().deleteUser(uid)
+    } catch (e) {
+      console.error(`[AdminDeleteTeacher] Auth delete skipped for ${uid}:`, e?.message || e)
+    }
+  }
+  return { ok: true }
+})
+
 // Create a Bachs checkout session and store the student mapping for webhook fulfillment.
 exports.createBachsCheckout = onCall({ invoker: "public", cors: true, enforceAppCheck: false, secrets: ['BACHS_API_KEY'], run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
@@ -2547,15 +2646,24 @@ function paystackSecretOrThrow() {
   return k
 }
 
-async function savePaystackCheckoutMapping(reference, studentId, type, accessCode) {
+async function savePaystackCheckoutMapping(reference, studentId, type, accessCode, extra) {
   await db.collection('paystackCheckouts').doc(reference).set({
     reference,
     studentId,
     type,
     accessCode: accessCode || '',
+    ...(extra || {}),
     status: 'PENDING',
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   })
+}
+
+async function paymentByReference(reference) {
+  try {
+    const snap = await db.collection('payments').where('reference', '==', reference).limit(1).get()
+    if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() }
+  } catch {}
+  return null
 }
 
 async function fulfillPaystackCheckout(reference, paystackData) {
@@ -2563,7 +2671,11 @@ async function fulfillPaystackCheckout(reference, paystackData) {
   const mapSnap = await mapRef.get()
   if (!mapSnap.exists) throw new HttpsError('not-found', 'Paystack checkout not found')
   const map = mapSnap.data()
-  if (map.status === 'FULFILLED') return { ok: true, alreadyFulfilled: true }
+  // Already fulfilled (e.g. webhook won the race): return the stored payment
+  // so the client can render the receipt without another lookup.
+  if (map.status === 'FULFILLED') {
+    return { ok: true, alreadyFulfilled: true, payment: await paymentByReference(reference) }
+  }
 
   // Paystack verify payload shape: data = { reference, amount (kobo), currency, status, customer:{email}, paid_at, ... }
   // When called from the webhook we already have that `data` object — no extra fetch needed.
@@ -2618,6 +2730,7 @@ async function fulfillPaystackCheckout(reference, paystackData) {
     if (fresh.type === 'subscription') {
       const iso = computeExpiry(student.subscriptionUntil, 1)
       updates.subscriptionUntil = iso
+      paymentRecord.type = 'subscription'
       paymentRecord.extendsTo = iso
     } else if (fresh.type === 'coins') {
       const packCoins = Number(fresh.coins || 0)
@@ -2637,7 +2750,7 @@ async function fulfillPaystackCheckout(reference, paystackData) {
     t.update(studentSnap.ref, updates)
     t.set(db.collection('payments').doc(), paymentRecord)
     t.update(mapRef, { status: 'FULFILLED', fulfilledAt: admin.firestore.FieldValue.serverTimestamp() })
-    return { ok: true }
+    return { ok: true, payment: paymentRecord }
   })
 }
 
@@ -2782,34 +2895,234 @@ exports.syncPaystackPayments = onCall({ invoker: "public", cors: true, secrets: 
       if (!sid) { failed++; continue }
       const stuSnap = await db.collection('students').doc(sid).get().catch(() => null)
       if (!stuSnap || !stuSnap.exists) { failed++; continue }
+      // Coin mappings need coins + priceNgn or fulfillPaystackCheckout throws
+      // 'Unknown coin pack'. Resolve from Paystack metadata first, then the
+      // server-side pack doc / defaults, then the paid amount as last resort.
+      const extra = {}
+      if (type === 'coins') {
+        const packId = meta.packId || null
+        let packCoins = Number(meta.coins || 0)
+        let priceNgn = 0
+        if (packId) {
+          try {
+            const packSnap = await db.collection('coinPacks').doc(String(packId)).get()
+            if (packSnap.exists) {
+              packCoins = packCoins || Number(packSnap.data().coins || 0)
+              priceNgn = Number(packSnap.data().priceNgn || 0)
+            }
+          } catch {}
+          if (!packCoins || !priceNgn) {
+            const fallback = DEFAULT_COIN_PACKS.find((p) => p.id === packId)
+            if (fallback) {
+              packCoins = packCoins || fallback.coins
+              priceNgn = priceNgn || fallback.priceNgn
+            }
+          }
+        }
+        if (!priceNgn) priceNgn = Math.round((Number(trx.amount) || 0) / 100)
+        Object.assign(extra, { packId, coins: packCoins || null, priceNgn })
+      }
       await db.collection('paystackCheckouts').doc(trx.reference).set({
         reference: trx.reference,
         studentId: sid,
         type,
+        ...extra,
         status: 'PENDING',
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       })
     }
+    // Repair legacy coin mappings saved before pack snapshots existed
+    // (e.g. Frank Lampard's purchase): backfill coins/priceNgn so fulfill works.
+    try {
+      const mSnap = await db.collection('paystackCheckouts').doc(trx.reference).get().catch(() => null)
+      const m = mSnap && mSnap.exists ? mSnap.data() : null
+      if (m && m.type === 'coins' && !(Number(m.coins) > 0 && Number(m.priceNgn) > 0)) {
+        const meta = trx.metadata || {}
+        const packId = m.packId || meta.packId || null
+        let packCoins = Number(m.coins || meta.coins || 0)
+        let priceNgn = Number(m.priceNgn || 0)
+        if (packId && (!packCoins || !priceNgn)) {
+          try {
+            const packSnap = await db.collection('coinPacks').doc(String(packId)).get()
+            if (packSnap.exists) {
+              packCoins = packCoins || Number(packSnap.data().coins || 0)
+              priceNgn = priceNgn || Number(packSnap.data().priceNgn || 0)
+            }
+          } catch {}
+          if ((!packCoins || !priceNgn)) {
+            const fallback = DEFAULT_COIN_PACKS.find((p) => p.id === packId)
+            if (fallback) { packCoins = packCoins || fallback.coins; priceNgn = priceNgn || fallback.priceNgn }
+          }
+        }
+        if (!priceNgn) priceNgn = Math.round((Number(trx.amount) || 0) / 100)
+        await db.collection('paystackCheckouts').doc(trx.reference).set(
+          { packId, coins: packCoins || null, priceNgn },
+          { merge: true }
+        )
+      }
+    } catch {}
     try { await fulfillPaystackCheckout(trx.reference, trx); synced++ } catch (e) { console.error('[syncPaystack] fulfill failed for', trx.reference, e?.message); failed++ }
   }
   return { ok: true, synced, skipped, failed }
 })
 
+// ─── GROWTH INSIGHTS (referrals, squads, lifelines) ─────────────────────
+// Admin-only, computed on demand for the Admin → Growth tab. Answers:
+//  - are users registering via invite codes, and who refers the most?
+//  - are users building squads (Peek-a-Friend needs a squad to work)?
+//  - how many lifeline assists are used, and which lifeline wins?
+// Reads are select()-projected and capped so the call stays fast.
+exports.getGrowthStats = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB', timeoutSeconds: 120 } }, async (request) => {
+  assertAdmin(request)
+
+  // ── Students: referrals + squads ──
+  const studentsSnap = await db.collection('students').get()
+  const byReferralNo = {}
+  const students = []
+  studentsSnap.forEach((d) => {
+    const s = { id: d.id, ...d.data() }
+    students.push(s)
+    if (s.referralNo) byReferralNo[String(s.referralNo)] = s
+  })
+  const total = students.length
+  const referredList = students.filter((s) => String(s.referredBy || '').trim())
+  const referredCount = referredList.length
+  // Attribute each referred signup to a referrer by invite number
+  const referrerCounts = {}
+  referredList.forEach((s) => {
+    const refNo = String(s.referredBy || '').trim().padStart(2, '0')
+    const referrer = byReferralNo[refNo] || byReferralNo[String(s.referredBy || '').trim()]
+    if (referrer && referrer.id !== s.id) {
+      referrerCounts[referrer.id] = (referrerCounts[referrer.id] || 0) + 1
+    }
+  })
+  const topReferrers = Object.entries(referrerCounts)
+    .map(([id, count]) => {
+      const r = students.find((s) => s.id === id)
+      return { id, name: r?.name || 'Unknown', count }
+    })
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10)
+
+  // Squads (up to 4 friends each; Peek-a-Friend needs ≥1)
+  let withSquad = 0
+  const sizeDist = { 1: 0, 2: 0, 3: 0, 4: 0 }
+  let squadLinks = 0
+  students.forEach((s) => {
+    const squad = Array.isArray(s.squad) ? s.squad.filter(Boolean) : []
+    if (squad.length) {
+      withSquad++
+      squadLinks += Math.min(squad.length, 4)
+      const bucket = Math.min(squad.length, 4)
+      sizeDist[bucket] = (sizeDist[bucket] || 0) + 1
+    }
+  })
+
+  // Referral coins actually paid out (ledger is the audit trail)
+  let referralPayouts = 0, referralCoins = 0
+  try {
+    const ledgerSnap = await db.collection('coinLedger').where('reason', '==', 'referral').select().get()
+    referralPayouts = ledgerSnap.size
+    // Sum needs the delta field — fetch full docs only for this small set
+    if (referralPayouts > 0 && referralPayouts <= 2000) {
+      const full = await db.collection('coinLedger').where('reason', '==', 'referral').get()
+      full.forEach((d) => { referralCoins += Number(d.data().delta || 0) })
+    }
+  } catch {}
+
+  // ── Lifelines: scan quiz sessions (projected reads, capped) ──
+  const uses = { ask: 0, peek: 0, fifty: 0 }
+  const usesByUser = {}
+  const usesByWeek = {}
+  let sessionsScanned = 0, sessionsWithLifeline = 0
+  try {
+    const SCAN_CAP = 5000
+    let lastDoc = null
+    for (;;) {
+      let q = db.collection('quiz_sessions').select('lifelineUsage', 'studentId', 'week').limit(500)
+      if (lastDoc) q = q.startAfter(lastDoc)
+      const snap = await q.get()
+      if (snap.empty) break
+      snap.forEach((d) => {
+        if (sessionsScanned >= SCAN_CAP) return
+        sessionsScanned++
+        const data = d.data() || {}
+        const u = data.lifelineUsage || {}
+        const tot = (Number(u.ask) || 0) + (Number(u.peek) || 0) + (Number(u.fifty) || 0)
+        if (tot > 0) {
+          sessionsWithLifeline++
+          uses.ask += Number(u.ask) || 0
+          uses.peek += Number(u.peek) || 0
+          uses.fifty += Number(u.fifty) || 0
+          if (data.studentId) usesByUser[data.studentId] = (usesByUser[data.studentId] || 0) + tot
+          if (data.week) {
+            const w = usesByWeek[data.week] || { ask: 0, peek: 0, fifty: 0, sessions: 0 }
+            w.ask += Number(u.ask) || 0
+            w.peek += Number(u.peek) || 0
+            w.fifty += Number(u.fifty) || 0
+            w.sessions++
+            usesByWeek[data.week] = w
+          }
+        }
+      })
+      if (snap.size < 500 || sessionsScanned >= SCAN_CAP) break
+      lastDoc = snap.docs[snap.docs.length - 1]
+    }
+  } catch (e) {
+    console.error('[getGrowthStats] session scan failed:', e?.message || e)
+  }
+  const totalUses = uses.ask + uses.peek + uses.fifty
+  const lifelineUsers = Object.keys(usesByUser).length
+  const topKind = totalUses
+    ? Object.entries(uses).sort((a, b) => b[1] - a[1])[0][0]
+    : null
+  const topLifelineUsers = Object.entries(usesByUser)
+    .map(([id, count]) => {
+      const st = students.find((s) => s.id === id)
+      return { id, name: st?.name || 'Unknown', count }
+    })
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10)
+
+  return {
+    ok: true,
+    referrals: {
+      total, referredCount,
+      rate: total ? Math.round((referredCount / total) * 100) : 0,
+      topReferrers,
+      payouts: referralPayouts,
+      coinsPaid: referralCoins,
+    },
+    squads: {
+      total, withSquad,
+      rate: total ? Math.round((withSquad / total) * 100) : 0,
+      avgSize: withSquad ? Math.round((squadLinks / withSquad) * 10) / 10 : 0,
+      sizeDist,
+    },
+    lifelines: {
+      sessionsScanned, sessionsWithLifeline,
+      totalUses, uses, lifelineUsers, topKind,
+      topUsers: topLifelineUsers,
+      byWeek: usesByWeek,
+    },
+  }
+})
+
 // ─── COINS ECONOMY (lifelines) ──────────────────────────────────────────
 // All coin movement is server-side and transactional — clients can NEVER grant
 // themselves coins. Every earn/spend writes a coinLedger audit entry.
-// Earn: registration +10, referral +5 (to referrer), test complete +5,
+// Earn: registration +20, referral +50 (to referrer), test complete +10,
 // share result +5 (once per test). Spend: lifelines via useLifeline.
 // Buy: coin packs (admin-configurable in coinPacks) via Paystack type 'coins'.
 
-const COINS_ON_REGISTER = 10
-const COINS_ON_REFERRAL = 5
-const COINS_ON_TEST_COMPLETE = 5
+const COINS_ON_REGISTER = 20
+const COINS_ON_REFERRAL = 50
+const COINS_ON_TEST_COMPLETE = 10
 const COINS_ON_SHARE = 5
 const LIFELINE_COST = { ask3: 10, ask2: 6, ask1: 2, peek: 2, fifty: 2 }
-const LIFELINE_USES_PER_TEST = 3
+const LIFELINE_USES_PER_TEST = 5
 const DEFAULT_COIN_PACKS = [
-  { id: 'pack10', coins: 10, priceNgn: 250 },
+  { id: 'pack5', coins: 5, priceNgn: 250 },
   { id: 'pack20', coins: 20, priceNgn: 500 },
 ]
 
@@ -2867,7 +3180,7 @@ exports.onStudentCreated = onDocumentCreated('students/{studentId}', async (even
       const s = fresh.data()
       if (s.coinsSeeded) return
       const referralNo = await allocateReferralNo(t)
-      const updates = { coins: COINS_ON_REGISTER, referralNo, coinsSeeded: true }
+      const updates = { coins: COINS_ON_REGISTER, referralNo, coinsSeeded: true, coinsBumpedTo20: true }
       t.update(fresh.ref, updates)
       ledgerEntry(t, studentId, s.uid, COINS_ON_REGISTER, 'register', null)
       // Referral bonus to the referrer (by number, once)
@@ -2907,7 +3220,7 @@ exports.getCoinBalance = onCall({ invoker: "public", cors: true, enforceAppCheck
         if (!fresh.exists || fresh.data().coinsSeeded) return
         const fs = fresh.data()
         const referralNo = await allocateReferralNo(t)
-        t.update(fresh.ref, { coins: COINS_ON_REGISTER, referralNo, coinsSeeded: true })
+        t.update(fresh.ref, { coins: COINS_ON_REGISTER, referralNo, coinsSeeded: true, coinsBumpedTo20: true })
         ledgerEntry(t, studentId, fs.uid, COINS_ON_REGISTER, 'register', null)
       })
       const fresh2 = await db.collection('students').doc(studentId).get()
@@ -2915,6 +3228,26 @@ exports.getCoinBalance = onCall({ invoker: "public", cors: true, enforceAppCheck
       return { ok: true, coins: Number(s2.coins || 0), referralNo: s2.referralNo || null }
     } catch (e) {
       console.error('[getCoinBalance] lazy seed failed:', e?.message || e)
+    }
+  }
+  // One-time top-up to the 20-coin starting balance for accounts seeded at
+  // the old 10-coin rate. Only tops up (never deducts), only when below 20,
+  // and only once per student (coinsBumpedTo20 flag).
+  if (s.coinsSeeded && !s.coinsBumpedTo20 && Number(s.coins || 0) < COINS_ON_REGISTER) {
+    try {
+      const topped = await db.runTransaction(async (t) => {
+        const fresh = await t.get(db.collection('students').doc(studentId))
+        if (!fresh.exists) return null
+        const fs = fresh.data()
+        if (fs.coinsBumpedTo20 || Number(fs.coins || 0) >= COINS_ON_REGISTER) return Number(fs.coins || 0)
+        const delta = COINS_ON_REGISTER - Number(fs.coins || 0)
+        t.update(fresh.ref, { coins: COINS_ON_REGISTER, coinsBumpedTo20: true })
+        ledgerEntry(t, studentId, fs.uid, delta, 'welcome_topup', null)
+        return COINS_ON_REGISTER
+      })
+      if (topped != null) return { ok: true, coins: topped, referralNo: s.referralNo || null }
+    } catch (e) {
+      console.error('[getCoinBalance] welcome top-up failed:', e?.message || e)
     }
   }
   return { ok: true, coins: Number(s.coins || 0), referralNo: s.referralNo || null }
@@ -2991,7 +3324,7 @@ exports.updateSquad = onCall({ invoker: "public", cors: true, enforceAppCheck: f
   return { ok: true, squad: ids }
 })
 
-// Lifeline engine: validates budget (3 uses per lifeline per test), deducts
+// Lifeline engine: validates budget (5 uses per lifeline per test), deducts
 // coins and returns the effect — all inside ONE transaction. The answer key
 // never leaves the server: narrowing (50-50 / 2-star / 1-star) is computed
 // here and cached on the session so refresh/retry never double-charges.
@@ -3068,10 +3401,29 @@ exports.useLifeline = onCall({ invoker: "public", cors: true, enforceAppCheck: f
       const key = await getAnswerKey(subject, sess.week)
       const correctIdx = key.has(questionId) ? key.get(questionId) : -1
       if (correctIdx < 0) throw new HttpsError('failed-precondition', 'Answer key unavailable')
+      // 3-star shows the QUESTION explanation (written by admin with the
+      // question + options A–D), not the GOAT's generic subject text. The
+      // GOAT comment is shown inline in the picker list (client-side), so no
+      // extra OK step is needed here.
       if (stars === 3) {
+        let questionExplanation = ''
+        let explanationImage = ''
+        try {
+          const qSnap = await db.collection('questions').doc(questionId).get()
+          if (qSnap.exists) {
+            questionExplanation = String(qSnap.data().explanation || '').trim()
+            explanationImage = String(qSnap.data().explanationImage || '')
+          }
+        } catch {}
+        // Fallback to the GOAT's own subject explanation when the question
+        // has none (legacy / unset), so 3-star never comes back empty.
+        if (!questionExplanation) {
+          questionExplanation = ((goat.explanations || {})[subject] || '').trim()
+        }
         payload = {
           goatId: gSnap.id, goatName: goat.name || '', stars,
-          explanation: ((goat.explanations || {})[subject] || '').trim(),
+          explanation: questionExplanation,
+          explanationImage,
         }
       } else {
         const wrong = [0, 1, 2, 3].filter((i) => i !== correctIdx)
@@ -3131,6 +3483,65 @@ exports.useLifeline = onCall({ invoker: "public", cors: true, enforceAppCheck: f
     t.update(sessionRef, { lifelineUsage: usage, narrowed })
     return { ok: true, coins, cost, ...payload }
   })
+})
+
+// Peek status: for each squad friend, has the friend answered THIS question?
+// Read-only (free) — shown per question so learners know whose answer is
+// worth peeking at. Returns name + sign only; never reveals what they picked.
+exports.peekStatus = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required')
+  if (!(await rateLimit(`peekStatus:${request.auth.uid}`, 60, 60 * 60 * 1000))) {
+    throw new HttpsError('resource-exhausted', 'Too many checks. Try again later.')
+  }
+  const { studentId, sessionId, subject, qIndex, friendIds } = request.data || {}
+  if (!studentId || !sessionId || !subject || !Number.isInteger(qIndex)) {
+    throw new HttpsError('invalid-argument', 'Missing studentId, sessionId, subject or question')
+  }
+  const wanted = [...new Set((Array.isArray(friendIds) ? friendIds : []).map(String))].filter(Boolean).slice(0, 4)
+  if (!wanted.length) return { ok: true, statuses: [] }
+
+  const sessionSnap = await db.collection('quiz_sessions').doc(sessionId).get()
+  if (!sessionSnap.exists) throw new HttpsError('not-found', 'Quiz session not found')
+  const session = sessionSnap.data()
+  if (session.uid !== request.auth.uid) throw new HttpsError('permission-denied', 'Not your session')
+  if (session.status === 'submitted') throw new HttpsError('failed-precondition', 'Test already submitted')
+  const qIds = (session.assignments || {})[subject]
+  if (!Array.isArray(qIds) || qIndex < 0 || qIndex >= qIds.length) {
+    throw new HttpsError('invalid-argument', 'Question not in this test')
+  }
+  const questionId = qIds[qIndex]
+
+  const studentSnap = await db.collection('students').doc(studentId).get()
+  if (!studentSnap.exists) throw new HttpsError('not-found', 'Student not found')
+  const student = studentSnap.data()
+  if (student.uid && student.uid !== request.auth.uid) throw new HttpsError('permission-denied', 'Not your account')
+  const squad = Array.isArray(student.squad) ? student.squad : []
+  const friends = wanted.filter((id) => squad.includes(id))
+  if (!friends.length) return { ok: true, statuses: [] }
+
+  const weekKey = String(session.week || '').replace(/\s+/g, '_')
+  const statuses = await Promise.all(friends.map(async (fid) => {
+    let friendName = 'Friend'
+    try {
+      const fStu = await db.collection('students').doc(fid).get()
+      if (fStu.exists) friendName = fStu.data().name || 'Friend'
+    } catch {}
+    try {
+      const fSnap = await db.collection('scoreDetails').doc(`${fid}_${weekKey}`).get()
+      if (!fSnap.exists) return { friendId: fid, friendName, answered: false, hasTest: false }
+      const fData = fSnap.data() || {}
+      const subQ = ((fData.subjects || []).find((s) => s.subject === subject) || {}).questions || []
+      const subA = ((fData.answers || []).find((s) => s.subject === subject) || {}).answers || []
+      const j = subQ.findIndex((q) => q && q.id === questionId)
+      if (j < 0) return { friendId: fid, friendName, answered: false, hasTest: true }
+      const a = subA[j]
+      const answered = a !== null && a !== undefined && a !== -1
+      return { friendId: fid, friendName, answered, hasTest: true }
+    } catch {
+      return { friendId: fid, friendName, answered: false, hasTest: false }
+    }
+  }))
+  return { ok: true, statuses }
 })
 
 exports.verifyRecoveryCode = onCall({ invoker: "public", cors: true, enforceAppCheck: false, run: { cpu: 0.08, memory: '256MiB' } }, async (request) => {
@@ -3735,9 +4146,9 @@ function gradeSubject(questionAnswers, submittedAnswers) {
     else wrong++
   })
   const total = questionAnswers.length
-  const score = total > 0
-    ? Math.round((Math.max(0, correct * 4 - wrong) / (total * 4)) * 100)
-    : 0
+  // Simple percentage — no negative marking (real UTME/JAMB does not deduct
+  // for wrong answers). 20/40 correct = 50/100.
+  const score = total > 0 ? Math.round((correct / total) * 100) : 0
   return { correct, wrong, unanswered, total, score, answerKey }
 }
 
@@ -3983,20 +4394,26 @@ exports.submitQuiz = onCall({ invoker: "public", cors: true, ...HOT, secrets: ['
       throw new HttpsError('deadline-exceeded', 'Time is up')
     }
 
+    // Firestore requires EVERY t.get to precede EVERY t.set/t.update inside a
+    // transaction — a read after a write aborts the whole commit (this broke
+    // every submitQuiz call). So the student-coins read happens here, before
+    // any writes below.
+    let stuSnap = null
+    if (!session.isRetake) {
+      stuSnap = await t.get(db.collection('students').doc(session.studentId))
+    }
+
     for (const { ref, data } of scoreDocs) t.set(ref, data)
     t.set(db.collection('scoreDetails').doc(detailId), detailData)
     t.update(sessionRef, sessionUpdate)
 
-    // +5 coins for completing a full weekly test (not retakes, once per session)
+    // +10 coins for completing a full weekly test (not retakes, once per session)
     let earnedCoins = null
-    if (!session.isRetake) {
-      const stuSnap = await t.get(db.collection('students').doc(session.studentId))
-      if (stuSnap.exists) {
-        const stu = stuSnap.data()
-        earnedCoins = Number(stu.coins || 0) + COINS_ON_TEST_COMPLETE
-        t.update(stuSnap.ref, { coins: earnedCoins })
-        ledgerEntry(t, session.studentId, stu.uid, COINS_ON_TEST_COMPLETE, 'test_complete', detailId)
-      }
+    if (!session.isRetake && stuSnap && stuSnap.exists) {
+      const stu = stuSnap.data()
+      earnedCoins = Number(stu.coins || 0) + COINS_ON_TEST_COMPLETE
+      t.update(stuSnap.ref, { coins: earnedCoins })
+      ledgerEntry(t, session.studentId, stu.uid, COINS_ON_TEST_COMPLETE, 'test_complete', detailId)
     }
 
     return { ok: true, results, scoreId: detailId, earnedCoins }

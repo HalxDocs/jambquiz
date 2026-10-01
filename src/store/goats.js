@@ -6,14 +6,20 @@ function sanitizeGoat(raw) {
   const profession = String(raw?.profession || '').trim().slice(0, 60)
   const stars = {}
   const explanations = {}
+  const comments = {}
   SUBJECTS.forEach((sub) => {
     const s = Math.max(0, Math.min(3, parseInt(raw?.stars?.[sub], 10) || 0))
     if (s > 0) {
       stars[sub] = s
       explanations[sub] = String(raw?.explanations?.[sub] || '').trim().slice(0, 1000)
+      // Per-subject GOAT comment — shown FIRST (tap OK), before the
+      // explanation (3-star) or narrowed options (2/1-star). Falls back to
+      // legacy docs without comments.
+      const c = String(raw?.comments?.[sub] ?? raw?.comment?.[sub] ?? '').trim().slice(0, 1000)
+      if (c) comments[sub] = c
     }
   })
-  return { name, profession, stars, explanations }
+  return { name, profession, stars, explanations, comments }
 }
 
 function weekGoatDocId(week) {

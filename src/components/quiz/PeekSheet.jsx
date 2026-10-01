@@ -1,4 +1,6 @@
 import { motion } from 'framer-motion'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { EyeIcon, Coins01Icon } from '@hugeicons/core-free-icons'
 
 function Sheet({ children, onClose }) {
   return (
@@ -26,10 +28,10 @@ function Sheet({ children, onClose }) {
 export function PeekPicker({ friends, busyId, onPick, onClose }) {
   return (
     <Sheet onClose={onClose}>
-      <p className="text-[10px] font-bold text-[#888] uppercase tracking-widest font-label text-center">Peek a Friend · 🪙2</p>
+      <p className="text-[10px] font-bold text-[#888] uppercase tracking-widest font-label text-center inline-flex items-center gap-1 justify-center w-full">Peek a Friend · <HugeiconsIcon icon={Coins01Icon} size={12} color="#B87010" />2</p>
       <h3 className="text-base font-bold text-[#111] font-display text-center mt-1 mb-4">Whose paper?</h3>
       {friends.length === 0 ? (
-        <p className="text-xs text-[#AAA] font-label text-center py-4">No friends selected for this test.</p>
+        <p className="text-xs text-[#888] font-label text-center py-4">No peek friends locked for this test — add a squad before your next test to use Peek a Friend.</p>
       ) : (
         <div className="space-y-2">
           {friends.map((f) => (
@@ -39,10 +41,12 @@ export function PeekPicker({ friends, busyId, onPick, onClose }) {
               disabled={!!busyId}
               className="w-full flex items-center gap-3 border border-[#EBEBEB] rounded-2xl p-3.5 hover:border-[#111] active:scale-[0.99] transition-all text-left disabled:opacity-60"
             >
-              <span className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-xl shrink-0">👀</span>
+              <span className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
+                <HugeiconsIcon icon={EyeIcon} size={20} color="#2563EB" />
+              </span>
               <span className="flex-1 text-sm font-bold text-[#111] font-display truncate">{f.name}</span>
-              <span className="text-[11px] font-bold bg-[#111] text-white px-2.5 py-1.5 rounded-lg font-label shrink-0">
-                {busyId === f.id ? '…' : '🪙2'}
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold bg-[#111] text-white px-2.5 py-1.5 rounded-lg font-label shrink-0">
+                {busyId === f.id ? '…' : (<><HugeiconsIcon icon={Coins01Icon} size={12} color="#F5C518" />2</>)}
               </span>
             </button>
           ))}

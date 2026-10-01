@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { UserGroupIcon } from '@hugeicons/core-free-icons'
 import SEO from '../components/seo/SEO'
 import { db, doc, getDoc } from '../firebase'
-import { startQuiz, submitQuiz, getTopics, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, WEEKS, incrementFreeAttempts, logEvent, useLifeline, getCoinBalance, getWeekGoats, listGoats } from '../store/useStore'
+import { startQuiz, submitQuiz, getTopics, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, isBonusQuiz, WEEKS, LIFELINES_ENABLED, isLifelinesEnabled, consumeFreeAttempt, logEvent, useLifeline, peekStatus, getCoinBalance, getWeekGoats, listGoats, load, save } from '../store/useStore'
 import { useToastStore } from '../store/toast'
 
 import QuizTimer from '../components/quiz/QuizTimer'
@@ -26,7 +28,7 @@ function isInQuizWindow(quizDates) {
   }
   const day = now.getDay(), h = now.getHours(), m = now.getMinutes()
   const mins = h * 60 + m
-  return (day === 5 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
+  return (day === 0 || day === 5 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
 }
 
 const ABBR = {
@@ -53,6 +55,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   const [paymentPrompt, setPaymentPrompt] = useState(null)
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
   const [err, setErr] = useState('')
+  const [errTitle, setErrTitle] = useState('No Questions Yet')
   // ── Lifelines ──
   const [coins, setCoins] = useState(student.coins ?? 10)
   const [usage, setUsage] = useState({ ask: 0, peek: 0, fifty: 0 })
@@ -66,6 +69,9 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   // Squad lifeline picks (Peek a Friend) — chosen before the session starts
   const [peekFriends, setPeekFriends] = useState([])
   const [squadNames, setSquadNames] = useState({})
+  // Per-question peek status: has each selected friend answered THIS question?
+  const [peekStatuses, setPeekStatuses] = useState([])
+  const peekCacheRef = useRef({})
   const timerRef = useRef(null)
   const paymentTimerRef = useRef(null)
 
@@ -113,17 +119,21 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     return () => { cancelled = true }
   }, [student.squad])
 
+  const peekFriendsKey = `lifeline_peek_friends_${student.id}`
   const proceedAfterGate = () => {
+    // Lifelines are live from Week 6 onward (current week included).
+    const lifelinesForThisWeek = isLifelinesEnabled(retakeData?.week || currentWeek)
+    if (!lifelinesForThisWeek) { setStep('loading'); return }
     // Retakes and squad-less students skip straight to the session
     const squad = Array.isArray(student.squad) ? student.squad.filter(Boolean) : []
     if (retakeData || !squad.length) { setStep('loading'); return }
     // Auto-use the previously selected pair when still valid (doc fallback)
     try {
-      const prev = JSON.parse(localStorage.getItem('lifeline_peek_friends') || '[]')
+      const prev = JSON.parse(localStorage.getItem(peekFriendsKey) || localStorage.getItem('lifeline_peek_friends') || '[]')
       const valid = prev.filter((id) => squad.includes(id)).slice(0, 2)
       if (valid.length) {
         setPeekFriends(valid)
-        try { localStorage.setItem('lifeline_peek_friends', JSON.stringify(valid)) } catch {}
+        try { localStorage.setItem(peekFriendsKey, JSON.stringify(valid)) } catch {}
         setStep('loading')
         return
       }
@@ -131,14 +141,17 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     setStep('squad')
   }
 
-  // Gate check: once dates + week are ready, decide what to show
+  // Gate check: once dates + week are ready, decide what to show.
+  // Bonus quizzes (admin-scheduled outside the Fri/Sat/Sun 5–6pm window) are
+  // free practice: they never touch the free trial and never block on expiry.
+  const isBonus = !retakeData && isBonusQuiz(quizDates)
   useEffect(() => {
     if (!quizDatesReady) return
     if (!currentWeek && !retakeData) return
     if (step !== 'init') return
     const { status } = getAccessStatus(student)
     if (status === 'suspended') { setStep('suspended'); return }
-    if (status === 'expired') { setStep('expired'); return }
+    if (status === 'expired' && !isBonus) { setStep('expired'); return }
     if (!retakeData && !isInQuizWindow(quizDates)) { setStep('locked'); return }
     logEvent(student.id, 'quiz_loaded', { page: 'dashboard' })
     proceedAfterGate()
@@ -165,6 +178,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
           data[subj] = { questions: qs, answers: new Array(qs.length).fill(null), currentQ: 0 }
         })
         if (!Object.keys(data).length) {
+          setErrTitle('No Questions Yet')
           setErr(`No questions available for ${week} yet. Check back later.`)
           setStep('error')
           return
@@ -178,9 +192,11 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
           setErr('The quiz window is not open yet.')
           setStep('locked')
         } else if (/deadline/i.test(msg)) {
+          setErrTitle('Time Is Up')
           setErr('Time is up — your quiz could not be submitted.')
           setStep('error')
         } else {
+          setErrTitle('No Questions Yet')
           setErr('Failed to load questions. Check your connection.')
           setStep('error')
         }
@@ -188,28 +204,36 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     })()
   }, [step])
 
-  // Lifeline setup: balance + this week's GOATs (names only revealed in-picker)
+  // Lifeline setup: coin balance once per student; GOATs + usage whenever the
+  // test week is known. (Previously this ran once on mount when currentWeek was
+  // still null, so a Week 6 test loaded Week 1 GOATs and the server rejected
+  // every Ask as "not assisting this week".)
+  const testWeek = retakeData?.week || currentWeek || weekLabel
+  const usageKey = `lifeline_usage_${student.id}_${String(testWeek || '').replace(/\s+/g, '_')}`
   useEffect(() => {
     let active = true
     getCoinBalance(student.id).then((r) => { if (active && r?.ok) setCoins(r.coins) }).catch(() => {})
+    return () => { active = false }
+  }, [student.id])
+  useEffect(() => {
+    if (!testWeek) return
+    let active = true
     ;(async () => {
       try {
-        const wk = retakeData?.week || weekLabel
-        const [ids, all] = await Promise.all([getWeekGoats(wk), listGoats()])
+        const [ids, all] = await Promise.all([getWeekGoats(testWeek), listGoats()])
         if (!active) return
         const byId = Object.fromEntries(all.map((g) => [g.id, g]))
         setWeekGoats(ids.map((id) => byId[id]).filter(Boolean))
       } catch { if (active) setWeekGoats([]) }
     })()
-    const saved = (() => { try { return JSON.parse(localStorage.getItem('lifeline_usage') || '{}') } catch { return {} } })()
-    if (saved && typeof saved === 'object') setUsage({ ask: 0, peek: 0, fifty: 0, ...saved })
+    // Usage is per student + week so a previous test never shows "used up" here
+    try {
+      const saved = JSON.parse(localStorage.getItem(usageKey) || '{}')
+      if (saved && typeof saved === 'object') setUsage({ ask: 0, peek: 0, fifty: 0, ...saved })
+      else setUsage({ ask: 0, peek: 0, fifty: 0 })
+    } catch { setUsage({ ask: 0, peek: 0, fifty: 0 }) }
     return () => { active = false }
-  }, [])
-
-  const persistUsage = (u) => {
-    setUsage(u)
-    try { localStorage.setItem('lifeline_usage', JSON.stringify(u)) } catch {}
-  }
+  }, [testWeek])
 
   const qKeyOf = (subj, qi) => `${subj}::${qi}`
 
@@ -234,16 +258,22 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       })
       if (res?.ok) {
         if (typeof res.coins === 'number') setCoins(res.coins)
-        if (!res.cached) persistUsage({ ...usage, [kind]: (usage[kind] || 0) + 1 })
+        if (!res.cached) {
+          setUsage((prev) => {
+            const u = { ...prev, [kind]: (prev[kind] || 0) + 1 }
+            try { localStorage.setItem(usageKey, JSON.stringify(u)) } catch {}
+            return u
+          })
+        }
         return res
       }
       throw new Error('Lifeline failed')
     } catch (e) {
       const msg = (e?.message || '').includes('Not enough coins')
-        ? 'Not enough coins — tap 🪙 Get more after this test'
+        ? 'Not enough coins — tap Get more after this test'
         : (e?.message || 'Lifeline failed. Try again.')
       if (msg.includes('No uses left')) {
-        setUsage((u) => ({ ...u, [kind]: 3 }))
+        setUsage((u) => ({ ...u, [kind]: 5 }))
       } else {
         setLifelineErr(msg)
         setTimeout(() => setLifelineErr(''), 3500)
@@ -255,6 +285,12 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   }
 
   const handleUseButton = (kind) => {
+    if (!isLifelinesEnabled(retakeData?.week || currentWeek || weekLabel)) return
+    const curAns = quizDataRef.current[activeSubject]?.answers?.[quizDataRef.current[activeSubject]?.currentQ ?? 0]
+    if (curAns === null || curAns === undefined) {
+      useToastStore.getState().showToast('Pick an answer first', 'info')
+      return
+    }
     if (kind === 'ask') setGoatSheet({ stage: 'pick' })
     else if (kind === 'peek') setPeekSheet({ stage: 'pick' })
     else if (kind === 'fifty') handleFifty()
@@ -278,7 +314,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     const res = await callLifeline('ask', { goatId: goat.id })
     if (!res) { setGoatSheet({ stage: 'pick' }); return }
     if (res.stars === 3) {
-      setGoatSheet({ stage: 'result', goatName: res.goatName || goat.name, stars: 3, explanation: res.explanation || '' })
+      setGoatSheet({ stage: 'result', goatName: res.goatName || goat.name, stars: 3, explanation: res.explanation || '', explanationImage: res.explanationImage || '' })
     } else {
       const shown = res.shown || []
       setNarrowed((n) => ({ ...n, [qKeyOf(subj, qi)]: { kind: 'ask', stars: res.stars, shown } }))
@@ -296,6 +332,39 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     setPeekSheet({ stage: 'result', friendName: res.friendName || friend.name, optionText: res.optionText })
     logAssist({ subject: subj, qIndex: qi, kind: 'peek' })
   }
+
+  // Peek status per question: show name + sign for each selected friend so
+  // learners know who has answered this question before spending coins.
+  // Read-only and free (no answer content ever leaves the server).
+  useEffect(() => {
+    if (step !== 'quiz' || !sessionId || !peekFriends.length) { setPeekStatuses([]); return }
+    if (!isLifelinesEnabled(retakeData?.week || currentWeek || weekLabel)) { setPeekStatuses([]); return }
+    const subj = activeSubject
+    const qi = quizData[subj]?.currentQ ?? 0
+    if (!subj) { setPeekStatuses([]); return }
+    const cacheKey = `${sessionId}::${subj}::${qi}`
+    const cached = peekCacheRef.current[cacheKey]
+    if (cached) { setPeekStatuses(cached); return }
+    let active = true
+    setPeekStatuses([])
+    ;(async () => {
+      try {
+        const res = await peekStatus({
+          studentId: student.id,
+          sessionId,
+          subject: subj,
+          qIndex: qi,
+          friendIds: peekFriends,
+        })
+        if (!active) return
+        const list = Array.isArray(res?.statuses) ? res.statuses : []
+        peekCacheRef.current[cacheKey] = list
+        setPeekStatuses(list)
+      } catch { if (active) setPeekStatuses([]) }
+    })()
+    return () => { active = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, sessionId, activeSubject, peekFriends, quizData[activeSubject]?.currentQ])
 
   // Timer — runs only during quiz
   useEffect(() => {
@@ -332,7 +401,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   const handleSubmitAll = async () => {
     if (submitting) return
     setShowSubmitConfirm(false)
-    if (!sessionId) { setErr('Quiz session missing — please restart the quiz.'); setStep('error'); return }
+    if (!sessionId) { setErrTitle('Could Not Submit'); setErr('Quiz session missing — please restart the quiz.'); setStep('error'); return }
     setSubmitting(true)
     clearInterval(timerRef.current)
 
@@ -348,6 +417,37 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
 
     try {
       const res = await submitQuiz({ sessionId, answers, assistMeta: assistLogRef.current })
+      // Idempotent replay: the server returns { alreadySubmitted: true } as a
+      // SUCCESS (not a throw). Rebuild from the stored server results so a
+      // double-tap / auto-retry never shows a 0-score screen.
+      if (res?.alreadySubmitted && Array.isArray(res.results) && res.results.length) {
+        const stored = res.results.map((g) => ({
+          studentId: student.id,
+          studentName: student.name,
+          subject: g.subject,
+          week: g.week || weekLabel,
+          score: g.score ?? 0,
+          outOf: g.outOf || 100,
+          correct: g.correct ?? 0,
+          wrong: g.wrong ?? 0,
+          unanswered: g.unanswered ?? 0,
+          total: g.total ?? 0,
+          questions: g.questions || null,
+          answers: g.answers || null,
+          released: g.released !== false,
+          assists: Array.isArray(g.assists) ? g.assists : [],
+          date: new Date().toISOString(),
+        }))
+        if (stored.length > 0) setLastScore(stored[0])
+        if (setRetakeData) setRetakeData(null)
+        const total = stored.reduce((a, r) => a + r.score, 0)
+        const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
+        setAllResults(stored)
+        setMedalToast({ medal, total, max: stored.length * 100 })
+        setStep('done')
+        setSubmitting(false)
+        return
+      }
       const graded = res && res.results ? res.results : []
       // Merge the server grade with local question content for the corrections
       // view. During the live window corrections stay locked (released=false).
@@ -391,7 +491,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       setMedalToast({ medal, total, max: results.length * 100 })
       if (typeof res?.earnedCoins === 'number') {
         setCoins((c) => (typeof c === 'number' ? c + 5 : c))
-        useToastStore.getState().showToast('+5 coins for completing the test!', 'success')
+        useToastStore.getState().showToast('+10 coins for completing the test!', 'success')
       }
 
       try {
@@ -400,15 +500,17 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
         save('jamb_scores_cache', [...trimmed, ...results])
       } catch {}
 
-      incrementFreeAttempts(student.id).catch(() => {})
+      // Bonus quizzes + retakes never consume the free trial
+      const consumesTrial = !retakeData && !isBonus
+      if (consumesTrial) consumeFreeAttempt(student.id).catch(() => {})
       logEvent(student.id, 'quiz_completed', {
         subjects: results.map((r) => r.subject),
         scores: results.map((r) => r.score),
         total,
       }).catch(() => {})
 
-      const newFreeCount = (student.freeAttemptsUsed || 0) + 1
-      if (newFreeCount >= 2 && !student.subscriptionUntil && !retakeData) {
+      const preview = getAccessStatus({ ...student, freeAttemptsUsed: (student.freeAttemptsUsed || 0) + (consumesTrial ? 1 : 0) })
+      if (consumesTrial && preview.status === 'expired') {
         setPaymentPrompt('show')
         paymentTimerRef.current = setTimeout(() => {
           setPaymentPrompt(null)
@@ -419,10 +521,26 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       }
     } catch (e) {
       console.error('Failed to submit quiz', e)
-      if (e && /alreadySubmitted/i.test(e.message || '')) {
+      const msg = e?.message || ''
+      if (/alreadySubmitted/i.test(msg)) {
+        // Rare race: server threw instead of returning the flag — results are
+        // safe on the backend, so just show them.
         setStep('done')
+      } else if (/deadline|time is up/i.test(msg)) {
+        setErrTitle('Time Is Up')
+        setErr('Time is up — your 1-hour quiz session expired before submit.')
+        setStep('error')
+      } else if (/Malformed answers/i.test(msg)) {
+        setErrTitle('Could Not Submit')
+        setErr('Your test data did not match the server session. Reopen the quiz from the dashboard to get a fresh session, then submit.')
+        setStep('error')
+      } else if (/Quiz is locked|locked/i.test(msg)) {
+        setErrTitle('Quiz Locked')
+        setErr('The quiz window closed before submit. Your answers are kept on this screen — try again when the window reopens.')
+        setStep('error')
       } else {
-        setErr('Could not submit your quiz. Check your connection and try again.')
+        setErrTitle('Could Not Submit')
+        setErr(`Could not submit your quiz (${msg || 'network error'}). Your answers are safe — tap Try again.`)
         setStep('error')
       }
     }
@@ -515,7 +633,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 max-w-sm w-full text-center">
           <span className="text-3xl">🔒</span>
           <h2 className="text-xl font-bold text-[#111] font-display mt-3 mb-2">Quiz Locked</h2>
-          <p className="text-sm text-[#888] font-label mb-1">Login window: <strong className="text-[#111]">Fri & Sat · 5:00pm – 6:00pm</strong></p>
+          <p className="text-sm text-[#888] font-label mb-1">Login window: <strong className="text-[#111]">Fri, Sat & Sun · 5:00pm – 6:00pm</strong></p>
           <p className="text-sm text-[#888] font-label mb-6">Once started: <strong className="text-[#111]">1 hour</strong> for all subjects</p>
           <button onClick={() => setView('dashboard')} className="bg-[#111] text-white px-6 py-3 rounded-xl text-sm font-bold font-display">Back to Dashboard</button>
         </div>
@@ -531,9 +649,18 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 max-w-sm w-full text-center">
           <span className="text-3xl">😕</span>
-          <h2 className="text-xl font-bold text-[#111] font-display mt-3 mb-2">No Questions Yet</h2>
+          <h2 className="text-xl font-bold text-[#111] font-display mt-3 mb-2">{errTitle}</h2>
           <p className="text-sm text-[#888] font-label mb-6">{err}</p>
-          <button onClick={() => setView('dashboard')} className="bg-[#111] text-white px-6 py-3 rounded-xl text-sm font-bold font-display">Back to Dashboard</button>
+          {errTitle === 'Could Not Submit' && sessionId ? (
+            <div className="flex gap-2">
+              <button onClick={() => setView('dashboard')} className="flex-1 border border-[#E5E5E5] text-[#555] py-3 rounded-xl text-sm font-bold font-label">Back</button>
+              <button onClick={handleSubmitAll} disabled={submitting} className={`flex-1 rounded-xl py-3 text-sm font-bold font-display transition-colors ${submitting ? 'bg-[#EBEBEB] text-[#AAA]' : 'bg-green-600 text-white hover:bg-green-700'}`}>
+                {submitting ? 'Retrying…' : 'Try again ✓'}
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setView('dashboard')} className="bg-[#111] text-white px-6 py-3 rounded-xl text-sm font-bold font-display">Back to Dashboard</button>
+          )}
         </div>
       </div>
     </>
@@ -558,7 +685,12 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       setPeekFriends((prev) => prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id].slice(0, 2))
     }
     const confirm = () => {
-      try { localStorage.setItem('lifeline_peek_friends', JSON.stringify(peekFriends.slice(0, 2))) } catch {}
+      try { localStorage.setItem(peekFriendsKey, JSON.stringify(peekFriends.slice(0, 2))) } catch {}
+      setStep('loading')
+    }
+    const skipSquad = () => {
+      setPeekFriends([])
+      try { localStorage.setItem(peekFriendsKey, JSON.stringify([])) } catch {}
       setStep('loading')
     }
     return (
@@ -566,7 +698,9 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
       <SEO title="Pick Friends" />
       <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-6 max-w-sm w-full text-center">
-          <p className="text-3xl mb-2">👯</p>
+          <div className="w-12 h-12 mx-auto bg-[#111] rounded-2xl flex items-center justify-center mb-2">
+            <HugeiconsIcon icon={UserGroupIcon} size={22} color="white" />
+          </div>
           <h2 className="text-lg font-bold text-[#111] font-display mb-1">Pick 2 friends to peek</h2>
           <p className="text-xs text-[#888] font-label mb-4">Peek a Friend shows what they picked. Tap to select.</p>
           <div className="space-y-2 mb-4 text-left">
@@ -589,7 +723,10 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
             }`}>
             Next →
           </button>
-          <button onClick={() => setView('leaderboard')} className="w-full mt-2 text-[11px] text-[#888] hover:text-[#111] font-label">
+          <button onClick={skipSquad} className="w-full mt-2 rounded-xl py-2.5 text-xs font-bold text-[#555] hover:text-[#111] font-label">
+            Skip for this test
+          </button>
+          <button onClick={() => setView('leaderboard')} className="w-full mt-1 text-[11px] text-[#888] hover:text-[#111] font-label">
             No squad yet? Find friends →
           </button>
         </div>
@@ -659,18 +796,38 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
         </div>
       </div>
 
-      <LifelineBar
-        coins={coins}
-        usage={usage}
-        maxUses={3}
-        disabled={submitting}
-        onUse={handleUseButton}
-        onGetMore={() => useToastStore.getState().showToast('Finish this test first — buy coins after submit', 'info')}
-      />
+      {isLifelinesEnabled(weekLabel) && (
+        <LifelineBar
+          coins={coins}
+          usage={usage}
+          maxUses={5}
+          disabled={submitting}
+          needsAnswer={(() => { const a = quizData[activeSubject]?.answers?.[quizData[activeSubject]?.currentQ ?? 0]; return a === null || a === undefined })()}
+          onUse={handleUseButton}
+          onGetMore={() => useToastStore.getState().showToast('Finish this test first — buy coins after submit', 'info')}
+        />
+      )}
       {lifelineErr && (
         <div className="max-w-md mx-auto px-4 pt-2">
           <div className="px-3.5 py-2 bg-red-50 border border-red-100 rounded-xl">
             <p className="text-red-600 text-xs font-label">{lifelineErr}</p>
+          </div>
+        </div>
+      )}
+      {peekFriends.length > 0 && peekStatuses.length > 0 && (
+        <div className="max-w-md mx-auto px-4 pt-2">
+          <div className="flex items-center justify-center gap-2 flex-wrap bg-white border border-[#EBEBEB] rounded-xl px-3 py-2">
+            <span className="text-[10px] font-bold text-[#AAA] uppercase tracking-wide font-label">Peek:</span>
+            {peekStatuses.map((p) => (
+              <span key={p.friendId}
+                title={p.answered ? `${p.friendName} answered this question` : p.hasTest ? `${p.friendName} has not answered this one yet` : `${p.friendName} has not taken this test yet`}
+                className={`inline-flex items-center gap-1 text-[11px] font-bold font-label px-2 py-0.5 rounded-lg ${
+                  p.answered ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-[#F3F3F2] text-[#888] border border-[#EBEBEB]'
+                }`}>
+                <span className="max-w-[80px] truncate">{String(p.friendName || 'Friend').split(' ')[0]}</span>
+                <span>{p.answered ? '✓' : '✗'}</span>
+              </span>
+            ))}
           </div>
         </div>
       )}
@@ -774,6 +931,7 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
           stars={goatSheet.stars}
           subject={activeSubject}
           explanation={goatSheet.explanation}
+          explanationImage={goatSheet.explanationImage}
           shownOptions={goatSheet.shownOptions}
           questionOptions={questions[currentQ]?.options}
           onDone={() => setGoatSheet(null)}

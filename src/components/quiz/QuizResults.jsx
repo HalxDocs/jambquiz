@@ -21,23 +21,24 @@ export default function QuizResults({
   const [shared, setShared] = useState(false)
   const total = (allResults || []).reduce((a, r) => a + r.score, 0)
 
-  // GOAT assist attribution (server-computed +4 per correct assisted answer)
+  // GOAT assist attribution (server-computed per correct assisted answer)
   const assistLines = (() => {
     const byGoat = {}
     ;(allResults || []).forEach((r) => {
       ;(r.assists || []).forEach((a) => {
         if (!a.goatName) return
-        if (!byGoat[a.goatName]) byGoat[a.goatName] = 0
-        byGoat[a.goatName] += a.points || 0
+        if (!byGoat[a.goatName]) byGoat[a.goatName] = { points: 0, count: 0 }
+        byGoat[a.goatName].points += a.points || 0
+        if ((a.points || 0) > 0) byGoat[a.goatName].count += 1
       })
     })
-    return Object.entries(byGoat)
+    return Object.entries(byGoat).map(([name, v]) => ({ name, points: v.points, count: v.count }))
   })()
 
   const handleShare = async () => {
     const studentId = allResults?.[0]?.studentId
     const week = allResults?.[0]?.week || weekLabel
-    const text = `I scored ${total}/${maxTotal} on 274Lab ${week}!${assistLines.length ? ' ' + assistLines.map(([n, p]) => `${n} assisted with ${p}pts`).join(' · ') : ''} — Think you can beat me? https://www.274lab.com/`
+    const text = `I scored ${total}/${maxTotal} on 274Lab ${week}!${assistLines.length ? ' ' + assistLines.map((l) => `🐐 ${l.name} assisted me (+${l.points}pts)`).join(' · ') : ''} — Think you can beat me? https://www.274lab.com/`
     const award = async () => {
       if (shared) return
       setShared(true)
@@ -73,22 +74,173 @@ export default function QuizResults({
   const autopsy = runAutopsy({ currentResults: allResults, historyResults: [] })
   const maxTotal = (allResults || []).length * 100
   const medal = total >= 280 ? '🥇' : total >= 200 ? '🥈' : '🥉'
+  const medalLabel = medal === '🥇' ? 'GOLD MEDAL' : medal === '🥈' ? 'SILVER MEDAL' : 'BRONZE MEDAL'
   const pct = Math.round((total / maxTotal) * 100)
+
+  // Branded share image: score card + assisting GOATs, drawn on canvas so it
+  // can be shared straight to WhatsApp/status as a PNG. Also awards +5 coins
+  // (once per week) just like the text share.
+  const handleShareImage = async () => {
+    const award = async () => {
+      if (shared) return
+      setShared(true)
+      const studentId = allResults?.[0]?.studentId
+      const week = allResults?.[0]?.week || weekLabel
+      if (!studentId || !week) return
+      try {
+        const res = await shareResult(studentId, week)
+        if (res?.ok && !res?.alreadyShared) {
+          useToastStore.getState().showToast('+5 coins for sharing!', 'success')
+        } else if (res?.alreadyShared) {
+          useToastStore.getState().showToast('Already shared this week', 'info')
+        }
+      } catch {}
+    }
+    try {
+      const subjects = (allResults || []).slice(0, 6)
+      const goats = assistLines.slice(0, 4)
+      const W = 1080
+      const H = 640 + subjects.length * 96 + (goats.length ? 130 + goats.length * 78 : 0) + 170
+      const c = document.createElement('canvas')
+      c.width = W
+      c.height = H
+      const x = c.getContext('2d')
+      const rr = (px, py, w, h, r) => {
+        x.beginPath()
+        if (x.roundRect) x.roundRect(px, py, w, h, r)
+        else x.rect(px, py, w, h)
+      }
+      // Background
+      x.fillStyle = '#111111'
+      x.fillRect(0, 0, W, H)
+      // Gold top strip
+      x.fillStyle = '#F5C518'
+      x.fillRect(0, 0, W, 14)
+      let y = 110
+      x.textAlign = 'center'
+      // Brand
+      x.fillStyle = '#F5C518'
+      x.font = 'bold 44px Arial'
+      x.fillText('274Lab', W / 2, y)
+      y += 56
+      x.fillStyle = '#999999'
+      x.font = '28px Arial'
+      x.fillText(String(weekLabel || '').toUpperCase() + '  •  WEEKLY RESULT', W / 2, y)
+      y += 120
+      // Medal + label
+      x.font = '150px serif'
+      x.fillText(medal, W / 2, y)
+      y += 80
+      x.fillStyle = '#FFFFFF'
+      x.font = 'bold 52px Arial'
+      x.fillText(medalLabel, W / 2, y)
+      y += 130
+      // Total score
+      x.fillStyle = '#FFFFFF'
+      x.font = 'bold 170px Arial'
+      x.fillText(String(total), W / 2, y)
+      y += 70
+      x.fillStyle = '#888888'
+      x.font = '44px Arial'
+      x.fillText('/ ' + String(maxTotal) + '  •  ' + String(pct) + '%', W / 2, y)
+      y += 90
+      // Subject rows
+      x.textAlign = 'left'
+      subjects.forEach((r) => {
+        rr(90, y, W - 180, 76, 20)
+        x.fillStyle = 'rgba(255,255,255,0.07)'
+        x.fill()
+        x.fillStyle = '#DDDDDD'
+        x.font = 'bold 34px Arial'
+        x.fillText(String(r.subject || '').slice(0, 26), 130, y + 50, 620)
+        x.fillStyle = '#F5C518'
+        x.font = 'bold 36px Arial'
+        x.textAlign = 'right'
+        x.fillText(String(r.score) + '/100', W - 130, y + 50)
+        x.textAlign = 'left'
+        y += 96
+      })
+      y += 30
+      // Assisting GOATs — visible brag on the shared image
+      if (goats.length) {
+        x.textAlign = 'center'
+        x.fillStyle = '#F5C518'
+        x.font = 'bold 34px Arial'
+        x.fillText('🐐  ASSISTED BY THE GOATs', W / 2, y)
+        y += 78
+        goats.forEach((g) => {
+          rr(90, y - 52, W - 180, 68, 34)
+          x.fillStyle = 'rgba(245,197,24,0.12)'
+          x.fill()
+          x.fillStyle = '#FFFFFF'
+          x.font = 'bold 33px Arial'
+          x.fillText('🐐 ' + String(g.name).slice(0, 24) + '  •  +' + String(g.points) + 'pts', W / 2, y, W - 260)
+          y += 78
+        })
+        y += 40
+      }
+      // Footer
+      x.textAlign = 'center'
+      x.fillStyle = '#777777'
+      x.font = '30px Arial'
+      x.fillText('Think you can beat me?  •  274lab.com', W / 2, H - 70)
+      const blob = await new Promise((res) => c.toBlob(res, 'image/png'))
+      if (!blob) throw new Error('canvas failed')
+      const safeWeek = String(weekLabel || 'result').replace(/\s+/g, '').toLowerCase()
+      const file = new File([blob], '274lab-' + safeWeek + '.png', { type: 'image/png' })
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: 'My 274Lab score' })
+          await award()
+        } catch {
+          // dismissed — no coins
+        }
+      } else {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = file.name
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 5000)
+        useToastStore.getState().showToast('Image downloaded — share it on WhatsApp!', 'success')
+        await award()
+      }
+    } catch {
+      useToastStore.getState().showToast('Could not make image — use text share instead', 'info')
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#F8F8F7] pb-10">
       {medalToast && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setMedalToast(null)}>
-          <div className="bg-white rounded-3xl p-8 text-center max-w-xs w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <p className="text-7xl mb-3">{medalToast.medal}</p>
+          <div className="bg-white rounded-3xl p-6 text-center max-w-sm w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <p className="text-7xl mb-2">{medalToast.medal}</p>
             <p className="text-xl font-bold text-[#111] font-display mb-1">
               {medalToast.medal === '🥇' ? 'Gold Medal!' : medalToast.medal === '🥈' ? 'Silver Medal!' : 'Bronze Medal!'}
             </p>
-            <p className="text-sm text-[#888] font-label mb-1">{weekLabel}</p>
-            <p className="text-2xl font-bold text-[#111] font-display mb-4">{medalToast.total} / {medalToast.max}</p>
-            <button onClick={() => setMedalToast(null)} className="bg-[#111] text-white px-8 py-2.5 rounded-xl text-sm font-bold font-display">
-              Continue →
-            </button>
+            <p className="text-sm text-[#888] font-label">{weekLabel}</p>
+            <p className="text-2xl font-bold text-[#111] font-display mt-1">{medalToast.total} / {medalToast.max}</p>
+            {assistLines.length > 0 && (
+              <p className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-3 py-1.5 mt-3 font-label inline-block">
+                {assistLines.map((l) => `🐐 ${l.name} +${l.points}pts`).join(' · ')}
+              </p>
+            )}
+            <div className="mt-4 space-y-2">
+              <button onClick={handleShareImage} disabled={sharing}
+                className="w-full bg-[#111] text-white rounded-xl py-3.5 text-sm font-bold font-display hover:bg-[#222] active:scale-[0.99] transition-all disabled:opacity-50">
+                {sharing ? 'Sharing…' : shared ? 'Shared ✓ +5 coins' : `📸 Share as image → +5 coins${assistLines.length ? ' · show your GOATs 🐐' : ''}`}
+              </button>
+              <button onClick={handleShare} disabled={sharing}
+                className="w-full bg-[#25D366] text-white rounded-xl py-3.5 text-sm font-bold font-display hover:brightness-105 active:scale-[0.99] transition-all disabled:opacity-50">
+                {sharing ? 'Sharing…' : shared ? 'Shared ✓ +5 coins' : '💬 Share on WhatsApp → +5 coins'}
+              </button>
+              <button onClick={() => setMedalToast(null)} className="w-full text-xs text-[#AAA] hover:text-[#666] font-label py-2 transition-colors">
+                Continue →
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -112,10 +264,10 @@ export default function QuizResults({
             </div>
             <span className="text-5xl">{medal}</span>
           </div>
-          <div className="w-full bg-white/10 rounded-full h-1">
-            <div className="bg-white h-1 rounded-full" style={{ width: `${Math.min(pct, 100)}%` }} />
+            <div className="w-full bg-white/10 rounded-full h-1">
+              <div className="bg-white h-1 rounded-full" style={{ width: `${Math.min(pct, 100)}%` }} />
+            </div>
           </div>
-        </div>
 
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4 mb-4">
           <p className="text-[11px] font-bold text-[#888] uppercase tracking-[0.15em] font-label mb-3">Subject Breakdown</p>
@@ -254,9 +406,9 @@ export default function QuizResults({
           <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 mb-4">
             <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest font-label mb-2">🐐 GOAT assists</p>
             <div className="space-y-1">
-              {assistLines.map(([name, pts]) => (
-                <p key={name} className="text-xs text-[#555] font-body">
-                  <span className="font-bold text-[#111]">{name}</span> assisted with <span className="font-bold text-[#111]">{pts} point{pts === 1 ? '' : 's'}</span>
+              {assistLines.map((l) => (
+                <p key={l.name} className="text-xs text-[#555] font-body">
+                  <span className="font-bold text-[#111]">🐐 {l.name}</span> assisted you <span className="font-bold text-[#111]">+{l.points}pts</span>
                 </p>
               ))}
             </div>

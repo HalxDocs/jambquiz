@@ -16,6 +16,15 @@ const WEEKS = Array.from({ length: 26 }, (_, i) => `Week ${i + 1}`)
 
 const SUBSCRIPTION_PRICE_NGN = 800
 
+// Lifelines (Ask a GOAT / Peek a Friend / 50-50 + squad picker) are live
+// from Week 6 onward — current week included.
+const LIFELINES_START_WEEK_NUM = 6
+const LIFELINES_ENABLED = false // legacy global flag — kept for backwards compat
+function isLifelinesEnabled(week) {
+  const n = parseInt(String(week || '').replace(/\D/g, ''), 10)
+  return Number.isFinite(n) && n >= LIFELINES_START_WEEK_NUM
+}
+
 const RANK_TIERS = [
   { name: 'GHOST',   min: 0,  color: 'gray' },
   { name: 'ROOKIE',  min: 1,  color: 'gray' },
@@ -43,4 +52,4 @@ function computeCardLevel(weeklyMedals) {
   return Math.min(pairs, 3)
 }
 
-export { SUBJECTS, WEEKS, SUBSCRIPTION_PRICE_NGN, RANK_TIERS, CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED, computeCardLevel }
+export { SUBJECTS, WEEKS, SUBSCRIPTION_PRICE_NGN, LIFELINES_ENABLED, LIFELINES_START_WEEK_NUM, isLifelinesEnabled, RANK_TIERS, CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED, computeCardLevel }

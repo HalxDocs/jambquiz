@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { adminGetTeachers } from '../../store/useStore'
+import { adminGetTeachers, adminDeleteTeacher } from '../../store/useStore'
 import { useToastStore } from '../../store/toast'
 import { functions, httpsCallable } from '../../firebase'
 
@@ -25,6 +25,7 @@ export default function TeachersPanel() {
   const [expanded, setExpanded] = useState({})
   const [selectedMonth, setSelectedMonth] = useState(null)
   const [pioneerBusy, setPioneerBusy] = useState(null)
+  const [deleteBusy, setDeleteBusy] = useState(null)
 
   const load = async () => {
     setLoading(true); setError('')
@@ -67,6 +68,25 @@ export default function TeachersPanel() {
       useToastStore.getState().showToast(e?.message || 'Failed to make Pioneer', 'error')
     }
     setPioneerBusy(null)
+  }
+
+  const handleDeleteTeacher = async (t) => {
+    const linked = t.linkedCount || 0
+    const ok = window.confirm(
+      `Delete teacher "${t.name}" permanently?\n\n` +
+      `This signs them out forever and removes their pioneer code.` +
+      (linked ? `\n${linked} linked student${linked === 1 ? '' : 's'} will keep their data but lose this teacher.` : `\nNo students are linked to this teacher.`)
+    )
+    if (!ok) return
+    setDeleteBusy(t.teacherId)
+    try {
+      await adminDeleteTeacher(t.teacherId)
+      useToastStore.getState().showToast(`Deleted teacher "${t.name}"`, 'success')
+      await load()
+    } catch (e) {
+      useToastStore.getState().showToast(e?.message || 'Failed to delete teacher', 'error')
+    }
+    setDeleteBusy(null)
   }
 
   const handleRemovePioneer = async (teacherId) => {
@@ -173,6 +193,10 @@ export default function TeachersPanel() {
             </button>
 
             <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
+              <button onClick={() => handleDeleteTeacher(t)} disabled={deleteBusy === t.teacherId}
+                className="text-[11px] font-bold text-red-600 border border-red-200 rounded-lg px-2.5 py-1 hover:bg-red-50 font-label disabled:opacity-50">
+                {deleteBusy === t.teacherId ? 'Deleting…' : 'Delete'}
+              </button>
               {t.isPioneer ? (
                 <>
                   <span className="text-[11px] font-bold bg-yellow-100 text-yellow-800 border border-yellow-200 rounded-lg px-2 py-1 flex items-center gap-1">
@@ -220,40 +244,32 @@ export default function TeachersPanel() {
 
                 {(t.students || []).length === 0 ? (
                   <p className="text-xs text-[#AAA] font-label">No linked students yet.</p>
+                ) : !selectedMonth ? (
+                  <p className="text-xs text-[#AAA] font-label">Pick a month above to see each student's tests.</p>
                 ) : (
                   <div className="overflow-x-auto">
-                    {(() => {
-                      const months = [...new Set(
-                        (t.students || []).reduce((acc, s) => acc.concat(Object.keys(s.monthlyCounts || {})), [])
-                      )].sort().slice(-6)
-                      return (
-                        <table className="w-full text-left text-xs">
-                          <thead>
-                            <tr className="text-[#888] font-label">
-                              <th className="py-1.5 pr-3 font-semibold">Student</th>
-                              {months.map((m) => (
-                                <th key={m} className="py-1.5 px-2 font-semibold text-right">{monthShort(m)}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(t.students || []).map((s) => (
-                              <tr key={s.studentId} className="border-t border-[#F6F6F5]">
-                                <td className="py-2 pr-3 font-semibold text-[#111]">
-                                  {s.name}
-                                  <span className="text-[#CCC] font-normal"> ({s.phone || 'no phone'})</span>
-                                </td>
-                                {months.map((m) => (
-                                  <td key={m} className={`py-2 px-2 text-right font-semibold ${(s.monthlyCounts || {})[m] >= 3 ? 'text-green-700' : 'text-[#111]'}`}>
-                                    {(s.monthlyCounts || {})[m] || 0}
-                                  </td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )
-                    })()}
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="text-[#888] font-label">
+                          <th className="py-1.5 pr-3 font-semibold">Student</th>
+                          <th className="py-1.5 px-2 font-semibold text-right">{monthShort(selectedMonth)}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(t.students || []).map((s) => (
+                          <tr key={s.studentId} className="border-t border-[#F6F6F5]">
+                            <td className="py-2 pr-3 font-semibold text-[#111]">
+                              {s.name}
+                              <span className="text-[#CCC] font-normal"> ({s.phone || 'no phone'})</span>
+                            </td>
+                            <td className={`py-2 px-2 text-right font-semibold ${(s.monthlyCounts || {})[selectedMonth] >= 3 ? 'text-green-700' : 'text-[#111]'}`}>
+                              {(s.monthlyCounts || {})[selectedMonth] || 0}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="text-[10px] text-[#AAA] font-label mt-2">Showing {monthShort(selectedMonth)} only — change month above.</p>
                   </div>
                 )}
               </div>

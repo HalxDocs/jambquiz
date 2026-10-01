@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { CrownIcon } from '@hugeicons/core-free-icons'
 import { signOut, auth } from '../firebase'
 import { getTeacherDashboard, teacherUpdateDetails, teacherUpdatePhone, getPioneerDashboard } from '../store/useStore'
 import { useToastStore } from '../store/toast'
@@ -189,7 +191,9 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
           {/* Pioneer badge */}
           {teacher?.isPioneer && teacher?.pioneerCode && (
             <div className="bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 rounded-2xl p-5 flex items-center gap-3">
-              <div className="w-10 h-10 bg-yellow-400 rounded-xl flex items-center justify-center text-lg">👑</div>
+              <div className="w-10 h-10 bg-yellow-400 rounded-xl flex items-center justify-center">
+                <HugeiconsIcon icon={CrownIcon} size={20} color="#111" />
+              </div>
               <div>
                 <p className="text-[11px] font-bold text-yellow-800 uppercase tracking-widest font-label">PIONEER</p>
                 <p className="text-sm font-bold text-[#111] font-display">Code: {teacher.pioneerCode}</p>
@@ -344,7 +348,7 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
             )}
             {teacher?.isPioneer && selected && pioneerBonus[selected] > 0 && (
               <p className="text-[10px] text-yellow-300 font-label mt-1.5 flex items-center gap-1">
-                <span>👑</span> Pioneer bonus {naira(pioneerBonus[selected])} ({pioneerQualified[selected] || 0}/20) — Oct-Dec only
+                <HugeiconsIcon icon={CrownIcon} size={12} color="#FDE047" /> Pioneer bonus {naira(pioneerBonus[selected])} ({pioneerQualified[selected] || 0}/20) — Oct-Dec only
               </p>
             )}
           </div>
@@ -454,18 +458,16 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
             </div>
           )}
 
-          {/* History */}
-          {months.length > 0 && students.length > 0 && (
+          {/* History — one month at a time (follows the ‹ › selector above) */}
+          {months.length > 0 && students.length > 0 && selected && (
             <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
-              <h2 className="text-[15px] font-bold text-[#111] font-display mb-3">History</h2>
+              <h2 className="text-[15px] font-bold text-[#111] font-display mb-3">History · {monthLabel(selected)}</h2>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="text-[#888] font-label">
                       <th className="py-1.5 pr-3 font-semibold">Student</th>
-                      {months.map((m) => (
-                        <th key={m} className="py-1.5 px-2 font-semibold text-right">{monthShort(m)}</th>
-                      ))}
+                      <th className="py-1.5 px-2 font-semibold text-right">{monthShort(selected)}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -475,18 +477,16 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
                           {s.name}
                           <span className="text-[#CCC] font-normal"> ({s.phone || 'no phone'})</span>
                         </td>
-                        {months.map((m) => (
-                          <td key={m} className={`py-2 px-2 text-right font-semibold ${(s.monthlyCounts || {})[m] >= 3 ? 'text-green-700' : 'text-[#111]'}`}>
-                            {(s.monthlyCounts || {})[m] || 0}
-                          </td>
-                        ))}
+                        <td className={`py-2 px-2 text-right font-semibold ${(s.monthlyCounts || {})[selected] >= 3 ? 'text-green-700' : 'text-[#111]'}`}>
+                          {(s.monthlyCounts || {})[selected] || 0}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
               <p className="text-[11px] text-[#AAA] font-label mt-3">
-                Cells show tests per month; green means the student qualified you for N500 that month.
+                Tests in {monthShort(selected)} only — use ‹ › above to change month. Green means the student qualified you for N500.
               </p>
             </div>
           )}

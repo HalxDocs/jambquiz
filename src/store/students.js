@@ -33,30 +33,69 @@ export function studentAuthEmail(nameLower) {
   return `${safe}@${AUTH_EMAIL_DOMAIN}`
 }
 
+// Free trial: 2 quiz attempts within 2 weeks of registration. Bonus quizzes
+// (admin-scheduled outside the normal weekend window) never consume it.
+const FREE_TRIAL_ATTEMPTS = 2
+const FREE_TRIAL_DAYS = 14
+
+function isTrialActive(student, now = Date.now()) {
+  if (!student) return false
+  const startRaw = student.trialStartedAt || student.joinedAt || null
+  if (!startRaw) return true // legacy accounts without timestamps: grandfather in
+  const t = new Date(startRaw).getTime()
+  if (!Number.isFinite(t)) return true
+  return now - t < FREE_TRIAL_DAYS * 24 * 60 * 60 * 1000
+}
+
+function trialDaysLeft(student, now = Date.now()) {
+  if (!student) return 0
+  const startRaw = student.trialStartedAt || student.joinedAt || null
+  if (!startRaw) return FREE_TRIAL_DAYS
+  const t = new Date(startRaw).getTime()
+  if (!Number.isFinite(t)) return FREE_TRIAL_DAYS
+  return Math.max(0, Math.ceil((t + FREE_TRIAL_DAYS * 24 * 60 * 60 * 1000 - now) / (24 * 60 * 60 * 1000)))
+}
+
 function getAccessStatus(student) {
-  if (!student) return { status: 'expired', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0 }
-  if (student.suspended) return { status: 'suspended', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0 }
+  if (!student) return { status: 'expired', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0, trialDaysLeft: 0, trialExpired: true }
+  if (student.suspended) return { status: 'suspended', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0, trialDaysLeft: 0, trialExpired: true }
   const now = Date.now()
   const subUntil = student.subscriptionUntil ? new Date(student.subscriptionUntil).getTime() : 0
   const freeUsed = student.freeAttemptsUsed || 0
-  const freeAttemptsLeft = Math.max(0, 2 - freeUsed)
+  const freeAttemptsLeft = Math.max(0, FREE_TRIAL_ATTEMPTS - freeUsed)
+  // Trial starts on the FIRST test, not on registration: zero-test students
+  // are always freebie with a full 14-day window ahead of them.
+  if (freeUsed === 0 && !(subUntil > now)) {
+    return {
+      status: 'freebie',
+      daysLeft: 0,
+      expiresAt: null,
+      freeAttemptsLeft,
+      trialDaysLeft: FREE_TRIAL_DAYS,
+      trialExpired: false,
+    }
+  }
   if (subUntil > now) {
     return {
       status: 'active',
       daysLeft: Math.ceil((subUntil - now) / (1000 * 60 * 60 * 24)),
       expiresAt: new Date(subUntil).toISOString(),
       freeAttemptsLeft,
+      trialDaysLeft: trialDaysLeft(student, now),
+      trialExpired: !isTrialActive(student, now),
     }
   }
-  if (freeUsed < 2) {
+  if (freeUsed < FREE_TRIAL_ATTEMPTS && isTrialActive(student, now)) {
     return {
       status: 'freebie',
       daysLeft: 0,
       expiresAt: null,
       freeAttemptsLeft,
+      trialDaysLeft: trialDaysLeft(student, now),
+      trialExpired: false,
     }
   }
-  return { status: 'expired', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0 }
+  return { status: 'expired', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0, trialDaysLeft: 0, trialExpired: true }
 }
 
 function stripSensitive(student) {
@@ -192,6 +231,17 @@ async function incrementFreeAttempts(studentId) {
   } catch {}
 }
 
+// Server-side trial consume: increments freeAttemptsUsed and starts the
+// 14-day trial clock on the first test. Replaces raw client increments.
+async function consumeFreeAttempt(studentId) {
+  try {
+    const res = await httpsCallable(functions, 'consumeFreeAttempt')({ studentId })
+    return res.data
+  } catch {
+    return null
+  }
+}
+
 function listenStudents(callback) {
   return onSnapshot(collection(db, 'students'), (snapshot) => {
     const students = snapshot.docs.map((d) => stripSensitive({ id: d.id, ...d.data() }))
@@ -234,6 +284,10 @@ async function linkStudentUid(name) {
 }
 
 export {
+  FREE_TRIAL_ATTEMPTS,
+  FREE_TRIAL_DAYS,
+  isTrialActive,
+  trialDaysLeft,
   getAccessStatus,
   registerStudent,
   getStudentByUid,
@@ -247,4 +301,5 @@ export {
   getStudentsCount,
   stripSensitive, stripPersisted, linkStudentUid,
   incrementFreeAttempts,
+  consumeFreeAttempt,
 }

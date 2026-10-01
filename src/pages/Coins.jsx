@@ -1,14 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { SparklesIcon, UserGroupIcon, CheckmarkCircle02Icon, Share01Icon, Coins01Icon } from '@hugeicons/core-free-icons'
 import { functions, httpsCallable } from '../firebase'
-import { getCoinBalance, listCoinPacks, createCoinsCheckout } from '../store/useStore'
+import { getCoinBalance, listCoinPacks, createCoinsCheckout, listenPayments } from '../store/useStore'
 import { useToastStore } from '../store/toast'
 import SEO from '../components/seo/SEO'
+import Receipt from '../components/payments/Receipt'
 
 const EARN_ROWS = [
-  { icon: '🎉', title: 'Sign up', desc: 'Join 274Lab', coins: '+10 coins' },
-  { icon: '👯', title: 'Invite 1 friend', desc: 'They register with your number', coins: '+5 coins' },
-  { icon: '✅', title: 'Complete 1 test', desc: 'Finish a weekly test', coins: '+5 coins' },
-  { icon: '📤', title: 'Share result', desc: 'Share your score after a test', coins: '+5 coins' },
+  { icon: SparklesIcon, title: 'Sign up', desc: 'Join 274Lab', coins: '+20 coins' },
+  { icon: UserGroupIcon, title: 'Invite 1 friend', desc: 'They register with your number', coins: '+50 coins' },
+  { icon: CheckmarkCircle02Icon, title: 'Complete 1 test', desc: 'Finish a weekly test', coins: '+10 coins' },
+  { icon: Share01Icon, title: 'Share result', desc: 'Share your score after a test', coins: '+5 coins' },
 ]
 
 export default function Coins({ student, setStudent, setView }) {
@@ -18,6 +21,10 @@ export default function Coins({ student, setStudent, setView }) {
   const [verifying, setVerifying] = useState(false)
   const [justCredited, setJustCredited] = useState(0)
   const [err, setErr] = useState('')
+  const [email, setEmail] = useState(student?.email || '')
+  const [receipt, setReceipt] = useState(null)
+  const [history, setHistory] = useState([])
+  const [viewingReceipt, setViewingReceipt] = useState(null)
   const verifyingRef = useRef(false)
 
   const refreshBalance = async () => {
@@ -40,6 +47,15 @@ export default function Coins({ student, setStudent, setView }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [student.id])
 
+  // Coin purchase history (for receipts) — same pattern as Subscribe
+  useEffect(() => {
+    const unsub = listenPayments((all) => {
+      setHistory(all.filter((p) => p.studentId === student.id).sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt)))
+    })
+    return () => unsub()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [student.id])
+
   // Paystack redirect callback for coin purchases — verify immediately so the
   // new balance shows without waiting for the webhook.
   useEffect(() => {
@@ -59,7 +75,7 @@ export default function Coins({ student, setStudent, setView }) {
     const verify = async () => {
       try {
         const fn = httpsCallable(functions, 'completePaystackCheckout')
-        await fn({ reference: target })
+        const res = await fn({ reference: target })
         try { localStorage.removeItem('pending_paystack_ref') } catch {}
         try {
           const url = new URL(window.location.href)
@@ -70,10 +86,17 @@ export default function Coins({ student, setStudent, setView }) {
         const fresh = await refreshBalance()
         const credited = fresh != null ? Math.max(0, fresh - before) : 0
         setJustCredited(credited)
-        useToastStore.getState().showToast(
-          credited > 0 ? `+${credited} coins added!` : 'Payment verified — balance updated!',
-          'success'
-        )
+        // Server now returns the payment record — show the full receipt.
+        // Fall back to the paid amount signal when the record isn't attached.
+        const payment = res?.data?.payment || null
+        if (payment) {
+          setReceipt({ ...payment, studentName: payment.studentName || student?.name || '' })
+        } else {
+          useToastStore.getState().showToast(
+            credited > 0 ? `+${credited} coins added!` : 'Payment verified — balance updated!',
+            'success'
+          )
+        }
       } catch (e) {
         // Webhook may still fulfill it a moment later — only alarm on explicit redirect
         if (ref) setErr(e?.message || 'Could not verify coin payment. If you were charged, contact support with ref: ' + target)
@@ -87,11 +110,18 @@ export default function Coins({ student, setStudent, setView }) {
   const handleBuy = async (pack) => {
     setBuying(pack.id); setErr('')
     try {
-      const email = (student.email || '').trim()
-      if (email) {
+      // Email is optional for coins — save it when valid so Paystack can send
+      // the receipt; otherwise proceed without blocking payment.
+      const cleanEmail = (email || '').trim().toLowerCase()
+      if (cleanEmail) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+          setErr('Enter a valid email for your receipt — or leave it blank.')
+          setBuying(null)
+          return
+        }
         try {
           const fn = httpsCallable(functions, 'updateStudentProfile')
-          await fn({ studentId: student.id, email }).catch(() => {})
+          await fn({ studentId: student.id, email: cleanEmail }).catch(() => {})
         } catch {}
       }
       const res = await createCoinsCheckout(student.id, pack.id)
@@ -111,7 +141,7 @@ export default function Coins({ student, setStudent, setView }) {
   const referralNo = student?.referralNo || '…'
 
   const copyReferral = async () => {
-    const text = `Join me on 274Lab and use my number ${referralNo} when you register — we both get coins! https://www.274lab.com/`
+    const text = `Join me start practicing bit by bit for JAMB on 274Lab and use my number ${referralNo} when you register - you get +20 coins and I get +50! https://www.274lab.com/`
     try {
       if (navigator.share) {
         await navigator.share({ title: 'Join 274Lab', text })
@@ -120,6 +150,31 @@ export default function Coins({ student, setStudent, setView }) {
         useToastStore.getState().showToast('Invite copied — share it!', 'success')
       }
     } catch {}
+  }
+
+  // Full receipt after a successful coin purchase — same Receipt design as
+  // every other payment in the app, with share + print.
+  if (receipt) {
+    return (
+      <>
+        <SEO title="Payment Successful" />
+        <div className="min-h-screen bg-[#F8F8F7] flex items-center justify-center p-4">
+          <div className="w-full max-w-sm">
+            <Receipt
+              payment={receipt}
+              emailSentTo={receipt.email || email || student?.email || ''}
+              footerNote={receipt.email || email || student?.email ? 'Paystack also emailed your receipt.' : ''}
+              onDone={() => { setReceipt(null); setView('dashboard') }}
+              doneLabel="Go to Dashboard →"
+            />
+            <button onClick={() => setReceipt(null)}
+              className="w-full mt-2 text-xs text-[#AAA] font-label py-2">
+              Back to Coins
+            </button>
+          </div>
+        </div>
+      </>
+    )
   }
 
   return (
@@ -137,13 +192,15 @@ export default function Coins({ student, setStudent, setView }) {
           {/* Balance hero */}
           <div className="bg-[#111] text-white rounded-2xl p-5 mb-4 text-center">
             <p className="text-[10px] font-semibold text-[#666] uppercase tracking-[0.2em] font-label mb-1">Your balance</p>
-            <p className="text-4xl font-bold font-display">🪙 {balance ?? '—'}</p>
+            <p className="text-4xl font-bold font-display inline-flex items-center gap-2 justify-center">
+              <HugeiconsIcon icon={Coins01Icon} size={32} color="#F5C518" /> {balance ?? '—'}
+            </p>
             <p className="text-[11px] text-[#888] font-label mt-2">
               Your referral number: <span className="text-white font-bold text-sm tracking-widest">{referralNo}</span>
             </p>
             <button onClick={copyReferral}
               className="mt-3 bg-white text-[#111] text-xs font-bold font-label px-4 py-2 rounded-xl hover:bg-neutral-200 active:scale-95 transition-all">
-              Invite a friend → +5 coins
+              Invite a friend → +50 coins
             </button>
           </div>
 
@@ -155,7 +212,9 @@ export default function Coins({ student, setStudent, setView }) {
           )}
           {justCredited > 0 && (
             <div className="mb-3 px-3.5 py-2.5 bg-green-50 border border-green-100 rounded-xl">
-              <p className="text-green-700 text-xs font-bold font-label">🎉 +{justCredited} coins added to your balance!</p>
+              <p className="text-green-700 text-xs font-bold font-label inline-flex items-center gap-1.5">
+                <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} color="#15803D" /> +{justCredited} coins added to your balance!
+              </p>
             </div>
           )}
           {err && (
@@ -170,7 +229,9 @@ export default function Coins({ student, setStudent, setView }) {
             <div className="space-y-2.5">
               {EARN_ROWS.map((r) => (
                 <div key={r.title} className="flex items-center gap-3">
-                  <span className="text-xl shrink-0">{r.icon}</span>
+                  <span className="w-9 h-9 rounded-xl bg-[#111] border border-[#111] flex items-center justify-center shrink-0">
+                    <HugeiconsIcon icon={r.icon} size={18} color="white" />
+                  </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-[#111] font-body">{r.title}</p>
                     <p className="text-[11px] text-[#AAA] font-label">{r.desc}</p>
@@ -182,12 +243,26 @@ export default function Coins({ student, setStudent, setView }) {
           </div>
 
           {/* Buy packs */}
-          <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
+          <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mb-4">
             <p className="text-xs font-bold text-[#888] uppercase tracking-wide font-label mb-3">Buy coins</p>
+            <div className="mb-3">
+              <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">
+                Email <span className="text-[#CCC] normal-case tracking-normal">for payment receipt · optional</span>
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); setErr('') }}
+                placeholder="you@example.com (optional)"
+                className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] bg-white"
+              />
+            </div>
             <div className="space-y-2.5">
               {packs.map((p) => (
                 <div key={p.id} className="flex items-center gap-3 border border-[#F1F1F0] rounded-xl p-3">
-                  <span className="text-2xl shrink-0">🪙</span>
+                  <span className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center shrink-0">
+                    <HugeiconsIcon icon={Coins01Icon} size={20} color="#B87010" />
+                  </span>
                   <div className="flex-1">
                     <p className="text-sm font-bold text-[#111] font-display">{p.coins} coins</p>
                     <p className="text-xs text-[#888] font-label">₦{Number(p.priceNgn || 0).toLocaleString()}</p>
@@ -202,10 +277,49 @@ export default function Coins({ student, setStudent, setView }) {
                 <p className="text-xs text-[#CCC] font-label text-center py-3">Coin packs unavailable right now</p>
               )}
             </div>
-            <p className="text-[10px] text-[#AAA] text-center mt-3 font-label">Secured by Paystack</p>
+            <p className="text-[10px] text-[#AAA] text-center mt-3 font-label">Secured by Paystack · receipt for every payment</p>
           </div>
+
+          {/* Purchase history with receipts */}
+          {history.length > 0 && (
+            <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5">
+              <p className="text-xs font-bold text-[#888] uppercase tracking-wide font-label mb-3">Coin purchase history</p>
+              <div className="space-y-2">
+                {history.filter((p) => (p.type === 'coin_purchase' || p.type === 'coins' || !p.type)).map((p) => (
+                  <div key={p.id} className="flex justify-between items-center py-2 border-b border-[#F3F3F2] last:border-0">
+                    <div>
+                      <p className="text-sm font-bold text-[#111] font-display">+{p.coins || '?'} coins · ₦{Number(p.amount || 0).toLocaleString()}</p>
+                      <p className="text-[10px] text-[#AAA] font-label mt-0.5">
+                        {p.paidAt ? (() => { try { return new Date(p.paidAt).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' }) } catch { return '' } })() : ''}
+                        {p.method && ` · ${p.method}`}
+                      </p>
+                    </div>
+                    <button onClick={() => setViewingReceipt(p)}
+                      className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-[#E5E5E5] text-[#555] hover:text-[#111] font-label shrink-0">
+                      Receipt
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Receipt modal for a past purchase */}
+      {viewingReceipt && (
+        <div className="fixed inset-0 z-[100] bg-black/60 flex items-end sm:items-center justify-center sm:p-4"
+          onClick={() => setViewingReceipt(null)}>
+          <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <Receipt
+              payment={viewingReceipt}
+              emailSentTo={viewingReceipt.email || ''}
+              onDone={() => setViewingReceipt(null)}
+              doneLabel="Close ✓"
+            />
+          </div>
+        </div>
+      )}
     </>
   )
 }
