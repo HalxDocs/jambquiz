@@ -31,6 +31,8 @@ var (
 
 type Service struct {
 	pool *pgxpool.Pool
+	// OnSubmit fires best-effort after a successful submit (e.g. realtime SMS).
+	OnSubmit func(ctx context.Context, studentID, week string, results []SubjectResult)
 }
 
 func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
@@ -442,6 +444,14 @@ func (s *Service) Submit(ctx context.Context, authUID, sessionID string, answers
 
 	// Aggregates are best-effort (never fail the submit).
 	s.updateAggregates(ctx, studentID, week, results)
+
+	// Realtime SMS hook (never fails the submit).
+	if s.OnSubmit != nil {
+		func() {
+			defer func() { _ = recover() }()
+			s.OnSubmit(ctx, studentID, week, results)
+		}()
+	}
 
 	out.Results = results
 	out.ScoreID = detailID

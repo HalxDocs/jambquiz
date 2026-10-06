@@ -13,13 +13,14 @@ type Handler struct {
 	svc *Service
 }
 
-func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string) {
+func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string) *Service {
 	h := &Handler{svc: NewService(pool)}
 	auth := middleware.RequireAuth(secret)
 	r.POST("/api/quiz/start", auth, h.start)
 	r.POST("/api/quiz/submit", auth, h.submit)
 	r.POST("/api/quiz/details", auth, h.details)
 	r.POST("/api/quiz/consume-trial", auth, h.consumeTrial)
+	return h.svc
 }
 
 func unavailable(c *gin.Context, svc *Service) bool {

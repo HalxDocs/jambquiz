@@ -13,6 +13,7 @@ import (
 	"github.com/274lab/server/internal/db"
 	"github.com/274lab/server/internal/modules/auth"
 	"github.com/274lab/server/internal/modules/coins"
+	"github.com/274lab/server/internal/modules/notify"
 	"github.com/274lab/server/internal/modules/payments"
 	"github.com/274lab/server/internal/modules/quiz"
 	"github.com/274lab/server/internal/modules/students"
@@ -40,7 +41,20 @@ func main() {
 
 	r := gin.Default()
 	auth.RegisterRoutes(r, pool, cfg.JWTSecret)
-	quiz.RegisterRoutes(r, pool, cfg.JWTSecret)
+	quizSvc := quiz.RegisterRoutes(r, pool, cfg.JWTSecret)
+	notifySvc := notify.RegisterService(r, pool, cfg.JWTSecret, notify.Config{
+		VapidPublic: cfg.VapidPublic, VapidPrivate: cfg.VapidPrivate,
+		VapidSubject: cfg.VapidSubject, TermiiKey: cfg.TermiiKey, TermiiSender: cfg.TermiiSender,
+	})
+	if cfg.TermiiKey != "" {
+		quizSvc.OnSubmit = func(ctx context.Context, studentID, week string, results []quiz.SubjectResult) {
+			mapped := make([]map[string]any, len(results))
+			for i, res := range results {
+				mapped[i] = map[string]any{"subject": res.Subject, "score": res.Score}
+			}
+			notifySvc.SendRealtimeResultSMS(ctx, studentID, week, mapped)
+		}
+	}
 	coins.RegisterRoutes(r, pool, cfg.JWTSecret)
 	students.RegisterRoutes(r, pool, cfg.JWTSecret)
 	teachers.RegisterRoutes(r, pool, cfg.JWTSecret, cfg.PaystackSecret)
