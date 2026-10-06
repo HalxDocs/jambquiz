@@ -362,7 +362,7 @@ export default function App() {
         />
       )}
       {view === 'quiz' && student && (
-        <Quiz student={student} setView={setView} setLastScore={setLastScore} retakeData={retakeData} setRetakeData={setRetakeData} />
+        <Quiz student={student} setStudent={setStudent} setView={setView} setLastScore={setLastScore} retakeData={retakeData} setRetakeData={setRetakeData} />
       )}
       {view === 'results' && student && (
         <Results student={student} lastScore={lastScore} setView={setView} />

@@ -15,6 +15,31 @@ export default function Subscribe({ student, setStudent, setView }) {
   const [viewingReceipt, setViewingReceipt] = useState(null)
   const bachsInit = useRef(false)
   const paystackVerifying = useRef(false)
+  const PAYSTACK_KEY = (import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '').trim()
+  const [verifyNote, setVerifyNote] = useState('')
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+  // Verify a Paystack reference against the server, polling a few times so a
+  // slow Paystack settle or a cold function does not surface as a failure.
+  // If the webhook fulfilled first, the server returns alreadyFulfilled.
+  const verifyReference = async (target, attempts = 6) => {
+    let lastErr = null
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        setVerifyNote(i === 1 ? 'Confirming payment…' : `Confirming payment… (retry ${i}/${attempts})`)
+        const fn = httpsCallable(functions, 'completePaystackCheckout')
+        const res = await fn({ reference: target })
+        return res?.data || null
+      } catch (e) {
+        lastErr = e
+        const msg = (e?.message || '').toLowerCase()
+        const retryable = msg.includes('not successful yet') || msg.includes('failed-precondition') || msg.includes('unavailable') || msg.includes('internal') || msg.includes('deadline')
+        if (!retryable || i === attempts) throw e
+        await sleep(2500)
+      }
+    }
+    throw lastErr
+  }
 
   useEffect(() => {
     if (typeof window.Bachs !== 'undefined' && !bachsInit.current) {
@@ -51,37 +76,14 @@ export default function Subscribe({ student, setStudent, setView }) {
     setPaying(true)
     const verify = async () => {
       try {
-        const fn = httpsCallable(functions, 'completePaystackCheckout')
-        const res = await fn({ reference: target })
-        // Optimistic: show Active immediately without waiting for Firestore propagation
-        applyOptimisticActive()
-        const pay = res?.data?.payment || null
-        const isResume = target.includes('-RES-')
-        setSuccess(isResume ? 'Payment received — account reactivated!' : 'Payment received — access extended by 1 month!')
-        setSuccessInfo({
-          reference: target,
-          email: pay?.email || email || student.email || '',
-          amount: pay?.amount || SUBSCRIPTION_PRICE_NGN,
-          method: pay?.method || 'paystack',
-          type: pay?.type || (isResume ? 'account_resume' : 'subscription'),
-          paidAt: pay?.paidAt || new Date().toISOString(),
-          extendsTo: pay?.extendsTo || '',
-          studentName: student.name || '',
-        })
-        localStorage.removeItem('pending_paystack_ref')
-        // Clean the URL so a refresh does not re-verify
-        try {
-          const url = new URL(window.location.href)
-          url.searchParams.delete('reference')
-          url.searchParams.delete('trxref')
-          window.history.replaceState({}, '', url.pathname + url.search + url.hash)
-        } catch {}
-        await refreshStudent()
+        const data = await verifyReference(target)
+        await finalizePayment(target, data)
       } catch (e) {
         // Not a hard error — the webhook may still fulfill it a moment later.
         // Only surface a message if this was an explicit redirect (ref in URL).
         if (ref) setErr(e?.message || 'Could not verify Paystack payment. If you were charged, contact support with ref: ' + target)
         // Keep the pending ref so the student can retry via the button
+        setVerifyNote('')
       }
       setPaying(false)
     }
@@ -102,6 +104,34 @@ export default function Subscribe({ student, setStudent, setView }) {
     base.setMonth(base.getMonth() + 1)
     const iso = base.toISOString()
     setStudent({ ...student, subscriptionUntil: iso })
+  }
+
+  const finalizePayment = async (target, data) => {
+    // Optimistic: show Active immediately without waiting for Firestore propagation
+    applyOptimisticActive()
+    const pay = data?.payment || null
+    const isResume = target.includes('-RES-')
+    setSuccess(isResume ? 'Payment received — account reactivated!' : 'Payment received — access extended by 1 month!')
+    setSuccessInfo({
+      reference: target,
+      email: pay?.email || email || student.email || '',
+      amount: pay?.amount || SUBSCRIPTION_PRICE_NGN,
+      method: pay?.method || 'paystack',
+      type: pay?.type || (isResume ? 'account_resume' : 'subscription'),
+      paidAt: pay?.paidAt || new Date().toISOString(),
+      extendsTo: pay?.extendsTo || '',
+      studentName: student.name || '',
+    })
+    try { localStorage.removeItem('pending_paystack_ref') } catch { /* non-fatal */ }
+    // Clean the URL so a refresh does not re-verify
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('reference')
+      url.searchParams.delete('trxref')
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+    } catch { /* non-fatal */ }
+    setVerifyNote('')
+    await refreshStudent()
   }
 
   const openBachsCheckout = async (cleanEmail) => {
@@ -172,9 +202,44 @@ export default function Subscribe({ student, setStudent, setView }) {
       if (authorization_url && reference) {
         try { localStorage.setItem('pending_paystack_ref', reference) } catch {}
         try { localStorage.setItem('pending_paystack_student', student.id) } catch {}
-        // Paystack's hosted checkout (standard.paystack.co) — redirect the
-        // whole page. Paystack will append ?trxref=&reference= to the
-        // callbackUrl and the App root will auto-verify it.
+        // A — inline popup keeps the app (auth + student state) warm instead
+        // of a full-page redirect. Falls back to redirect when the popup lib
+        // or public key is unavailable.
+        if (window.PaystackPop && PAYSTACK_KEY) {
+          try {
+            const handler = window.PaystackPop.setup({
+              key: PAYSTACK_KEY,
+              email: cleanEmail,
+              amount: SUBSCRIPTION_PRICE_NGN * 100,
+              ref: reference,
+              metadata: { studentId: student.id, type: 'subscription' },
+              callback: async (resp) => {
+                setPaying(true)
+                setErr('')
+                try {
+                  const data = await verifyReference(resp?.reference || reference)
+                  await finalizePayment(resp?.reference || reference, data)
+                } catch (e) {
+                  setErr(e?.message || 'Payment received but could not be confirmed yet. Contact support with ref: ' + reference)
+                  setVerifyNote('')
+                }
+                setPaying(false)
+              },
+              onClose: () => {
+                // Popup closed before paying — pending ref stays so retry works.
+                setPaying(false)
+                setVerifyNote('')
+              },
+            })
+            handler.openIframe()
+            return
+          } catch {
+            // fall through to redirect
+          }
+        }
+        // Fallback: Paystack's hosted checkout (standard.paystack.co).
+        // Paystack appends ?trxref=&reference= to the callbackUrl and the
+        // App root auto-verifies it (with retry) on return.
         window.location.href = authorization_url
         return
       }
@@ -201,6 +266,7 @@ export default function Subscribe({ student, setStudent, setView }) {
     active: { color: 'green', label: 'Active' },
     freebie: { color: 'yellow', label: `${status.freeAttemptsLeft} free quiz left` },
     expired: { color: 'red', label: 'Expired' },
+    suspended: { color: 'red', label: 'Suspended' },
   }[status.status]
 
   if (success && successInfo) {
@@ -222,9 +288,15 @@ export default function Subscribe({ student, setStudent, setView }) {
               }}
               emailSentTo={successInfo.email}
               footerNote={successInfo.email ? 'Paystack also emailed your receipt.' : success}
-              onDone={() => { setSuccess(''); setSuccessInfo(null); setView('dashboard') }}
-              doneLabel="Go to Dashboard →"
+              onDone={() => { setSuccess(''); setSuccessInfo(null); setView('quiz') }}
+              doneLabel="Start test →"
             />
+            <button
+              onClick={() => { setSuccess(''); setSuccessInfo(null); setView('dashboard') }}
+              className="w-full mt-2 text-xs text-[#888] hover:text-[#111] font-label py-2 transition-colors"
+            >
+              Back to dashboard
+            </button>
           </div>
         </div>
       </>
@@ -322,7 +394,7 @@ export default function Subscribe({ student, setStudent, setView }) {
                 : 'bg-[#111] text-white hover:bg-[#222] active:scale-[0.99]'
             }`}
           >
-            {paying ? 'Opening payment…' : status.status === 'active' ? 'Extend by 1 month →' : `Pay ₦${SUBSCRIPTION_PRICE_NGN.toLocaleString()} →`}
+            {paying ? (verifyNote || 'Opening payment…') : status.status === 'active' ? 'Extend by 1 month →' : `Pay ₦${SUBSCRIPTION_PRICE_NGN.toLocaleString()} →`}
           </button>
 
           <p className="text-[10px] text-[#AAA] text-center mt-3 font-label">

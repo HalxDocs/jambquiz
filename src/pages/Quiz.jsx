@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { UserGroupIcon } from '@hugeicons/core-free-icons'
 import SEO from '../components/seo/SEO'
-import { db, doc, getDoc } from '../firebase'
-import { startQuiz, submitQuiz, getTopics, listenActiveWeek, normalizeTopic, getAccessStatus, listenQuizDates, isBonusQuiz, WEEKS, LIFELINES_ENABLED, isLifelinesEnabled, consumeFreeAttempt, logEvent, useLifeline, peekStatus, getCoinBalance, getWeekGoats, listGoats, load, save } from '../store/useStore'
+import { db, doc, getDoc, functions, httpsCallable } from '../firebase'
+import { startQuiz, submitQuiz, getTopics, listenActiveWeek, normalizeTopic, getAccessStatus, getStudentById, listenQuizDates, isBonusQuiz, WEEKS, LIFELINES_ENABLED, isLifelinesEnabled, consumeFreeAttempt, logEvent, useLifeline, peekStatus, getCoinBalance, getWeekGoats, listGoats, load, save } from '../store/useStore'
 import { useToastStore } from '../store/toast'
 
 import QuizTimer from '../components/quiz/QuizTimer'
@@ -37,7 +37,7 @@ const ABBR = {
   'Economics': 'Econ', 'Literature in English': 'Lit',
 }
 
-export default function Quiz({ student, setView, setLastScore, retakeData, setRetakeData }) {
+export default function Quiz({ student, setStudent, setView, setLastScore, retakeData, setRetakeData }) {
   const [step, setStep] = useState('init') // init | loading | quiz | done | locked | expired | error
   const [quizData, setQuizData] = useState({}) // { [subject]: { questions, answers, currentQ } }
   const quizDataRef = useRef(quizData)
@@ -56,6 +56,10 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
   const [err, setErr] = useState('')
   const [errTitle, setErrTitle] = useState('No Questions Yet')
+  // Re-gate trigger + "I just paid" retry state (C)
+  const [gateBump, setGateBump] = useState(0)
+  const [rechecking, setRechecking] = useState('')
+  const [recheckErr, setRecheckErr] = useState('')
   // ── Lifelines ──
   const [coins, setCoins] = useState(student.coins ?? 10)
   const [usage, setUsage] = useState({ ask: 0, peek: 0, fifty: 0 })
@@ -148,14 +152,16 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
   useEffect(() => {
     if (!quizDatesReady) return
     if (!currentWeek && !retakeData) return
-    if (step !== 'init') return
+    // Re-runnable from expired/suspended so the "I just paid" retry can
+    // re-gate without a full remount (bumped via gateBump after refresh).
+    if (step !== 'init' && step !== 'expired' && step !== 'suspended') return
     const { status } = getAccessStatus(student)
     if (status === 'suspended') { setStep('suspended'); return }
     if (status === 'expired' && !isBonus) { setStep('expired'); return }
     if (!retakeData && !isInQuizWindow(quizDates)) { setStep('locked'); return }
     logEvent(student.id, 'quiz_loaded', { page: 'dashboard' })
     proceedAfterGate()
-  }, [quizDatesReady, currentWeek])
+  }, [quizDatesReady, currentWeek, gateBump])
 
   // Load quiz via a server-issued session (startQuiz). The server assigns the
   // question set and returns the public content (no answer key).
@@ -587,6 +593,48 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
     )
   }
 
+  // C — "I just paid" retry: re-verify any pending Paystack ref, refresh the
+  // student, and re-run the gate. Covers the case where payment succeeded
+  // but this screen still holds the stale (expired) student snapshot.
+  const handleJustPaid = async () => {
+    setRecheckErr('')
+    try {
+      let pending = null
+      try { pending = localStorage.getItem('pending_paystack_ref') } catch { /* non-fatal */ }
+      if (pending && pending.includes(student.id)) {
+        setRechecking('Confirming payment…')
+        for (let i = 0; i < 4; i++) {
+          try {
+            await httpsCallable(functions, 'completePaystackCheckout')({ reference: pending })
+            break
+          } catch (e) {
+            const m = (e?.message || '').toLowerCase()
+            const retryable = m.includes('not successful yet') || m.includes('failed-precondition')
+            if (!retryable || i === 3) {
+              if (i === 3) throw e
+              break
+            }
+            await new Promise((r) => setTimeout(r, 2500))
+          }
+        }
+        try { localStorage.removeItem('pending_paystack_ref') } catch { /* non-fatal */ }
+      } else {
+        setRechecking('Checking access…')
+      }
+      const fresh = await getStudentById(student.id)
+      if (fresh && setStudent) setStudent(fresh)
+      const { status } = getAccessStatus(fresh || student)
+      if (status === 'expired') {
+        setRecheckErr('Payment not confirmed yet — if you were charged, wait a minute and try again, or contact support.')
+      } else {
+        setGateBump((n) => n + 1)
+      }
+    } catch (e) {
+      setRecheckErr(e?.message || 'Could not confirm payment. Try again.')
+    }
+    setRechecking('')
+  }
+
   if (step === 'expired') {
     return (
       <>
@@ -600,6 +648,16 @@ export default function Quiz({ student, setView, setLastScore, retakeData, setRe
             <button onClick={() => setView('dashboard')} className="flex-1 border border-[#E5E5E5] text-[#555] py-3 rounded-xl text-sm font-bold font-display">Back</button>
             <button onClick={() => setView('subscribe')} className="flex-1 bg-[#111] text-white py-3 rounded-xl text-sm font-bold font-display">Subscribe →</button>
           </div>
+          <button
+            onClick={handleJustPaid}
+            disabled={!!rechecking}
+            className="w-full mt-2 text-xs font-bold font-label py-2.5 text-[#555] hover:text-[#111] disabled:opacity-50 transition-colors"
+          >
+            {rechecking || 'I just paid — check again'}
+          </button>
+          {recheckErr && (
+            <p className="text-red-600 text-xs font-label mt-1">{recheckErr}</p>
+          )}
         </div>
       </div>
     </>

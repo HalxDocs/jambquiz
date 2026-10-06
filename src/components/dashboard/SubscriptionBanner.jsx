@@ -8,6 +8,7 @@ export default function SubscriptionBanner({ student, onSubscribe }) {
     freebie: { bg: 'bg-yellow-50', border: 'border-yellow-100', text: 'text-yellow-800', label: `${access.freeAttemptsLeft} free quiz attempt${access.freeAttemptsLeft !== 1 ? 's' : ''} · ${access.trialDaysLeft}d of trial left` },
     active: { bg: 'bg-blue-50', border: 'border-blue-100', text: 'text-blue-800', label: `Subscription expires in ${access.daysLeft} day${access.daysLeft !== 1 ? 's' : ''}` },
     expired: { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-700', label: 'Access expired — renew to continue' },
+    suspended: { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-700', label: 'Account suspended — reactivate to continue' },
   }[access.status]
 
   return (
@@ -15,7 +16,7 @@ export default function SubscriptionBanner({ student, onSubscribe }) {
       <div>
         <p className={`text-xs font-bold ${styles.text} font-display`}>{styles.label}</p>
         <p className="text-[10px] text-[#888] font-label mt-0.5">
-          {access.status === 'expired' ? 'Tap to subscribe (₦800/month)' : 'Tap to manage subscription'}
+          {access.status === 'expired' ? 'Tap to subscribe (₦800/month)' : access.status === 'suspended' ? 'Tap to reactivate your account' : 'Tap to manage subscription'}
         </p>
       </div>
       <span className={`text-xs font-bold ${styles.text} font-label`}>→</span>
