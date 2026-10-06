@@ -12,6 +12,7 @@ import (
 	"github.com/274lab/server/internal/config"
 	"github.com/274lab/server/internal/db"
 	"github.com/274lab/server/internal/modules/auth"
+	"github.com/274lab/server/internal/modules/coins"
 	"github.com/274lab/server/internal/modules/payments"
 	"github.com/274lab/server/internal/modules/quiz"
 	"github.com/274lab/server/internal/modules/students"
@@ -39,6 +40,7 @@ func main() {
 	r := gin.Default()
 	auth.RegisterRoutes(r, pool, cfg.JWTSecret)
 	quiz.RegisterRoutes(r, pool, cfg.JWTSecret)
+	coins.RegisterRoutes(r, pool, cfg.JWTSecret)
 	students.RegisterRoutes(r, pool, cfg.JWTSecret)
 	payments.RegisterRoutes(r, pool, cfg.JWTSecret, payments.Config{
 		PaystackSecret:       cfg.PaystackSecret,
