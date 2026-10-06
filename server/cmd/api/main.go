@@ -13,6 +13,7 @@ import (
 	"github.com/274lab/server/internal/db"
 	"github.com/274lab/server/internal/modules/auth"
 	"github.com/274lab/server/internal/modules/quiz"
+	"github.com/274lab/server/internal/modules/students"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -37,6 +38,7 @@ func main() {
 	r := gin.Default()
 	auth.RegisterRoutes(r, pool, cfg.JWTSecret)
 	quiz.RegisterRoutes(r, pool, cfg.JWTSecret)
+	students.RegisterRoutes(r, pool, cfg.JWTSecret)
 	r.GET("/healthz", func(c *gin.Context) {
 		status := "up"
 		code := http.StatusOK
