@@ -397,10 +397,10 @@ func (s *Service) Submit(ctx context.Context, authUID, sessionID string, answers
 
 	for _, sc := range scores {
 		if _, err := tx.Exec(ctx, `INSERT INTO scores
-			(id, student_id, uid, student_name, subject, week, score, out_of, correct, wrong, unanswered, total, is_retake)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,100,$8,$9,$10,$11,$12)`,
+			(id, student_id, uid, student_name, subject, week, score, out_of, correct, wrong, unanswered, total, is_retake, date)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,100,$8,$9,$10,$11,$12,$13)`,
 			sc.id, studentID, authUID, studentName, sc.subject, week, sc.score,
-			sc.correct, sc.wrong, sc.unanswered, sc.total, isRetake); err != nil {
+			sc.correct, sc.wrong, sc.unanswered, sc.total, isRetake, now); err != nil {
 			return out, err
 		}
 	}

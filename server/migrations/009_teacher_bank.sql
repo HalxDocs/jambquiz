@@ -1,0 +1,9 @@
+-- 009: score date (month grouping) + teacher bank/pioneer fields.
+ALTER TABLE scores ADD COLUMN IF NOT EXISTS date TIMESTAMPTZ;
+UPDATE scores SET date = created_at WHERE date IS NULL;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS pioneer_since TIMESTAMPTZ;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS account_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS bank_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS bank_verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS bank_verified_at TIMESTAMPTZ;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS phone_updated_at TIMESTAMPTZ;

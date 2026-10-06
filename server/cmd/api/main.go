@@ -16,6 +16,7 @@ import (
 	"github.com/274lab/server/internal/modules/payments"
 	"github.com/274lab/server/internal/modules/quiz"
 	"github.com/274lab/server/internal/modules/students"
+	"github.com/274lab/server/internal/modules/teachers"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -42,6 +43,7 @@ func main() {
 	quiz.RegisterRoutes(r, pool, cfg.JWTSecret)
 	coins.RegisterRoutes(r, pool, cfg.JWTSecret)
 	students.RegisterRoutes(r, pool, cfg.JWTSecret)
+	teachers.RegisterRoutes(r, pool, cfg.JWTSecret, cfg.PaystackSecret)
 	payments.RegisterRoutes(r, pool, cfg.JWTSecret, payments.Config{
 		PaystackSecret:       cfg.PaystackSecret,
 		PaystackCallbackURL:  cfg.PaystackCallbackURL,
