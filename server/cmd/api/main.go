@@ -11,9 +11,11 @@ import (
 
 	"github.com/274lab/server/internal/config"
 	"github.com/274lab/server/internal/db"
+	"github.com/274lab/server/internal/modules/analytics"
 	"github.com/274lab/server/internal/modules/auth"
 	"github.com/274lab/server/internal/modules/boards"
 	"github.com/274lab/server/internal/modules/coins"
+	"github.com/274lab/server/internal/modules/content"
 	"github.com/274lab/server/internal/modules/notify"
 	"github.com/274lab/server/internal/modules/payments"
 	"github.com/274lab/server/internal/modules/quiz"
@@ -57,6 +59,8 @@ func main() {
 		}
 	}
 	coins.RegisterRoutes(r, pool, cfg.JWTSecret)
+	content.RegisterRoutes(r, pool, cfg.JWTSecret)
+	analytics.RegisterRoutes(r, pool, cfg.JWTSecret)
 	boards.RegisterRoutes(r, pool, cfg.JWTSecret)
 	students.RegisterRoutes(r, pool, cfg.JWTSecret)
 	teachers.RegisterRoutes(r, pool, cfg.JWTSecret, cfg.PaystackSecret)

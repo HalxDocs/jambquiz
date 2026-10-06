@@ -23,6 +23,7 @@ func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string, cfg Config
 	r.POST("/api/payments/bachs/complete", auth, h.completeBachs)
 	r.POST("/api/webhooks/paystack", h.paystackWebhook)
 	r.POST("/api/webhooks/bachs", h.bachsWebhook)
+	r.GET("/api/admin/payments/sync", middleware.RequireAuth(secret), middleware.RequireRole("admin"), h.syncPaystack)
 }
 
 func unavailable(c *gin.Context, svc *Service) bool {
@@ -208,4 +209,16 @@ func (h *Handler) bachsWebhook(c *gin.Context) {
 		return
 	}
 	c.String(http.StatusOK, "ok")
+}
+
+func (h *Handler) syncPaystack(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	synced, skipped, failed, err := h.svc.SyncPaystack(c.Request.Context())
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "synced": synced, "skipped": skipped, "failed": failed})
 }

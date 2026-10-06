@@ -29,6 +29,8 @@ func RegisterService(r *gin.Engine, pool *pgxpool.Pool, secret string, cfg Confi
 	r.POST("/api/admin/test-sms", auth, admin, h.testSMS)
 	r.POST("/api/notify/accountability-intro", auth, h.intro)
 	r.POST("/api/notify/welcome-sms", auth, h.welcome)
+	r.POST("/api/admin/sms/clear-guards", auth, admin, h.clearGuards)
+	r.GET("/api/admin/sms/debug", auth, admin, h.debugSMS)
 	return h.svc
 }
 
@@ -181,4 +183,38 @@ func (h *Handler) welcome(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "sentCount": sent})
+}
+
+func (h *Handler) clearGuards(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	ctx := c.Request.Context()
+	var deleted int
+	r1, _ := h.svc.pool.Exec(ctx, `DELETE FROM reminder_sent`)
+	deleted += int(r1.RowsAffected())
+	r2, _ := h.svc.pool.Exec(ctx, `DELETE FROM admin_settings
+		WHERE id LIKE 'quiz_sms_%' OR id LIKE 'absent_sms_%' OR id LIKE 'advance_week_%'`)
+	deleted += int(r2.RowsAffected())
+	c.JSON(http.StatusOK, gin.H{"ok": true, "deleted": deleted})
+}
+
+func (h *Handler) debugSMS(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	ctx := c.Request.Context()
+	week := h.svc.activeWeek(ctx)
+	qd := h.svc.getQuizDates(ctx, week)
+	var scoreCount int
+	_ = h.svc.pool.QueryRow(ctx, `SELECT count(*) FROM scores WHERE week=$1`, week).Scan(&scoreCount)
+	var studentCount int
+	_ = h.svc.pool.QueryRow(ctx, `SELECT count(*) FROM students`).Scan(&studentCount)
+	var guards int
+	_ = h.svc.pool.QueryRow(ctx, `SELECT count(*) FROM reminder_sent`).Scan(&guards)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "week": week,
+		"quizDates":      map[string]string{"date1": qd.Date1, "date2": qd.Date2},
+		"scoresThisWeek": scoreCount, "students": studentCount,
+		"reminderGuards": guards, "termiiConfigured": h.svc.cfg.TermiiKey != "",
+		"pushConfigured": h.svc.sender.Configured()})
 }

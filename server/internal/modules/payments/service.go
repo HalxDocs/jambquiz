@@ -711,6 +711,129 @@ func (s *Service) BachsWebhook(ctx context.Context, queryToken, tsHeader, sigHea
 	return nil
 }
 
+func (s *Service) paystackList(ctx context.Context) ([]map[string]any, error) {
+	if s.cfg.PaystackSecret == "" {
+		return nil, ErrNotConfigured
+	}
+	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.paystack.co/transaction?perPage=100", nil)
+	req.Header.Set("Authorization", "Bearer "+s.cfg.PaystackSecret)
+	res, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(res.Body)
+	var decoded struct {
+		Status  bool             `json:"status"`
+		Message string           `json:"message"`
+		Data    []map[string]any `json:"data"`
+	}
+	_ = json.Unmarshal(raw, &decoded)
+	if !decoded.Status {
+		return nil, fmt.Errorf("paystack fetch failed: %s", decoded.Message)
+	}
+	return decoded.Data, nil
+}
+
+// SyncPaystack pulls recent successful 274L- transactions and fulfills any
+// the webhook missed (repair path, admin only).
+func (s *Service) SyncPaystack(ctx context.Context) (synced, skipped, failed int, err error) {
+	list, err := s.paystackList(ctx)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	for _, trx := range list {
+		if trx["status"] != "success" {
+			continue
+		}
+		ref, _ := trx["reference"].(string)
+		if !strings.HasPrefix(ref, "274L-") {
+			continue
+		}
+		var hasPay bool
+		_ = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM payments WHERE reference=$1)`, ref).Scan(&hasPay)
+		if hasPay {
+			skipped++
+			continue
+		}
+		var hasMap bool
+		_ = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM paystackCheckouts WHERE reference=$1)`, ref).Scan(&hasMap)
+		if !hasMap {
+			meta, _ := trx["metadata"].(map[string]any)
+			sid, _ := meta["studentId"].(string)
+			typ, _ := meta["type"].(string)
+			if sid == "" {
+				parts := strings.Split(ref, "-")
+				if len(parts) >= 3 {
+					sid = parts[2]
+				}
+			}
+			if typ == "" {
+				typ = "subscription"
+				if strings.Contains(ref, "-COIN-") {
+					typ = "coins"
+				}
+			}
+			var exists bool
+			_ = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM students WHERE id=$1)`, sid).Scan(&exists)
+			if !exists {
+				failed++
+				continue
+			}
+			coins, _ := meta["coins"].(float64)
+			price := 0
+			if p, ok := meta["priceNgn"].(float64); ok {
+				price = int(p)
+			}
+			if _, err := s.pool.Exec(ctx, `INSERT INTO paystackCheckouts
+				(reference, student_id, type, coins, price_ngn, status) VALUES ($1,$2,$3,$4,$5,'PENDING')`,
+				ref, sid, typ, intOrNil(int(coins), typ == "coins"), intOrNil(price, true)); err != nil {
+				failed++
+				continue
+			}
+		}
+		data := trxToPaystackData(trx)
+		if _, err := s.fulfillPaystack(ctx, ref, data); err != nil {
+			failed++
+			continue
+		}
+		synced++
+	}
+	return synced, skipped, failed, nil
+}
+
+func intOrNil(n int, ok bool) any {
+	if !ok {
+		return nil
+	}
+	return n
+}
+
+func trxToPaystackData(trx map[string]any) *paystackData {
+	d := &paystackData{}
+	if v, ok := trx["reference"].(string); ok {
+		d.Reference = v
+	}
+	if v, ok := trx["amount"].(float64); ok {
+		d.Amount = int(v)
+	}
+	if v, ok := trx["currency"].(string); ok {
+		d.Currency = v
+	}
+	if v, ok := trx["status"].(string); ok {
+		d.Status = v
+	}
+	if v, ok := trx["paid_at"].(string); ok {
+		d.PaidAt = v
+	}
+	if cust, ok := trx["customer"].(map[string]any); ok {
+		if e, ok := cust["email"].(string); ok {
+			d.Customer.Email = e
+		}
+	}
+	return d
+}
+
 func orDefault(s, d string) string {
 	if s == "" {
 		return d
