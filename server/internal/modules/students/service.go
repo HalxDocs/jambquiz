@@ -56,7 +56,8 @@ func scanStudent(row interface {
 	Scan(...any) error
 }) (Student, error) {
 	var st Student
-	var subUntil, referralNo, joined *string
+	var subUntil *time.Time
+	var referralNo, joined *string
 	var subjects []string
 	var joinedT *time.Time
 	err := row.Scan(
@@ -72,7 +73,7 @@ func scanStudent(row interface {
 	if st.Subjects == nil {
 		st.Subjects = []string{}
 	}
-	st.SubscriptionUntil = subUntil
+	st.SubscriptionUntil = formatTime(subUntil)
 	st.ReferralNo = referralNo
 	if joinedT != nil {
 		s := joinedT.UTC().Format(time.RFC3339)
@@ -80,6 +81,14 @@ func scanStudent(row interface {
 	}
 	st.JoinedAt = joined
 	return st, nil
+}
+
+func formatTime(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := t.UTC().Format(time.RFC3339)
+	return &s
 }
 
 func (s *Service) Get(ctx context.Context, id string) (Student, error) {

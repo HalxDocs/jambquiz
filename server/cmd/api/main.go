@@ -12,6 +12,7 @@ import (
 	"github.com/274lab/server/internal/config"
 	"github.com/274lab/server/internal/db"
 	"github.com/274lab/server/internal/modules/auth"
+	"github.com/274lab/server/internal/modules/payments"
 	"github.com/274lab/server/internal/modules/quiz"
 	"github.com/274lab/server/internal/modules/students"
 	"github.com/gin-gonic/gin"
@@ -39,6 +40,15 @@ func main() {
 	auth.RegisterRoutes(r, pool, cfg.JWTSecret)
 	quiz.RegisterRoutes(r, pool, cfg.JWTSecret)
 	students.RegisterRoutes(r, pool, cfg.JWTSecret)
+	payments.RegisterRoutes(r, pool, cfg.JWTSecret, payments.Config{
+		PaystackSecret:       cfg.PaystackSecret,
+		PaystackCallbackURL:  cfg.PaystackCallbackURL,
+		BachsAPIKey:          cfg.BachsAPIKey,
+		BachsSubProductID:    cfg.BachsSubProductID,
+		BachsResumeProductID: cfg.BachsResumeProductID,
+		BachsWebhookToken:    cfg.BachsWebhookToken,
+		BachsWebhookSecret:   cfg.BachsWebhookSecret,
+	})
 	r.GET("/healthz", func(c *gin.Context) {
 		status := "up"
 		code := http.StatusOK

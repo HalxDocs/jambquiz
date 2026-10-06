@@ -94,7 +94,8 @@ type RegisterInput struct {
 
 func scanStudent(row pgx.Row) (Student, error) {
 	var st Student
-	var subUntil, referralNo *string
+	var subUntil *time.Time
+	var referralNo *string
 	var subjects []string
 	err := row.Scan(
 		&st.ID, &st.Name, &st.Nickname, &st.Year, &st.Email,
@@ -109,9 +110,17 @@ func scanStudent(row pgx.Row) (Student, error) {
 	if st.Subjects == nil {
 		st.Subjects = []string{}
 	}
-	st.SubscriptionUntil = subUntil
+	st.SubscriptionUntil = formatTime(subUntil)
 	st.ReferralNo = referralNo
 	return st, nil
+}
+
+func formatTime(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := t.UTC().Format(time.RFC3339)
+	return &s
 }
 
 const studentCols = `id, name, nickname, year, email, phone, parent_phone,
@@ -263,7 +272,8 @@ func (s *Service) Login(ctx context.Context, name, password string) (Student, st
 	var st Student
 	var pwHash string
 	var subjects []string
-	var subUntil, referralNo *string
+	var subUntil *time.Time
+	var referralNo *string
 	err := s.pool.QueryRow(ctx, `SELECT `+studentCols+`, password_hash FROM students WHERE name_lower = $1`, nameLower).Scan(
 		&st.ID, &st.Name, &st.Nickname, &st.Year, &st.Email,
 		&st.Phone, &st.ParentPhone, &st.TeacherPhone,
@@ -280,7 +290,7 @@ func (s *Service) Login(ctx context.Context, name, password string) (Student, st
 	if st.Subjects == nil {
 		st.Subjects = []string{}
 	}
-	st.SubscriptionUntil = subUntil
+	st.SubscriptionUntil = formatTime(subUntil)
 	st.ReferralNo = referralNo
 	tok, err := s.sign(st.ID, st.Role)
 	if err != nil {
