@@ -1,5 +1,5 @@
 // Command worker runs one scheduled job and exits.
-// Usage: go run ./cmd/worker <keypoints|quiz-reminders|quiz-time|advance-week|absent-sms|quiz-sms>
+// Usage: go run ./cmd/worker <keypoints|quiz-reminders|quiz-time|advance-week|absent-sms|quiz-sms|leaderboard|public-stats>
 package main
 
 import (
@@ -11,8 +11,20 @@ import (
 
 	"github.com/274lab/server/internal/config"
 	"github.com/274lab/server/internal/db"
+	"github.com/274lab/server/internal/modules/boards"
 	"github.com/274lab/server/internal/modules/notify"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func boardsSvc(ctx context.Context, pool *pgxpool.Pool, job string) error {
+	svc := boards.NewService(pool)
+	switch job {
+	case "leaderboard":
+		return svc.ComputeLeaderboard(ctx)
+	default:
+		return svc.RefreshPublicStats(ctx)
+	}
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -59,6 +71,12 @@ func main() {
 		var sent int
 		sent, err = svc.RunQuizSMSReport(ctx, now)
 		out = fmt.Sprintf("sent=%d", sent)
+	case "leaderboard":
+		err = boardsSvc(ctx, pool, "leaderboard")
+		out = "ok"
+	case "public-stats":
+		err = boardsSvc(ctx, pool, "public-stats")
+		out = "ok"
 	default:
 		log.Fatalf("unknown job %q", job)
 	}
