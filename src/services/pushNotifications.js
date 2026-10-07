@@ -52,7 +52,8 @@ export async function registerPushNotifications() {
 }
 
 /**
- * Save push subscription to Firestore for server-side push delivery
+ * Save push subscription to Firestore for server-side push delivery,
+ * and mirror it to the Go backend (dual-write during the push cutover).
  */
 export async function savePushSubscriptionToFirestore(studentId, subscription) {
   if (!studentId || !subscription) return
@@ -67,6 +68,21 @@ export async function savePushSubscriptionToFirestore(studentId, subscription) {
   } catch (err) {
     console.error('[Push] Failed to save subscription')
   }
+  // Dual-write to Go (best-effort, unauthenticated endpoint).
+  try {
+    const base = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
+    if (base) {
+      await fetch(`${base}/api/push/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId,
+          endpoint: subscription.endpoint,
+          keys: subscription.toJSON().keys,
+        }),
+      })
+    }
+  } catch {}
 }
 
 /**

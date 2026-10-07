@@ -29,6 +29,7 @@ func RegisterService(r *gin.Engine, pool *pgxpool.Pool, secret string, cfg Confi
 	r.POST("/api/admin/test-sms", auth, admin, h.testSMS)
 	r.POST("/api/notify/accountability-intro", auth, h.intro)
 	r.POST("/api/notify/welcome-sms", auth, h.welcome)
+	r.POST("/api/push/subscribe", h.subscribe)
 	r.POST("/api/admin/sms/clear-guards", auth, admin, h.clearGuards)
 	r.GET("/api/admin/sms/debug", auth, admin, h.debugSMS)
 	return h.svc
@@ -217,4 +218,32 @@ func (h *Handler) debugSMS(c *gin.Context) {
 		"scoresThisWeek": scoreCount, "students": studentCount,
 		"reminderGuards": guards, "termiiConfigured": h.svc.cfg.TermiiKey != "",
 		"pushConfigured": h.svc.sender.Configured()})
+}
+
+func (h *Handler) subscribe(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	var in struct {
+		StudentID string `json:"studentId"`
+		Endpoint  string `json:"endpoint"`
+		Keys      struct {
+			P256dh string `json:"p256dh"`
+			Auth   string `json:"auth"`
+		} `json:"keys"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.StudentID == "" || in.Endpoint == "" ||
+		in.Keys.P256dh == "" || in.Keys.Auth == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		return
+	}
+	if len(in.Endpoint) > 2048 {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		return
+	}
+	if err := h.svc.SaveSubscription(c.Request.Context(), in.StudentID, in.Endpoint, in.Keys.P256dh, in.Keys.Auth); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "internal error"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

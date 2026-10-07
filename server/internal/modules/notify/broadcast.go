@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"github.com/274lab/server/pkg/sms"
 	"strings"
@@ -191,4 +192,22 @@ func newID() string {
 		out[i*2+1] = hexd[v&0x0f]
 	}
 	return string(out)
+}
+
+// SaveSubscription upserts a push subscription. Public endpoint (Firebase
+// sessions carry no Go JWT yet): abuse-shaped input is rejected by field
+// validation, and sends to dead endpoints are pruned on first use.
+func (s *Service) SaveSubscription(ctx context.Context, studentID, endpoint, p256dh, auth string) error {
+	if studentID == "" || endpoint == "" || p256dh == "" || auth == "" {
+		return errBadInput
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM students WHERE id=$1)`, studentID).Scan(&exists); err != nil || !exists {
+		return errNotFound
+	}
+	keys, _ := json.Marshal(map[string]string{"p256dh": p256dh, "auth": auth})
+	_, err := s.pool.Exec(ctx, `INSERT INTO push_subscriptions (student_id, endpoint, keys, updated_at)
+		VALUES ($1,$2,$3,now()) ON CONFLICT (student_id) DO UPDATE
+		SET endpoint=$2, keys=$3, updated_at=now()`, studentID, endpoint, keys)
+	return err
 }
