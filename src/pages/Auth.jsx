@@ -695,7 +695,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                         <p><strong>2. Data Collection</strong><br/>We collect your name, academic performance data (quiz scores), and phone numbers you provide for progress reports.</p>
                         <p><strong>3. SMS Communication</strong><br/>By providing parent/teacher phone numbers, you consent to receiving automated weekly performance SMS reports. Standard message rates may apply.</p>
                         <p><strong>4. Push Notifications</strong><br/>You may receive educational push notifications. You can disable these in your browser settings at any time.</p>
-                        <p><strong>5. Subscription &amp; Payments</strong><br/>Paid subscriptions grant continued access. You may use limited free attempts before subscribing. Payments are processed through Bachs and are non-refundable except where required by law.</p>
+                        <p><strong>5. Subscription &amp; Payments</strong><br/>Paid subscriptions grant continued access. You may use limited free attempts before subscribing. Payments are processed through Paystack and are non-refundable except where required by law.</p>
                         <p><strong>6. Acceptable Use</strong><br/>You agree to use the platform solely for educational purposes. Any misuse, including automated access or cheating, may result in account suspension.</p>
                         <p><strong>7. Changes to Terms</strong><br/>We may update these terms at any time. Continued use after changes constitutes acceptance.</p>
                         <p><strong>8. Contact</strong><br/>For questions, reach out via the Contact page in the app or email contact@274lab.com.</p>

@@ -13,7 +13,6 @@ export default function Subscribe({ student, setStudent, setView }) {
   const [history, setHistory] = useState([])
   const [email, setEmail] = useState(student.email || '')
   const [viewingReceipt, setViewingReceipt] = useState(null)
-  const bachsInit = useRef(false)
   const paystackVerifying = useRef(false)
   const PAYSTACK_KEY = (import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '').trim()
   const [verifyNote, setVerifyNote] = useState('')
@@ -40,13 +39,6 @@ export default function Subscribe({ student, setStudent, setView }) {
     }
     throw lastErr
   }
-
-  useEffect(() => {
-    if (typeof window.Bachs !== 'undefined' && !bachsInit.current) {
-      window.Bachs.Initialize({ onEvent: () => {} })
-      bachsInit.current = true
-    }
-  }, [])
 
   useEffect(() => { logEvent(student.id, 'page_view', { page: 'subscribe' }) }, [])
 
@@ -134,50 +126,6 @@ export default function Subscribe({ student, setStudent, setView }) {
     await refreshStudent()
   }
 
-  const openBachsCheckout = async (cleanEmail) => {
-    if (typeof window.Bachs === 'undefined') {
-      setErr('Payment library not loaded. Refresh and try again.')
-      setPaying(false)
-      return
-    }
-    try {
-      const fn = httpsCallable(functions, 'createBachsCheckout')
-      const result = await fn({ studentId: student.id, type: 'subscription' })
-      const { checkout_url, checkout_id } = result.data
-
-      window.Bachs.Checkout.open({
-        checkoutUrl: checkout_url,
-        onEvent: async (event) => {
-          if (event.type === 'checkout.completed') {
-            try {
-              const verifyFn = httpsCallable(functions, 'completeBachsCheckout')
-              const verifyRes = await verifyFn({ checkoutId: checkout_id })
-              applyOptimisticActive()
-              const bpay = verifyRes?.data?.payment || null
-              setSuccess('Payment received — access extended by 1 month!')
-              setSuccessInfo({ reference: checkout_id, email: bpay?.email || cleanEmail, amount: bpay?.amount || SUBSCRIPTION_PRICE_NGN, method: 'bachs', type: 'subscription', paidAt: bpay?.paidAt || new Date().toISOString(), extendsTo: bpay?.extendsTo || '', studentName: student?.name || '' })
-              await refreshStudent()
-            } catch (e) {
-              console.error(e)
-              setErr('Payment received but failed to verify. Contact admin with checkout ID: ' + checkout_id)
-            }
-            setPaying(false)
-          }
-          if (event.type === 'checkout.failed' || event.type === 'checkout.expired') {
-            setErr('Payment was not completed. Please try again.')
-            setPaying(false)
-          }
-          if (event.type === 'checkout.closed') {
-            setPaying(false)
-          }
-        },
-      })
-    } catch (e) {
-      setErr(e?.message || 'Failed to start Bachs payment. Please try again.')
-      setPaying(false)
-    }
-  }
-
   const handlePay = async () => {
     const cleanEmail = email.trim().toLowerCase()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
@@ -193,7 +141,7 @@ export default function Subscribe({ student, setStudent, setView }) {
       try { await updateStudent(student.id, { email: cleanEmail }) } catch { /* non-fatal */ }
     }
 
-    // ── Primary: Paystack ──────────────────────────────────────────────
+    // ── Paystack (only gateway) ──────────────────────────────────────
     try {
       const callbackUrl = window.location.origin + '/'
       const fn = httpsCallable(functions, 'createPaystackCheckout')
@@ -245,21 +193,9 @@ export default function Subscribe({ student, setStudent, setView }) {
       }
       throw new Error('Paystack did not return an authorization URL')
     } catch (e) {
-      const msg = (e && e.message) || ''
-      const notConfigured = msg.includes('PAYSTACK_SECRET_KEY') || msg.includes('not configured') || msg.includes('failed-precondition')
-      if (notConfigured) {
-        // Paystack not set up — silently fall through to Bachs backup.
-        console.log('[Paystack] not configured, falling back to Bachs:', msg)
-      } else {
-        console.warn('[Paystack] init failed, falling back to Bachs:', msg)
-        // For transient Paystack errors we still try Bachs so the student is not blocked.
-        // Surface a soft hint but keep paying=true while Bachs opens.
-        setErr('Paystack is temporarily unavailable — trying backup gateway…')
-      }
+      setErr(e?.message || 'Could not start payment. Check your connection and try again.')
+      setPaying(false)
     }
-
-    // ── Backup: Bachs ──────────────────────────────────────────────────
-    await openBachsCheckout(cleanEmail)
   }
 
   const statusBadge = {
@@ -398,7 +334,7 @@ export default function Subscribe({ student, setStudent, setView }) {
           </button>
 
           <p className="text-[10px] text-[#AAA] text-center mt-3 font-label">
-            Secured by Paystack · Bachs as backup · 2 free quizzes on signup
+            Secured by Paystack · 2 free quizzes on signup
           </p>
         </div>
 

@@ -1,18 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { functions, httpsCallable } from '../../firebase'
 
 const RESUME_PRICE = 800
+const PAYSTACK_KEY = (import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '').trim()
 
 export default function AppealOverlay({ student, onAppealed }) {
   const [step, setStep] = useState('notice')
-  const bachsInit = useRef(false)
-
-  useEffect(() => {
-    if (typeof window.Bachs !== 'undefined' && !bachsInit.current) {
-      window.Bachs.Initialize({ onEvent: () => {} })
-      bachsInit.current = true
-    }
-  }, [])
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -37,42 +30,45 @@ export default function AppealOverlay({ student, onAppealed }) {
   }
 
   const handlePay = async () => {
-    if (typeof window.Bachs === 'undefined') {
-      setError('Payment library not loaded. Refresh and try again.')
-      return
-    }
-
     setPaying(true)
     setError('')
 
     try {
-      const fn = httpsCallable(functions, 'createBachsCheckout')
-      const result = await fn({ studentId: student.id, type: 'resume' })
-      const { checkout_url, checkout_id } = result.data
-
-      window.Bachs.Checkout.open({
-        checkoutUrl: checkout_url,
-        onEvent: async (event) => {
-          if (event.type === 'checkout.completed') {
-            try {
-              const verifyFn = httpsCallable(functions, 'completeBachsCheckout')
-              await verifyFn({ checkoutId: checkout_id })
-              onAppealed()
-            } catch (e) {
-              console.error(e)
-              setError('Payment received but failed to verify. Contact admin with checkout ID: ' + checkout_id)
-            }
-            setPaying(false)
-          }
-          if (event.type === 'checkout.failed' || event.type === 'checkout.expired') {
-            setError('Payment was not completed. Please try again.')
-            setPaying(false)
-          }
-          if (event.type === 'checkout.closed') {
-            setPaying(false)
-          }
-        },
-      })
+      const fn = httpsCallable(functions, 'createPaystackCheckout')
+      const result = await fn({ studentId: student.id, type: 'resume', callbackUrl: window.location.origin + '/' })
+      const { authorization_url, reference } = result.data || {}
+      if (!authorization_url || !reference) throw new Error('Paystack did not return a checkout URL')
+      try { localStorage.setItem('pending_paystack_ref', reference) } catch {}
+      const email = (student.email || '').trim().toLowerCase() ||
+        `${String(student.name || 'student').toLowerCase().replace(/\s+/g, '.')}@274lab.app`
+      // Inline popup keeps the app warm; falls back to hosted redirect.
+      if (window.PaystackPop && PAYSTACK_KEY) {
+        try {
+          const handler = window.PaystackPop.setup({
+            key: PAYSTACK_KEY,
+            email,
+            amount: RESUME_PRICE * 100,
+            ref: reference,
+            metadata: { studentId: student.id, type: 'resume' },
+            callback: async (resp) => {
+              try {
+                await httpsCallable(functions, 'completePaystackCheckout')({ reference: resp?.reference || reference })
+                try { localStorage.removeItem('pending_paystack_ref') } catch {}
+                onAppealed()
+              } catch (e) {
+                setError(e?.message || 'Payment received but could not be confirmed yet. Contact support with ref: ' + reference)
+              }
+              setPaying(false)
+            },
+            onClose: () => setPaying(false),
+          })
+          handler.openIframe()
+          return
+        } catch {
+          // fall through to redirect
+        }
+      }
+      window.location.href = authorization_url
     } catch (e) {
       setError(e?.message || 'Failed to start payment. Please try again.')
       setPaying(false)
