@@ -374,6 +374,12 @@ func (s *Service) fulfillPaystack(ctx context.Context, reference string, data *p
 		if _, err := tx.Exec(ctx, `UPDATE students SET subscription_until=$1, updated_at=now() WHERE id=$2`, iso, freshStudent); err != nil {
 			return FulfillResult{}, err
 		}
+		// A paying customer is never left locked: subscription also lifts a
+		// red-card suspension (same price as resume, same effect).
+		if _, err := tx.Exec(ctx, `UPDATE students SET missed_streak=0, suspended=false, appealed_at=$1,
+			updated_at=now() WHERE id=$2 AND suspended=true`, now, freshStudent); err != nil {
+			return FulfillResult{}, err
+		}
 	case "resume":
 		pay.Type = "account_resume"
 		if _, err := tx.Exec(ctx, `UPDATE students SET missed_streak=0, suspended=false, appealed_at=$1, updated_at=now() WHERE id=$2`, now, freshStudent); err != nil {
@@ -611,6 +617,11 @@ func (s *Service) fulfillBachs(ctx context.Context, checkoutID string, charge *b
 		extendsTo = &iso
 		if _, err := tx.Exec(ctx, `UPDATE students SET subscription_until=$1, updated_at=now() WHERE id=$2`,
 			computeExpiry(stSub, 1), mapStudent); err != nil {
+			return err
+		}
+		// Same unlock rule as Paystack: paying lifts a suspension.
+		if _, err := tx.Exec(ctx, `UPDATE students SET missed_streak=0, suspended=false, appealed_at=$1,
+			updated_at=now() WHERE id=$2 AND suspended=true`, now, mapStudent); err != nil {
 			return err
 		}
 	} else if mapType == "resume" {

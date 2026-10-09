@@ -286,7 +286,8 @@ func (s *Service) Grant(ctx context.Context, id, expiry string) (string, error) 
 		return "", ErrNotFound
 	}
 	iso := parsed.UTC().Format(time.RFC3339)
-	if _, err := s.pool.Exec(ctx, `UPDATE students SET subscription_until=$1, updated_at=now() WHERE id=$2`, parsed.UTC(), id); err != nil {
+	if _, err := s.pool.Exec(ctx, `UPDATE students SET subscription_until=$1, missed_streak=0,
+		suspended=false, appealed_at=now(), updated_at=now() WHERE id=$2`, parsed.UTC(), id); err != nil {
 		return "", err
 	}
 	return iso, nil
