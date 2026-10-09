@@ -150,7 +150,7 @@ func (h *Handler) listScores(c *gin.Context) {
 	u := middleware.Current(c)
 	scores, err := h.svc.ListScores(c.Request.Context(), u.ID, u.Role, c.Query("week"), c.Query("studentId"))
 	if err != nil {
-		fail(c, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "internal error", "_debugErr": err.Error()})
 		return
 	}
 	dbg := gin.H{"role": u.Role, "uid": u.ID}
