@@ -230,11 +230,16 @@ func (h *Handler) listMine(c *gin.Context) {
 	if unavailable(c, h.svc) {
 		return
 	}
+	u := middleware.Current(c)
 	sid := c.Query("studentId")
-	if sid == "" || !ownerOrAdmin(c, sid) {
-		if sid == "" {
+	if sid == "" {
+		if u.Role == "admin" {
 			c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+			return
 		}
+		sid = u.ID
+	} else if u.Role != "admin" && sid != u.ID {
+		c.JSON(http.StatusForbidden, gin.H{"ok": false, "error": "forbidden"})
 		return
 	}
 	payments, err := h.svc.ListPayments(c.Request.Context(), sid)

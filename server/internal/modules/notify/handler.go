@@ -32,6 +32,8 @@ func RegisterService(r *gin.Engine, pool *pgxpool.Pool, secret string, cfg Confi
 	r.POST("/api/push/subscribe", h.subscribe)
 	r.POST("/api/admin/sms/clear-guards", auth, admin, h.clearGuards)
 	r.GET("/api/admin/sms/debug", auth, admin, h.debugSMS)
+	r.GET("/api/admin/settings/notifications", auth, admin, h.notifGet)
+	r.PUT("/api/admin/settings/notifications", auth, admin, h.notifSet)
 	return h.svc
 }
 
@@ -246,4 +248,31 @@ func (h *Handler) subscribe(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *Handler) notifGet(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "enabled": !h.svc.notificationsDisabled(c.Request.Context())})
+}
+
+func (h *Handler) notifSet(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	var in struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		return
+	}
+	if _, err := h.svc.pool.Exec(c.Request.Context(), `INSERT INTO admin_settings (id, data)
+		VALUES ('notifications', jsonb_build_object('enabled', $1::bool)) ON CONFLICT (id) DO UPDATE
+		SET data = jsonb_build_object('enabled', $1::bool), updated_at = now()`, in.Enabled); err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "enabled": in.Enabled})
 }

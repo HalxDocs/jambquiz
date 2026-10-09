@@ -23,6 +23,7 @@ func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string) {
 
 	r.GET("/api/portal/stats", h.portal)
 	r.GET("/api/portal/board/:id", h.board)
+	r.GET("/api/portal/rank/:studentId", h.rank)
 	r.GET("/api/guestbook", h.guestbookList)
 	r.POST("/api/guestbook", h.guestbookPost)
 	r.POST("/api/admin/boards/refresh", auth, admin, h.refresh)
@@ -171,4 +172,22 @@ func trimSpace(s string) string {
 		out = out[:len(out)-1]
 	}
 	return out
+}
+
+func (h *Handler) rank(c *gin.Context) {
+	if h.svc.pool == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"ok": false, "error": "database unavailable"})
+		return
+	}
+	var total, sess, medals int
+	var name, nick string
+	err := h.svc.pool.QueryRow(c.Request.Context(), `SELECT name, nickname, total, session_count, gold_medals
+		FROM leaderboard_student_ranks WHERE student_id=$1`, c.Param("studentId")).Scan(&name, &nick, &total, &sess, &medals)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "rank": nil})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "rank": map[string]any{
+		"studentId": c.Param("studentId"), "name": name, "nickname": nick,
+		"total": total, "sessionCount": sess, "goldMedals": medals}})
 }
