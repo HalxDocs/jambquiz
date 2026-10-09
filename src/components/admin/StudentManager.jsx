@@ -30,6 +30,9 @@ export default function StudentManager({ students = [], loading, yearFilter, onY
   const [expandedId, setExpandedId] = useState(null)
   const [success, setSuccess] = useState('')
   const [grantOpenFor, setGrantOpenFor] = useState(null)
+  const [pwOpenFor, setPwOpenFor] = useState(null)
+  const [pwValue, setPwValue] = useState('')
+  const [pwBusy, setPwBusy] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
   const [addForm, setAddForm] = useState({ name: '', nickname: '', password: '', year: String(new Date().getFullYear()), email: '', parentPhone: '', teacherPhone: '' })
   const [addErr, setAddErr] = useState('')
@@ -137,6 +140,23 @@ export default function StudentManager({ students = [], loading, yearFilter, onY
       useToastStore.getState().showToast(`${student.name} granted access until ${new Date(expiry).toLocaleDateString('en-NG')}`, 'success')
     } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to grant access. Check connection and try again.') }
     setGrantOpenFor(null)
+  }
+
+  const handleSetPassword = async (student) => {
+    if (!pwValue || pwValue.length < 8) {
+      useToastStore.getState().showToast('Password must be at least 8 characters', 'error')
+      return
+    }
+    setPwBusy(true)
+    try {
+      await apiPost(`/api/admin/students/${student.id}/password`, { newPassword: pwValue })
+      useToastStore.getState().showToast(`Password set for ${student.name}`, 'success')
+      setPwOpenFor(null)
+      setPwValue('')
+    } catch (e) {
+      useToastStore.getState().showToast(e?.message || 'Failed to set password', 'error')
+    }
+    setPwBusy(false)
   }
 
   const toggleExpand = (studentId) => {
@@ -348,6 +368,10 @@ export default function StudentManager({ students = [], loading, yearFilter, onY
                         className="w-8 h-8 flex items-center justify-center rounded-xl border border-[#E5E5E5] text-[#888] hover:text-[#111] transition-colors">
                         <HugeiconsIcon icon={PencilEdit01Icon} size={15} color="currentColor" />
                       </button>
+                      <button onClick={() => { setPwOpenFor(pwOpenFor === student.id ? null : student.id); setPwValue('') }} title="Set password"
+                        className="h-8 px-2.5 flex items-center rounded-xl border border-[#E5E5E5] text-[#888] hover:text-[#111] transition-colors text-[11px] font-bold font-label">
+                        🔑 PW
+                      </button>
                       <button onClick={() => handleDeleteStudent(student.id, student.name)} title="Delete"
                         className="w-8 h-8 flex items-center justify-center rounded-xl border border-red-100 text-red-400 hover:bg-red-50 transition-colors">
                         <HugeiconsIcon icon={Delete01Icon} size={15} color="currentColor" />
@@ -357,6 +381,17 @@ export default function StudentManager({ students = [], loading, yearFilter, onY
                         {isExpanded ? '▲ Hide' : '▼ View Scores'}
                       </button>
                     </div>
+                    {pwOpenFor === student.id && (
+                      <div className="flex gap-2 mt-2">
+                        <input value={pwValue} onChange={(e) => setPwValue(e.target.value)}
+                          type="password" placeholder="New password (min 8)"
+                          className="flex-1 min-w-0 border border-[#E5E5E5] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#111]" />
+                        <button onClick={() => handleSetPassword(student)} disabled={pwBusy}
+                          className="px-3 py-2 bg-[#111] text-white rounded-xl text-xs font-bold hover:bg-[#222] disabled:opacity-40 font-display">
+                          {pwBusy ? '…' : 'Set'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 

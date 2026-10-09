@@ -25,6 +25,7 @@ func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string) {
 
 	r.GET("/api/admin/students", auth, admin, h.list)
 	r.POST("/api/admin/students/:id/grant", auth, admin, h.grant)
+	r.POST("/api/admin/students/:id/password", auth, admin, h.setPassword)
 	r.DELETE("/api/admin/students/:id", auth, admin, h.delete)
 	r.GET("/api/students/search", auth, h.search)
 	r.GET("/api/students/:id/profile", auth, h.profile)
@@ -211,4 +212,22 @@ func (h *Handler) profile(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "profile": p})
+}
+
+func (h *Handler) setPassword(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	var in struct {
+		NewPassword string `json:"newPassword"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.NewPassword == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		return
+	}
+	if err := h.svc.AdminSetPassword(c.Request.Context(), c.Param("id"), in.NewPassword); err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

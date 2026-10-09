@@ -318,9 +318,13 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
     if (!apiConfigured()) { setResetMsg('Online reset is not available yet. Please try again later or contact support.'); return }
     setResetBusy(true); setResetMsg('')
     try {
-      await requestPasswordReset(trimmed)
+      const res = await requestPasswordReset(trimmed)
       setResetStep('code')
-      setResetMsg('Code sent by SMS to your number and your parent\'s number.')
+      if (res.delivered > 0) {
+        setResetMsg('Code sent by SMS to your number and your parent\'s number.')
+      } else {
+        setResetMsg('No phone number on file — ask support (Contact page) to set your new password.')
+      }
     } catch (e) {
       setResetMsg(e?.message || 'Could not send code. Please try again.')
     }

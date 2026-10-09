@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/274lab/server/internal/access"
+	"github.com/274lab/server/pkg/hash"
 	"github.com/274lab/server/pkg/phones"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -419,4 +420,25 @@ func (s *Service) PublicProfile(ctx context.Context, id string) (Profile, error)
 		return p, ErrNotFound
 	}
 	return p, nil
+}
+
+// AdminSetPassword sets a student's password directly (support flow for
+// accounts with no phone on file for SMS reset).
+func (s *Service) AdminSetPassword(ctx context.Context, id, newPassword string) error {
+	if len(newPassword) < 8 {
+		return ErrBadInput
+	}
+	pw, err := hash.Password(newPassword)
+	if err != nil {
+		return err
+	}
+	res, err := s.pool.Exec(ctx, `UPDATE students SET password_hash=$1, reset_code=NULL,
+		reset_attempts=0, reset_last_attempt=NULL, updated_at=now() WHERE id=$2`, pw, id)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

@@ -448,44 +448,47 @@ func resetCode() string {
 }
 
 // RequestReset generates a code and texts it to the student's own and
-// parent numbers. Unknown names succeed silently.
-func (s *Service) RequestReset(ctx context.Context, name string) error {
+// parent numbers. Unknown names succeed silently. Returns SMS delivered.
+func (s *Service) RequestReset(ctx context.Context, name string) (int, error) {
 	nameLower := strings.ToLower(strings.TrimSpace(name))
 	if nameLower == "" {
-		return ErrShortName
+		return 0, ErrShortName
 	}
 	var id, phone, parent, studentName string
 	err := s.pool.QueryRow(ctx, `SELECT id, phone, parent_phone, name FROM students WHERE name_lower=$1`,
 		nameLower).Scan(&id, &phone, &parent, &studentName)
 	if err != nil {
-		return nil
+		return 0, nil
 	}
 	if !ratelimit.Allow(ctx, s.pool, "reset:"+id, resetRateMax, 60*60*1000) {
-		return ErrTooMany
+		return 0, ErrTooMany
 	}
 	if s.sms.APIKey == "" {
-		return ErrNoSMS
+		return 0, ErrNoSMS
 	}
 	code := resetCode()
 	if code == "" {
-		return ErrNoSMS
+		return 0, ErrNoSMS
 	}
 	if _, err := s.pool.Exec(ctx, `UPDATE students SET reset_code=$1, reset_attempts=0,
 		reset_last_attempt=NULL, updated_at=now() WHERE id=$2`, code, id); err != nil {
-		return err
+		return 0, err
 	}
 	if studentName == "" {
 		studentName = "Student"
 	}
 	text := "Hi " + studentName + ", your 274Lab password reset code is " + code +
 		". It expires with use. If you didn't ask for this, ignore it. - 274Lab"
+	sent := 0
 	for _, to := range []string{phones.Normalize(phone), phones.Normalize(parent)} {
 		if to == "" {
 			continue
 		}
-		_ = s.sms.Send(ctx, to, text)
+		if r := s.sms.Send(ctx, to, text); r.OK {
+			sent++
+		}
 	}
-	return nil
+	return sent, nil
 }
 
 // ConfirmReset verifies the code and sets the new password. The account can
