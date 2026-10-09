@@ -43,6 +43,7 @@ func main() {
 	}
 
 	r := gin.Default()
+	r.Use(corsMiddleware())
 	auth.RegisterRoutes(r, pool, cfg.JWTSecret, cfg.TermiiKey, cfg.TermiiSender)
 	quizSvc := quiz.RegisterRoutes(r, pool, cfg.JWTSecret)
 	notifySvc := notify.RegisterService(r, pool, cfg.JWTSecret, notify.Config{
@@ -98,5 +99,39 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("[api] shutdown: %v", err)
+	}
+}
+
+// corsMiddleware allows the web frontends (custom domain, Firebase
+// Hosting, Vercel, local dev) to call the API from browsers.
+func corsMiddleware() gin.HandlerFunc {
+	allowed := map[string]bool{
+		"https://www.274lab.com":                    true,
+		"https://274lab.com":                        true,
+		"https://fitness-gym-fc040.web.app":         true,
+		"https://fitness-gym-fc040.firebaseapp.com": true,
+		"http://localhost:5173":                     true,
+		"http://localhost:3000":                     true,
+	}
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		allow := allowed[origin]
+		if !allow && len(origin) > 8 {
+			// Any vercel.app preview/production deployment.
+			allow = len(origin) >= 18 && origin[len(origin)-11:] == ".vercel.app" &&
+				(origin[:8] == "https://")
+		}
+		if allow {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Vary", "Origin")
+		}
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		c.Header("Access-Control-Max-Age", "86400")
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
 	}
 }
