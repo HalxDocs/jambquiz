@@ -150,13 +150,8 @@ func (h *Handler) listScores(c *gin.Context) {
 	u := middleware.Current(c)
 	scores, err := h.svc.ListScores(c.Request.Context(), u.ID, u.Role, c.Query("week"), c.Query("studentId"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "internal error", "_debugErr": err.Error()})
+		fail(c, err)
 		return
 	}
-	dbg := gin.H{"role": u.Role, "uid": u.ID}
-	var total int
-	if err := h.svc.pool.QueryRow(c.Request.Context(), `SELECT count(*) FROM scores`).Scan(&total); err == nil {
-		dbg["scoresInDb"] = total
-	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "scores": scores, "_debug": dbg})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "scores": scores})
 }

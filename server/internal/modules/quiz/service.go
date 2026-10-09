@@ -704,20 +704,17 @@ func (s *Service) ListScores(ctx context.Context, authUID, authRole, week, stude
 	if err != nil {
 		return out, err
 	}
-	type raw struct {
-		Score
-		created time.Time
-		owner   string
-	}
-	all := []raw{}
+	all := []Score{}
 	for rows.Next() {
-		var r raw
-		if err := rows.Scan(&r.ID, &r.StudentID, &r.StudentName, &r.Subject, &r.Week, &r.Score,
-			&r.OutOf, &r.Correct, &r.Wrong, &r.Unanswered, &r.Total, &r.IsRetake, &r.created); err != nil {
+		var sc Score
+		var created time.Time
+		if err := rows.Scan(&sc.ID, &sc.StudentID, &sc.StudentName, &sc.Subject, &sc.Week, &sc.Score,
+			&sc.OutOf, &sc.Correct, &sc.Wrong, &sc.Unanswered, &sc.Total, &sc.IsRetake, &created); err != nil {
 			log.Printf("[quiz] ListScores scan skip: %v", err)
 			continue
 		}
-		all = append(all, r)
+		sc.CreatedAt = created.UTC().Format(time.RFC3339)
+		all = append(all, sc)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -725,7 +722,7 @@ func (s *Service) ListScores(ctx context.Context, authUID, authRole, week, stude
 	}
 	// Ownership: non-admins may only see their own scores.
 	if authRole != "admin" {
-		filtered := []raw{}
+		filtered := []Score{}
 		for _, r := range all {
 			if r.StudentID == authUID {
 				filtered = append(filtered, r)
@@ -767,9 +764,8 @@ func (s *Service) ListScores(ctx context.Context, authUID, authRole, week, stude
 			all[i].Answers = byAns[all[i].Subject]
 		}
 	}
-	for _, r := range all {
-		r.CreatedAt = r.created.UTC().Format(time.RFC3339)
-		out = append(out, r.Score)
+	for _, sc := range all {
+		out = append(out, sc)
 	}
 	return out, nil
 }
