@@ -75,3 +75,9 @@ export const requestPasswordReset = (name) =>
 
 export const confirmPasswordReset = (name, code, newPassword) =>
   request('POST', '/api/auth/reset-confirm', { name, code, newPassword }, '')
+
+export const requestTeacherReset = (name) =>
+  request('POST', '/api/auth/teacher/reset-request', { name }, '')
+
+export const confirmTeacherReset = (name, newPassword) =>
+  request('POST', '/api/auth/teacher/reset-confirm', { name, newPassword }, '')

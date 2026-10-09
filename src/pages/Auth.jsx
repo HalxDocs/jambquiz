@@ -18,7 +18,7 @@ import { ArrowLeft01Icon, Sun01Icon, Moon01Icon } from '@hugeicons/core-free-ico
 import SEO from '../components/seo/SEO'
 import ServerMoveBanner from '../components/ui/ServerMoveBanner'
 import { RESET_FLAG } from '../lib/api'
-import { apiConfigured, requestPasswordReset, confirmPasswordReset } from '../lib/api'
+import { apiConfigured, requestPasswordReset, confirmPasswordReset, requestTeacherReset, confirmTeacherReset } from '../lib/api'
 
 const LOGIN_COOLDOWN_MS = 30000
 const MAX_ATTEMPTS = 5
@@ -50,6 +50,14 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
   const [resetBusy, setResetBusy] = useState(false)
   const [resetMsg, setResetMsg] = useState('')
   const [resetDone, setResetDone] = useState(false)
+  // Teacher reset (same name-only flow)
+  const [tResetShow, setTResetShow] = useState(false)
+  const [tResetStep, setTResetStep] = useState('name')
+  const [tResetBusy, setTResetBusy] = useState(false)
+  const [tResetMsg, setTResetMsg] = useState('')
+  const [tResetDone, setTResetDone] = useState(false)
+  const [tResetPw, setTResetPw] = useState('')
+  const [tResetConfirmPw, setTResetConfirmPw] = useState('')
 
   // Teacher tab state
   const [tName, setTName] = useState('')
@@ -341,6 +349,38 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
       setResetMsg(e?.message || 'Could not reset password. Please try again.')
     }
     setResetBusy(false)
+  }
+
+  const handleTeacherResetRequest = async () => {
+    const trimmed = tName.trim()
+    if (trimmed.length < 3) { setTResetMsg('Enter your full name'); return }
+    if (!apiConfigured()) { setTResetMsg('Online reset is not available yet. Please try again later.'); return }
+    setTResetBusy(true); setTResetMsg('')
+    try {
+      const res = await requestTeacherReset(trimmed)
+      if (res.found === false) {
+        setTResetMsg('No account found with that name. Check the spelling.')
+      } else {
+        setTResetStep('password')
+        setTResetMsg('')
+      }
+    } catch (e) {
+      setTResetMsg(e?.message || 'Could not continue. Please try again.')
+    }
+    setTResetBusy(false)
+  }
+
+  const handleTeacherResetConfirm = async () => {
+    if (tResetPw.length < 8) { setTResetMsg('New password must be at least 8 characters'); return }
+    if (tResetPw !== tResetConfirmPw) { setTResetMsg('Passwords do not match'); return }
+    setTResetBusy(true); setTResetMsg('')
+    try {
+      await confirmTeacherReset(tName.trim(), tResetPw)
+      setTResetDone(true)
+    } catch (e) {
+      setTResetMsg(e?.message || 'Could not reset password. Please try again.')
+    }
+    setTResetBusy(false)
   }
 
   const EyeIcon = ({ open }) => open ? (
@@ -874,17 +914,74 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                 )}
 
                 {mode === 'login' ? (
-                  <button
-                    onClick={handleTeacherLogin}
-                    disabled={loading}
-                    className={`w-full mt-4 rounded-xl py-3.5 text-sm font-bold tracking-wide transition-all active:scale-[0.99] font-display ${
-                      loading
-                        ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
-                        : 'bg-[#111] text-white hover:bg-[#222]'
-                    }`}
-                  >
-                    {loading ? 'Please wait...' : 'Sign In'}
-                  </button>
+                  <>
+                    <button
+                      onClick={handleTeacherLogin}
+                      disabled={loading}
+                      className={`w-full mt-4 rounded-xl py-3.5 text-sm font-bold tracking-wide transition-all active:scale-[0.99] font-display ${
+                        loading
+                          ? 'bg-[#E5E5E5] text-[#AAA] cursor-not-allowed'
+                          : 'bg-[#111] text-white hover:bg-[#222]'
+                      }`}
+                    >
+                      {loading ? 'Please wait...' : 'Sign In'}
+                    </button>
+                    <button
+                      onClick={() => { setTResetShow(!tResetShow); setTResetDone(false); setTResetStep('name'); setTResetMsg('') }}
+                      className="w-full mt-2 text-[11px] text-[#888] hover:text-[#111] font-label underline underline-offset-2 transition-colors">
+                      Reset password
+                    </button>
+                    {tResetShow && (
+                      <div className="bg-[#F8F8F7] border border-[#EBEBEB] rounded-xl p-4 mt-3 space-y-3">
+                        {tResetDone ? (
+                          <>
+                            <p className="text-xs font-semibold text-green-700 font-label">Password reset successful</p>
+                            <p className="text-[11px] text-[#888] font-label">Sign in below with your new password.</p>
+                            <button onClick={() => { setTResetShow(false); setTResetDone(false); setTResetStep('name'); setTResetMsg('') }}
+                              className="w-full bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] font-display">
+                              Back to Sign In
+                            </button>
+                          </>
+                        ) : tResetStep === 'name' ? (
+                          <>
+                            <p className="text-xs font-semibold text-[#111] font-label">Find your account</p>
+                            <p className="text-[11px] text-[#888] font-label">Enter your full name exactly as you registered it.</p>
+                            <input value={tName} onChange={(e) => setTName(e.target.value)}
+                              maxLength={50} placeholder="e.g. Mrs. Adebayo"
+                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] bg-white" />
+                            {tResetMsg && <p className="text-[11px] text-[#888] font-label">{tResetMsg}</p>}
+                            <button onClick={handleTeacherResetRequest} disabled={tResetBusy}
+                              className="w-full bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] font-display disabled:opacity-40">
+                              {tResetBusy ? 'Checking...' : 'Continue →'}
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-xs font-semibold text-[#111] font-label">
+                              Hi {tName.trim().split(' ')[0] || 'there'} — choose a new password
+                            </p>
+                            <input type="password" value={tResetPw} onChange={(e) => setTResetPw(e.target.value)}
+                              maxLength={64} placeholder="New password (min 8 characters)"
+                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] bg-white" />
+                            <input type="password" value={tResetConfirmPw} onChange={(e) => setTResetConfirmPw(e.target.value)}
+                              placeholder="Repeat new password"
+                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] bg-white" />
+                            {tResetMsg && <p className="text-[11px] text-[#888] font-label">{tResetMsg}</p>}
+                            <div className="flex gap-2">
+                              <button onClick={handleTeacherResetConfirm} disabled={tResetBusy}
+                                className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] font-display disabled:opacity-40">
+                                {tResetBusy ? 'Saving...' : 'Set Password'}
+                              </button>
+                              <button onClick={() => { setTResetStep('name'); setTResetMsg('') }}
+                                className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold font-label">
+                                Back
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </>
                 ) : teacherStep === 1 ? (
                   <button
                     onClick={handleTeacherNextStep}

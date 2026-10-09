@@ -23,6 +23,8 @@ func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret, termiiKey, termii
 	g.POST("/teacher/login", h.loginTeacher)
 	g.POST("/reset-request", h.resetRequest)
 	g.POST("/reset-confirm", h.resetConfirm)
+	g.POST("/teacher/reset-request", h.teacherResetRequest)
+	g.POST("/teacher/reset-confirm", h.teacherResetConfirm)
 	g.GET("/me", middleware.RequireAuth(secret), h.me)
 	g.POST("/change-password", middleware.RequireAuth(secret), h.changePassword)
 }
@@ -217,6 +219,44 @@ func (h *Handler) resetConfirm(c *gin.Context) {
 	// Empty code is allowed: the service only accepts it for accounts with
 	// no code issued and no phone on file.
 	if err := h.svc.ConfirmReset(c.Request.Context(), in.StudentID, in.Name, in.Code, in.NewPassword); err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *Handler) teacherResetRequest(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	var in struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		return
+	}
+	found, err := h.svc.TeacherResetRequest(c.Request.Context(), in.Name)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "found": found})
+}
+
+func (h *Handler) teacherResetConfirm(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	var in struct {
+		Name        string `json:"name"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		return
+	}
+	if err := h.svc.TeacherResetConfirm(c.Request.Context(), in.Name, in.NewPassword); err != nil {
 		fail(c, err)
 		return
 	}

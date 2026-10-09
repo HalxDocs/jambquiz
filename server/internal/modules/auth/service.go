@@ -520,3 +520,50 @@ func (s *Service) ConfirmReset(ctx context.Context, studentID, name, code, newPa
 	}
 	return tx.Commit(ctx)
 }
+
+// --- Teacher password reset (name-only, mirrors the student flow) ---
+
+// TeacherResetRequest checks the name exists (rate-limited, silent otherwise).
+func (s *Service) TeacherResetRequest(ctx context.Context, name string) (bool, error) {
+	name = strings.TrimSpace(name)
+	if len(name) < 3 {
+		return false, ErrShortName
+	}
+	var id string
+	if err := s.pool.QueryRow(ctx, `SELECT id FROM teachers WHERE LOWER(name)=LOWER($1)`,
+		name).Scan(&id); err != nil {
+		return false, nil
+	}
+	if !ratelimit.Allow(ctx, s.pool, "teacher-reset:"+id, resetRateMax, 60*60*1000) {
+		return false, ErrTooMany
+	}
+	return true, nil
+}
+
+// TeacherResetConfirm sets a new password by teacher name.
+func (s *Service) TeacherResetConfirm(ctx context.Context, name, newPassword string) error {
+	if len(newPassword) < 8 {
+		return ErrWeakPassword
+	}
+	name = strings.TrimSpace(name)
+	if len(name) < 3 {
+		return ErrShortName
+	}
+	var id string
+	if err := s.pool.QueryRow(ctx, `SELECT id FROM teachers WHERE LOWER(name)=LOWER($1)`,
+		name).Scan(&id); err != nil {
+		return ErrBadInput
+	}
+	if !ratelimit.Allow(ctx, s.pool, "teacher-reset-confirm:"+id, maxResetAttempts, 60*60*1000) {
+		return ErrTooMany
+	}
+	nh, err := hash.Password(newPassword)
+	if err != nil {
+		return err
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE teachers SET password_hash=$1, updated_at=now() WHERE id=$2`,
+		nh, id); err != nil {
+		return err
+	}
+	return nil
+}
