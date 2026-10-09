@@ -8,7 +8,7 @@ export {
   RANK_TIERS,
 } from './constants'
 
-export { db, load, save } from './db'
+export { load, save } from './db'
 
 export { normalizeTopic, setTopics, getTopics, listenTopics } from './topics'
 
@@ -16,7 +16,7 @@ export { LIFELINE_COST, LIFELINE_USES_PER_TEST, getCoinBalance, listCoinPacks, s
 
 export { sanitizeGoat, weekGoatDocId, listGoats, createGoat, updateGoat, deleteGoat, getWeekGoats, setWeekGoats } from './goats'
 
-export { FREE_TRIAL_ATTEMPTS, FREE_TRIAL_DAYS, isTrialActive, trialDaysLeft, getAccessStatus, registerStudent, getStudentByUid, getStudentById, changePassword, verifyAdminSession, updateStudent, deleteStudent, listenStudents, getStudentsPage, getStudentsCount, stripSensitive, stripPersisted, incrementFreeAttempts, consumeFreeAttempt, studentAuthEmail, ADMIN_EMAIL, linkStudentUid } from './students'
+export { FREE_TRIAL_ATTEMPTS, FREE_TRIAL_DAYS, isTrialActive, trialDaysLeft, getAccessStatus, registerStudent, getStudentByUid, getStudentById, getStudentProfile, changePassword, verifyAdminSession, updateStudent, deleteStudent, listenStudents, getStudentsPage, getStudentsCount, stripSensitive, stripPersisted, incrementFreeAttempts, consumeFreeAttempt, studentAuthEmail, ADMIN_EMAIL, linkStudentUid } from './students'
 
 export { startQuiz, submitQuiz, listenScores, getStudentScores, getStudentScoresAdmin, fetchDetails } from './scores'
 

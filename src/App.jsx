@@ -18,11 +18,11 @@ import TeacherDashboard from './pages/TeacherDashboard'
 import GlobalToast from './components/ui/GlobalToast'
 import ErrorBoundary from './components/ui/ErrorBoundary'
 import CardWarningPopup from './components/dashboard/CardWarningPopup'
-import { stripSensitive, stripPersisted, getStudentByUid, getTeacherByUid, linkStudentUid } from './store/useStore'
+import { stripSensitive, stripPersisted, getTeacherByUid } from './store/useStore'
 import { useThemeStore } from './store/theme'
 import { applyDarkTheme } from './lib/darkTheme'
-import { auth, onAuthStateChanged, getIdTokenResult, functions, httpsCallable } from './firebase'
 import { setStudentUid, clearStudentUid, isRegistering } from './store/studentSession'
+import { restoreSession } from './store/session'
 import { useUserNotificationStore } from './store/notificationStore'
 import { useToastStore } from './store/toast'
 
@@ -168,19 +168,23 @@ export default function App() {
     return () => window.removeEventListener('popstate', handler)
   }, [view])
 
-  // Drive the session from Firebase Auth. The signed-in user is the single
-  // source of truth: a student gets their profile loaded by UID; an admin
-  // (custom claim) gets adminAuthed set; a signed-out user drops to landing.
+  // Drive the session from the Go JWT. The stored session is the single
+  // source of truth: a student goes to the dashboard, a teacher to the
+  // teacher dashboard, an admin to the admin panel.
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
+    let cancelled = false
+    restoreSession().then((s) => {
+      if (cancelled) return
+      if (!s) {
         setStudentState(null)
         setTeacherState(null)
         setAdminAuthed(false)
-        localStorage.removeItem('jamb_admin')
-        localStorage.removeItem('jamb_teacher_session')
-        localStorage.removeItem('patches_active')
-        localStorage.removeItem('patches_selected_subjects')
+        try {
+          localStorage.removeItem('jamb_admin')
+          localStorage.removeItem('jamb_teacher_session')
+          localStorage.removeItem('patches_active')
+          localStorage.removeItem('patches_selected_subjects')
+        } catch {}
         useUserNotificationStore.getState().setPatchesActive(false)
         useUserNotificationStore.getState().setSelectedPatchSubjects([])
         useUserNotificationStore.getState().setPushPermission('default')
@@ -192,65 +196,30 @@ export default function App() {
         )
         return
       }
-      try {
-        const token = await getIdTokenResult(user)
-        if (token.claims.admin) {
-          setAdminAuthed(true)
-          localStorage.setItem('jamb_admin', '1')
-          setView((v) => (v === 'landing' || v === 'home' ? 'admin' : v))
-        } else if (token.claims.teacher) {
-          const t = await getTeacherByUid(user.uid)
-          if (t) {
-            setTeacherState(t)
-            try { localStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(t)) } catch {}
-            if (!isRegistering()) {
-              setView((v) => (v === 'landing' || v === 'home' ? 'teacher-dashboard' : v))
-            }
+      if (s.kind === 'admin') {
+        setAdminAuthed(true)
+        try { localStorage.setItem('jamb_admin', '1') } catch {}
+        setView((v) => (v === 'landing' || v === 'home' ? 'admin' : v))
+      } else if (s.kind === 'teacher') {
+        getTeacherByUid().then((t) => {
+          if (cancelled || !t) return
+          setTeacherState(t)
+          try { localStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(t)) } catch {}
+          if (!isRegistering()) {
+            setView((v) => (v === 'landing' || v === 'home' ? 'teacher-dashboard' : v))
           }
-        } else {
-          const stu = await getStudentByUid(user.uid)
-          if (stu) {
-            setStudentUid(stu.uid)
-            setStudent(stu)
-            // During registration the Supporters step is in charge of routing;
-            // don't yank the new user to the dashboard and flash it briefly.
-            if (!isRegistering()) {
-              setView((v) => (v === 'landing' || v === 'home' ? 'dashboard' : v))
-            }
-          } else {
-            // Firebase Auth uid doesn't match any student doc. Try to link
-            // the uid using the name from the saved session (common for
-            // accounts created before uid was added to the schema).
-            const saved = (() => { try { return JSON.parse(localStorage.getItem('jamb_session') || 'null') } catch { return null } })()
-            if (saved?.name) {
-              try {
-                const linkRes = await linkStudentUid(saved.name)
-                if (linkRes?.ok && linkRes.student) {
-                  setStudentUid(linkRes.student.uid || user.uid)
-                  setStudent(linkRes.student)
-                  if (!isRegistering()) {
-                    setView((v) => (v === 'landing' || v === 'home' ? 'dashboard' : v))
-                  }
-                  return
-                }
-              } catch (e) {
-                console.warn('[Auth] linkStudentUid failed:', e?.message || e)
-              }
-            }
-            // Could not link — clear stale session
-            console.warn('[Auth] Student doc not found for uid:', user.uid)
-            setStudentState(null)
-            localStorage.removeItem('jamb_session')
-            localStorage.removeItem('jamb_session_ts')
-            clearStudentUid()
-            setView('landing')
-          }
+        })
+      } else {
+        setStudentUid(s.profile.id)
+        setStudent(s.profile)
+        // During registration the Supporters step is in charge of routing;
+        // don't yank the new user to the dashboard and flash it briefly.
+        if (!isRegistering()) {
+          setView((v) => (v === 'landing' || v === 'home' ? 'dashboard' : v))
         }
-      } catch {
-        setStudentState(null)
       }
     })
-    return () => unsub()
+    return () => { cancelled = true }
   }, [])
 
   // Paystack redirect callback (primary gateway). Paystack appends

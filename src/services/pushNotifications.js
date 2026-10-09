@@ -1,7 +1,7 @@
 // src/services/pushNotifications.js
-import { db, doc, setDoc, getDoc, collection, addDoc, getDocs, updateDoc } from '../firebase'
 
 const VAPID_PUBLIC_KEY = 'BJV0OfUDKqQg7gPD1BusnRjhhc1fhjnheW6Ghp2W9T5squ3RhMZMrNVqHiCM0M3lOeJLaq_4K_Z3WL_0PcUn_Bg'
+const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
 
 /**
  * Register for push notifications
@@ -45,75 +45,43 @@ export async function registerPushNotifications() {
     console.log('[Push] Successfully subscribed')
 
     return subscription
-  } catch (err) {
+  } catch {
     console.error('[Push] Registration failed')
     return null
   }
 }
 
 /**
- * Save push subscription to Firestore for server-side push delivery,
- * and mirror it to the Go backend (dual-write during the push cutover).
+ * Save push subscription to the Go backend (sole delivery path now).
  */
 export async function savePushSubscriptionToFirestore(studentId, subscription) {
   if (!studentId || !subscription) return
+  if (!API_BASE) return
   try {
-    await setDoc(doc(db, 'push_subscriptions', studentId), {
-      endpoint: subscription.endpoint,
-      keys: subscription.toJSON().keys,
-      updatedAt: new Date().toISOString(),
-      studentId,
+    await fetch(`${API_BASE}/api/push/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId,
+        endpoint: subscription.endpoint,
+        keys: subscription.toJSON().keys,
+      }),
     })
-    console.log('[Push] Subscription saved to Firestore')
-  } catch (err) {
+    console.log('[Push] Subscription saved')
+  } catch {
     console.error('[Push] Failed to save subscription')
   }
-  // Dual-write to Go (best-effort, unauthenticated endpoint).
-  try {
-    const base = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
-    if (base) {
-      await fetch(`${base}/api/push/subscribe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          studentId,
-          endpoint: subscription.endpoint,
-          keys: subscription.toJSON().keys,
-        }),
-      })
-    }
-  } catch {}
 }
 
 /**
- * Save notification cycle state to Firestore for server-side push
+ * Notification cycle state is local-only now (server tracks its own).
  */
-export async function saveNotificationStateToFirestore(studentId, state) {
-  if (!studentId) return
-  try {
-    await setDoc(doc(db, 'notification_state', studentId), {
-      ...state,
-      updatedAt: new Date().toISOString(),
-      studentId,
-    })
-  } catch (err) {
-    console.error('[Push] Failed to save notification state')
-  }
-}
+export async function saveNotificationStateToFirestore() {}
 
 /**
- * Save admin notification master switch to Firestore
+ * Admin notification master switch is server-side now (no-op client-side).
  */
-export async function saveAdminNotificationStateToFirestore(enabled) {
-  try {
-    await setDoc(doc(db, 'admin_settings', 'notifications'), {
-      enabled,
-      updatedAt: new Date().toISOString(),
-    })
-  } catch (err) {
-    console.error('[Push] Failed to save admin state')
-  }
-}
+export async function saveAdminNotificationStateToFirestore() {}
 
 /**
  * Trigger a local push notification

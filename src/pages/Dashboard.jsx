@@ -7,7 +7,6 @@ import {
   getStudentScores, getCoinBalance, getWeekGoats, listGoats, getStudentById,
 } from '../store/useStore'
 import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED, computeCardLevel, isLifelinesEnabled } from '../store/constants'
-import { db, doc, onSnapshot } from '../firebase'
 import { registerPushNotifications, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
 import { useThemeStore } from '../store/theme'
@@ -242,22 +241,26 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
 
   useEffect(() => {
     if (!student?.id) return
-    const unsub = onSnapshot(doc(db, 'students', student.id), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data()
-        // Don't overwrite an optimistic Active (just paid) with stale null from Firestore propagation delay
+    let stopped = false
+    const refresh = async () => {
+      try {
+        const fresh = await getStudentById(student.id)
+        if (!fresh || stopped) return
+        // Don't overwrite an optimistic Active (just paid) with stale data
         setStudent((prev) => {
-          const merged = { ...prev, ...data }
+          const merged = { ...prev, ...fresh }
           const prevUntil = prev?.subscriptionUntil ? new Date(prev.subscriptionUntil).getTime() : 0
-          const dataUntil = data?.subscriptionUntil ? new Date(data.subscriptionUntil).getTime() : 0
+          const dataUntil = fresh?.subscriptionUntil ? new Date(fresh.subscriptionUntil).getTime() : 0
           if (prevUntil > Date.now() && dataUntil <= Date.now()) {
             merged.subscriptionUntil = prev.subscriptionUntil
           }
           return merged
         })
-      }
-    }, () => {})
-    return () => unsub()
+      } catch {}
+      if (!stopped) setTimeout(refresh, 30000)
+    }
+    refresh()
+    return () => { stopped = true }
   }, [student?.id])
 
   const handleEnableNotifications = async () => {

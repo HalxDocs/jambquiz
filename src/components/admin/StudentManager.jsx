@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { PencilEdit01Icon, Delete01Icon, Cancel01Icon, Tick01Icon, ArrowRight01Icon, ArrowLeft01Icon, UserAdd01Icon, UserGroupIcon } from '@hugeicons/core-free-icons'
-import { getAccessStatus, updateStudent, registerStudent } from '../../store/useStore'
-import { functions, httpsCallable } from '../../firebase'
+import { getAccessStatus, updateStudent, registerStudent, deleteStudent } from '../../store/useStore'
+import { apiPost } from '../../lib/api'
 import { useToastStore } from '../../store/toast'
 
 const ACCESS_OPTIONS = [
@@ -61,7 +61,7 @@ export default function StudentManager({ students = [], loading, yearFilter, onY
   const handleAddStudent = async () => {
     const trimmed = addForm.name.trim()
     if (trimmed.length < 3) { setAddErr('Name must be at least 3 characters'); return }
-    if (addForm.password.length < 4) { setAddErr('Password must be at least 4 characters'); return }
+    if (addForm.password.length < 8) { setAddErr('Password must be at least 8 characters'); return }
     setAddLoading(true); setAddErr('')
     try {
       const saved = await registerStudent({
@@ -85,8 +85,7 @@ export default function StudentManager({ students = [], loading, yearFilter, onY
   const handleDeleteStudent = async (studentId, studentName) => {
     if (!window.confirm(`Delete "${studentName}"? This cannot be undone.`)) return
     try {
-      const fn = httpsCallable(functions, 'adminDeleteStudent')
-      await fn({ studentId })
+      await deleteStudent(studentId)
       useToastStore.getState().showToast(`Deleted "${studentName}"`, 'success')
       onCountChange && onCountChange()
     } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to delete student.') }
@@ -134,8 +133,7 @@ export default function StudentManager({ students = [], loading, yearFilter, onY
       expiry = endOfMonth(nextMonth).toISOString()
     }
     try {
-      const fn = httpsCallable(functions, 'adminGrantSubscription')
-      await fn({ studentId: student.id, expiry })
+      await apiPost(`/api/admin/students/${student.id}/grant`, { expiry })
       useToastStore.getState().showToast(`${student.name} granted access until ${new Date(expiry).toLocaleDateString('en-NG')}`, 'success')
     } catch (e) { useToastStore.getState().showToast(e?.message || 'Failed to grant access. Check connection and try again.') }
     setGrantOpenFor(null)

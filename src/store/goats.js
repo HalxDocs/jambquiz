@@ -1,4 +1,5 @@
-import { db, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc } from '../firebase'
+// Goats store — Go backend (sanitize kept client-side for the editor).
+import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api'
 import { SUBJECTS } from './constants'
 
 function sanitizeGoat(raw) {
@@ -12,9 +13,6 @@ function sanitizeGoat(raw) {
     if (s > 0) {
       stars[sub] = s
       explanations[sub] = String(raw?.explanations?.[sub] || '').trim().slice(0, 1000)
-      // Per-subject GOAT comment — shown FIRST (tap OK), before the
-      // explanation (3-star) or narrowed options (2/1-star). Falls back to
-      // legacy docs without comments.
       const c = String(raw?.comments?.[sub] ?? raw?.comment?.[sub] ?? '').trim().slice(0, 1000)
       if (c) comments[sub] = c
     }
@@ -27,46 +25,42 @@ function weekGoatDocId(week) {
 }
 
 async function listGoats() {
-  const snap = await getDocs(collection(db, 'goats'))
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  const res = await apiGet('/api/goats')
+  return (res.goats || []).sort((a, b) => (a.name || '').localeCompare(b.name || ''))
 }
 
 async function createGoat(raw) {
   const clean = sanitizeGoat(raw)
   if (!clean.name) throw new Error('Enter the GOAT name')
   if (!Object.keys(clean.stars).length) throw new Error('Give at least one subject a star rating')
-  const ref = doc(collection(db, 'goats'))
-  await setDoc(ref, { ...clean, createdAt: new Date().toISOString() })
-  return ref.id
+  const res = await apiPost('/api/admin/goats', clean)
+  return res.id
 }
 
 async function updateGoat(id, raw) {
   const clean = sanitizeGoat(raw)
   if (!clean.name) throw new Error('Enter the GOAT name')
   if (!Object.keys(clean.stars).length) throw new Error('Give at least one subject a star rating')
-  await updateDoc(doc(db, 'goats', id), { ...clean, updatedAt: new Date().toISOString() })
+  await apiPut(`/api/admin/goats/${id}`, clean)
 }
 
 async function deleteGoat(id) {
-  await deleteDoc(doc(db, 'goats', id))
+  await apiDelete(`/api/admin/goats/${id}`)
 }
 
 async function getWeekGoats(week) {
-  const snap = await getDoc(doc(db, 'goatWeeks', weekGoatDocId(week)))
-  if (!snap.exists()) return []
-  return snap.data().goatIds || []
+  try {
+    const res = await apiGet(`/api/goats/week?week=${encodeURIComponent(week || '')}`)
+    return res.goatIds || []
+  } catch {
+    return []
+  }
 }
 
 async function setWeekGoats(week, goatIds) {
   const ids = (goatIds || []).slice(0, 4)
   if (ids.length !== 4) throw new Error('Select exactly 4 GOATs for the week')
-  await setDoc(doc(db, 'goatWeeks', weekGoatDocId(week)), {
-    week,
-    goatIds: ids,
-    updatedAt: new Date().toISOString(),
-  })
+  await apiPut('/api/admin/goats/week', { week, goatIds: ids })
 }
 
 export { sanitizeGoat, weekGoatDocId, listGoats, createGoat, updateGoat, deleteGoat, getWeekGoats, setWeekGoats }

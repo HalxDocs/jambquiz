@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { functions, httpsCallable } from '../firebase'
+import { apiPost } from '../lib/api'
+import { updateStudent } from '../store/useStore'
 
 import SEO from '../components/seo/SEO'
 
@@ -29,15 +30,13 @@ export default function Supporters({ student, setStudent, setView }) {
       const phones = []
       if (p) { const cleaned = p.replace(/^0+/, ''); const full = `+234${cleaned}`; updates.parentPhone = full; phones.push(full) }
       if (t) { const cleaned = t.replace(/^0+/, ''); const full = `+234${cleaned}`; updates.teacherPhone = full; phones.push(full) }
-      const fn = httpsCallable(functions, 'updateStudentProfile')
-      await fn({ studentId: student.id, ...updates })
+      await updateStudent(student.id, updates)
       setStudent({ ...student, ...updates })
 
       // Send the intro SMS in the background so it never blocks the user —
       // poor/invalid recipient numbers shouldn't stall the signup flow.
       try {
-        const fn2 = httpsCallable(functions, 'sendAccountabilityIntro')
-        fn2({ studentId: student.id, phones }).catch((e) => {
+        apiPost('/api/notify/accountability-intro', { studentId: student.id, phones }).catch((e) => {
           console.error('[Supporters] Background intro SMS failed:', e?.message || e)
         })
       } catch (e) {

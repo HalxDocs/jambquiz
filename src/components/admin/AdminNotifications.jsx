@@ -1,7 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAdminNotificationStore } from '../../store/notificationStore'
-import { saveAdminNotificationStateToFirestore } from '../../services/pushNotifications'
-import { db, collection, addDoc, functions, httpsCallable } from '../../firebase'
+import { apiGet, apiPost, apiPut } from '../../lib/api'
 
 export default function AdminNotifications() {
   const { enabled, enabledSince, lastModifiedBy, enable, disable } = useAdminNotificationStore()
@@ -19,16 +18,34 @@ export default function AdminNotifications() {
 
   const adminName = 'Admin'
 
+  useEffect(() => {
+    apiGet('/api/admin/settings/notifications')
+      .then((res) => {
+        if (res.enabled && !enabled) enable(adminName)
+        if (!res.enabled && enabled) disable(adminName)
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const persistToggle = async (value) => {
+    try {
+      await apiPut('/api/admin/settings/notifications', { enabled: value })
+    } catch (e) {
+      console.error('[AdminNotifications] toggle persist failed:', e?.message || e)
+    }
+  }
+
   const handleToggle = () => {
     if (enabled) {
       if (confirm('Disable notifications for ALL users? This will stop all scheduled key point deliveries immediately.')) {
         disable(adminName)
-        saveAdminNotificationStateToFirestore(false)
+        persistToggle(false)
       }
     } else {
       if (confirm('Enable notifications for ALL users? This will start delivering key points every 2 hours.')) {
         enable(adminName)
-        saveAdminNotificationStateToFirestore(true)
+        persistToggle(true)
       }
     }
   }
@@ -36,13 +53,8 @@ export default function AdminNotifications() {
   const handleTestPush = async () => {
     setPushTestStatus('Sending...')
     try {
-      const fn = httpsCallable(functions, 'testPushToAll')
-      const result = await fn()
-      if (result.data.ok) {
-        setPushTestStatus(`Sent to ${result.data.sent}/${result.data.total} device(s). Check your phone!`)
-      } else {
-        setPushTestStatus('Failed: ' + result.data.reason)
-      }
+      const result = await apiPost('/api/admin/test-push', {})
+      setPushTestStatus(`Sent to ${result.sent}/${result.total} device(s). Check your phone!`)
     } catch (err) {
       setPushTestStatus('Error: ' + (err.message || 'Unknown'))
     }
@@ -54,30 +66,8 @@ export default function AdminNotifications() {
     if (!phone) return
     setSmsStatus('Sending...')
     try {
-      const fn = httpsCallable(functions, 'testSms')
-      const result = await fn({ phone })
-      if (result.data.ok) {
-        const d = result.data
-        let msg = d.message
-        if (d.senderId) msg += ` via ${d.senderId}`
-        if (d.channel) msg += ` [${d.channel}]`
-        // Authoritative balance is the independent get-balance check, not the send-response field
-        const liveBal = d.balanceCheck && d.balanceCheck.balance !== null && d.balanceCheck.balance !== undefined
-          ? Number(d.balanceCheck.balance) : null
-        if (d.balanceCheck && (d.balanceCheck.user || d.balanceCheck.balance !== null)) {
-          msg += ` [acct: ${d.balanceCheck.user || '?'} bal: ${d.balanceCheck.balance ?? '?'} ${d.balanceCheck.currency || ''}]`
-        } else if (d.balance !== null && d.balance !== undefined) {
-          msg += ` (balance: ${d.balance})`
-        }
-        if (liveBal !== null && liveBal <= 0) msg += ' — Termii balance is 0, fund your wallet or nothing will deliver'
-        if (d.channel === 'generic' && d.dndError) msg += ` — DND route unavailable (${String(d.dndError).slice(0, 120)}). Ask Termii support to enable DND route or DND lines won't receive SMS`
-        setSmsStatus(msg)
-      } else {
-        const d = result.data || {}
-        let msg = 'Failed: ' + d.message
-        if (d.detail) msg += ` | ${JSON.stringify(d.detail).slice(0, 200)}`
-        setSmsStatus(msg)
-      }
+      await apiPost('/api/admin/test-sms', { phone })
+      setSmsStatus('Test SMS sent — check the phone.')
     } catch (err) {
       setSmsStatus('Error: ' + (err.message || 'Unknown'))
     }
@@ -87,9 +77,8 @@ export default function AdminNotifications() {
   const handleClearGuards = async () => {
     setGuardStatus('Clearing...')
     try {
-      const fn = httpsCallable(functions, 'clearSmsGuards')
-      const result = await fn()
-      setGuardStatus(`Cleared ${result.data.deleted} guard(s)`)
+      const result = await apiPost('/api/admin/sms/clear-guards', {})
+      setGuardStatus(`Cleared ${result.deleted} guard(s)`)
     } catch (err) {
       setGuardStatus('Error: ' + (err.message || 'Unknown'))
     }
@@ -100,9 +89,8 @@ export default function AdminNotifications() {
     setDebugStatus('Diagnosing...')
     setDebugData(null)
     try {
-      const fn = httpsCallable(functions, 'debugSmsState')
-      const result = await fn()
-      setDebugData(JSON.stringify(result.data, null, 2))
+      const result = await apiGet('/api/admin/sms/debug')
+      setDebugData(JSON.stringify(result, null, 2))
     } catch (err) {
       setDebugStatus('Error: ' + (err.message || 'Unknown'))
       setDebugData(null)
@@ -142,8 +130,8 @@ export default function AdminNotifications() {
 
     setBroadcastStatus('Sending...')
     try {
-      await addDoc(collection(db, 'admin_broadcasts'), { title, message, target: broadcastTarget, createdAt: new Date().toISOString() })
-      setBroadcastStatus('Broadcast sent!')
+      const res = await apiPost('/api/admin/broadcasts', { title, message, target: broadcastTarget })
+      setBroadcastStatus(`Broadcast sent to ${res.sent || 0} device(s)!`)
       setBroadcastTitle('')
       setBroadcastMessage('')
       setBroadcastTarget('all')
@@ -354,7 +342,7 @@ export default function AdminNotifications() {
             onClick={() => {
               if (confirm('Are you sure? This stops all notifications for all users.')) {
                 disable(adminName)
-                saveAdminNotificationStateToFirestore(false)
+                apiPut('/api/admin/settings/notifications', { enabled: false }).catch(() => {})
               }
             }}
             className="w-full bg-red-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-red-700 active:scale-[0.99] transition-all font-display"

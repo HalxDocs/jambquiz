@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { functions, httpsCallable } from '../../firebase'
+import { apiPost } from '../../lib/api'
 
 const RESUME_PRICE = 800
 const PAYSTACK_KEY = (import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '').trim()
@@ -16,9 +16,8 @@ export default function AppealOverlay({ student, onAppealed }) {
     setLoading(true)
     setError('')
     try {
-      const fn = httpsCallable(functions, 'verifyRecoveryCode')
-      const result = await fn({ studentId: student.id, code: code.trim() })
-      if (result.data?.ok) {
+      const res = await apiPost('/api/students/verify-recovery', { studentId: student.id, code: code.trim() })
+      if (res.ok) {
         onAppealed()
       } else {
         setError('Invalid code. Contact your accountability partner.')
@@ -34,9 +33,8 @@ export default function AppealOverlay({ student, onAppealed }) {
     setError('')
 
     try {
-      const fn = httpsCallable(functions, 'createPaystackCheckout')
-      const result = await fn({ studentId: student.id, type: 'resume', callbackUrl: window.location.origin + '/' })
-      const { authorization_url, reference } = result.data || {}
+      const result = await apiPost('/api/payments/paystack/create', { studentId: student.id, type: 'resume', callbackUrl: window.location.origin + '/' })
+      const { authorization_url, reference } = result
       if (!authorization_url || !reference) throw new Error('Paystack did not return a checkout URL')
       try { localStorage.setItem('pending_paystack_ref', reference) } catch {}
       const email = (student.email || '').trim().toLowerCase() ||
@@ -52,7 +50,7 @@ export default function AppealOverlay({ student, onAppealed }) {
             metadata: { studentId: student.id, type: 'resume' },
             callback: async (resp) => {
               try {
-                await httpsCallable(functions, 'completePaystackCheckout')({ reference: resp?.reference || reference })
+                await apiPost('/api/payments/paystack/complete', { reference: resp?.reference || reference })
                 try { localStorage.removeItem('pending_paystack_ref') } catch {}
                 onAppealed()
               } catch (e) {

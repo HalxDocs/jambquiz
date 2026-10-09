@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { UserGroupIcon, Analytics01Icon, Wallet01Icon, HelpCircleIcon, Book01Icon, Notification02Icon, StarIcon, Share01Icon } from '@hugeicons/core-free-icons'
-import { db, getDoc, doc, httpsCallable, functions } from '../firebase'
+import { apiGet } from '../lib/api'
 import { SUBJECTS, WEEKS, listenQuestions, getStudentsPage, getStudentsCount, getPaymentsPage, getStudentScoresAdmin, getActiveWeek, getQuestionLimit, setActiveWeek } from '../store/useStore'
 import StudentManager from '../components/admin/StudentManager'
 import StatsPanel from '../components/admin/StatsPanel'
@@ -103,13 +103,13 @@ export default function Admin({ setView }) {
     })()
   }, [paymentPage, paymentSearch])
 
-  // Load admin stats
+  // Load admin stats (computed on demand server-side)
   useEffect(() => {
     (async () => {
       setStatsLoading(true)
       try {
-        const snap = await getDoc(doc(db, 'admin_stats', 'overview'))
-        setAdminStats(snap.exists() ? snap.data() : null)
+        const res = await apiGet('/api/admin/stats')
+        setAdminStats(res.stats || null)
       } catch (e) {
         console.error('Stats load failed:', e?.message || '')
       }
@@ -120,12 +120,8 @@ export default function Admin({ setView }) {
   const handleSyncPaystack = async () => {
     setStatsLoading(true)
     try {
-      const fn = httpsCallable(functions, 'syncPaystackPayments')
-      const res = await fn()
-      const d = res.data || {}
-      useToastStore.getState().showToast(`Paystack sync: ${d.synced ?? 0} added, ${d.skipped ?? 0} skipped`, 'success')
-      // Recompute revenue so Total Revenue updates immediately
-      try { await httpsCallable(functions, 'computeAdminStats')() } catch {}
+      const res = await apiGet('/api/admin/payments/sync')
+      useToastStore.getState().showToast(`Paystack sync: ${res.synced ?? 0} added, ${res.skipped ?? 0} skipped`, 'success')
       // Refresh payments list and stats
       paymentCursors.current = [null]; setPaymentPage(0)
       try {
@@ -133,35 +129,25 @@ export default function Admin({ setView }) {
         setPayments(r.payments); setPaymentHasMore(r.hasMore)
         if (!paymentCursors.current[1]) paymentCursors.current[1] = r.lastDoc
       } catch {}
-      const snap = await getDoc(doc(db, 'admin_stats', 'overview'))
-      if (snap.exists()) setAdminStats(snap.data())
+      const s = await apiGet('/api/admin/stats')
+      if (s.stats) setAdminStats(s.stats)
     } catch (e) {
       useToastStore.getState().showToast(e?.message || 'Paystack sync failed', 'error')
     }
     setStatsLoading(false)
   }
 
-  const computeStatsFn = httpsCallable(functions, 'computeAdminStats')
   const handleComputeStats = async () => {
     setStatsLoading(true)
     try {
-      const result = await computeStatsFn()
-      if (!result.data?.ok) { useToastStore.getState().showToast('Stats computation returned an error'); setStatsLoading(false); return }
-      const snap = await getDoc(doc(db, 'admin_stats', 'overview'))
-      if (snap.exists()) {
-        setAdminStats(snap.data())
+      const res = await apiGet('/api/admin/stats')
+      if (res.stats) {
+        setAdminStats(res.stats)
       } else {
         useToastStore.getState().showToast('Stats computed but no data found. Try again.', 'info')
       }
     } catch (e) {
-      const msg = e?.message || 'Unknown error'
-      if (msg.includes('NOT_FOUND') || msg.includes('functions.googleapis.com')) {
-        useToastStore.getState().showToast('Cloud function not deployed. Run: firebase deploy --only functions:computeAdminStats')
-      } else if (msg.includes('permission') || msg.includes('denied') || msg.includes('unauthenticated')) {
-        useToastStore.getState().showToast('Firestore rules blocking read. Deploy: firebase deploy --only firestore:rules, then retry.')
-      } else {
-        useToastStore.getState().showToast('Stats error: ' + msg)
-      }
+      useToastStore.getState().showToast('Stats error: ' + (e?.message || 'Unknown error'))
     }
     setStatsLoading(false)
   }
@@ -237,15 +223,10 @@ export default function Admin({ setView }) {
         onRefresh={async () => {
           setStatsLoading(true)
           try {
-            const snap = await getDoc(doc(db, 'admin_stats', 'overview'))
-            setAdminStats(snap.exists() ? snap.data() : null)
+            const res = await apiGet('/api/admin/stats')
+            setAdminStats(res.stats || null)
           } catch (e) {
-            const msg = e?.message || ''
-            if (msg.includes('permission') || msg.includes('denied')) {
-              useToastStore.getState().showToast('Cannot read admin_stats. Deploy: firebase deploy --only firestore:rules')
-            } else {
-              useToastStore.getState().showToast('Refresh failed: ' + msg)
-            }
+            useToastStore.getState().showToast('Refresh failed: ' + (e?.message || ''))
           }
           setStatsLoading(false)
         }}

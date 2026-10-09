@@ -1,23 +1,13 @@
-import { db, collection, getDocs, getDoc, getCountFromServer, setDoc, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter, increment, auth, functions, httpsCallable } from '../firebase'
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  updatePassword,
-  signInWithCustomToken,
-  getIdTokenResult,
-} from '../firebase'
+// Student store — Go backend. Export names preserved for components.
+import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api'
+import { registerStudentGo } from './session'
 
-// Firebase Auth is the single source of truth for identity. Students log in by
-// name; we map each name to a stable, invisible Firebase Auth email so the
-// security rules can rely on `request.auth.uid`. The students doc keeps its own
-// auto-id (`id`) and stores the Firebase UID in a `uid` field for ownership checks.
 export const AUTH_EMAIL_DOMAIN = '274lab.app'
 export const ADMIN_EMAIL = 'admin@274lab.app'
 
-// Canonical Nigerian phone format used for teacher matching: no +, no spaces.
 export function normalizePhone(p) {
   if (!p) return ''
-  let s = String(p).replace(/[\s\-\(\)]/g, '')
+  let s = String(p).replace(/[\s\-()]/g, '')
   if (s.startsWith('+')) s = s.slice(1)
   if (s.startsWith('0')) s = '234' + s.slice(1)
   else if (s.length === 10 && /^[789]/.test(s)) s = '234' + s
@@ -26,22 +16,18 @@ export function normalizePhone(p) {
 }
 
 export function studentAuthEmail(nameLower) {
-  // Firebase Auth rejects spaces in the email local-part, so collapse them to
-  // dots. Existing accounts were created with spaced names, and this keeps the
-  // mapping deterministic (name -> email) for both sign-in and registration.
   const safe = String(nameLower).replace(/\s+/g, '.').toLowerCase()
   return `${safe}@${AUTH_EMAIL_DOMAIN}`
 }
 
-// Free trial: 2 quiz attempts within 2 weeks of registration. Bonus quizzes
-// (admin-scheduled outside the normal weekend window) never consume it.
+// Free trial: 2 quiz attempts within 2 weeks of first test.
 const FREE_TRIAL_ATTEMPTS = 2
 const FREE_TRIAL_DAYS = 14
 
 function isTrialActive(student, now = Date.now()) {
   if (!student) return false
   const startRaw = student.trialStartedAt || student.joinedAt || null
-  if (!startRaw) return true // legacy accounts without timestamps: grandfather in
+  if (!startRaw) return true
   const t = new Date(startRaw).getTime()
   if (!Number.isFinite(t)) return true
   return now - t < FREE_TRIAL_DAYS * 24 * 60 * 60 * 1000
@@ -63,17 +49,8 @@ function getAccessStatus(student) {
   const subUntil = student.subscriptionUntil ? new Date(student.subscriptionUntil).getTime() : 0
   const freeUsed = student.freeAttemptsUsed || 0
   const freeAttemptsLeft = Math.max(0, FREE_TRIAL_ATTEMPTS - freeUsed)
-  // Trial starts on the FIRST test, not on registration: zero-test students
-  // are always freebie with a full 14-day window ahead of them.
   if (freeUsed === 0 && !(subUntil > now)) {
-    return {
-      status: 'freebie',
-      daysLeft: 0,
-      expiresAt: null,
-      freeAttemptsLeft,
-      trialDaysLeft: FREE_TRIAL_DAYS,
-      trialExpired: false,
-    }
+    return { status: 'freebie', daysLeft: 0, expiresAt: null, freeAttemptsLeft, trialDaysLeft: FREE_TRIAL_DAYS, trialExpired: false }
   }
   if (subUntil > now) {
     return {
@@ -87,12 +64,8 @@ function getAccessStatus(student) {
   }
   if (freeUsed < FREE_TRIAL_ATTEMPTS && isTrialActive(student, now)) {
     return {
-      status: 'freebie',
-      daysLeft: 0,
-      expiresAt: null,
-      freeAttemptsLeft,
-      trialDaysLeft: trialDaysLeft(student, now),
-      trialExpired: false,
+      status: 'freebie', daysLeft: 0, expiresAt: null, freeAttemptsLeft,
+      trialDaysLeft: trialDaysLeft(student, now), trialExpired: false,
     }
   }
   return { status: 'expired', daysLeft: 0, expiresAt: null, freeAttemptsLeft: 0, trialDaysLeft: 0, trialExpired: true }
@@ -100,187 +73,140 @@ function getAccessStatus(student) {
 
 function stripSensitive(student) {
   if (!student) return null
-  const { password, ...rest } = student
+  const rest = { ...student }
+  delete rest.password
+  delete rest.passwordHash
   return rest
 }
 
 function stripPersisted(student) {
   if (!student) return null
-  const { password, ...rest } = student
+  const rest = { ...student }
+  delete rest.password
+  delete rest.passwordHash
   return rest
 }
 
-// Creates the Firebase Auth user (email derived from name) and the students doc.
-// Returns the student object, or null if the name is already taken.
 async function registerStudent(student) {
   const name = (student.name || '').trim()
   if (name.length < 3) throw new Error('Name must be at least 3 characters')
-  const password = student.password
-  if (!password || password.length < 8) throw new Error('Password must be at least 8 characters')
-  const nameLower = name.toLowerCase()
-  const nameLowerWords = [...new Set(nameLower.split(/\s+/).filter(Boolean))]
-  const email = studentAuthEmail(nameLower)
-  let cred
+  if (!student.password || student.password.length < 8) throw new Error('Password must be at least 8 characters')
   try {
-    cred = await createUserWithEmailAndPassword(auth, email, password)
-  } catch (e) {
-    if (e && (e.code === 'auth/email-already-in-use' || e.code === 'auth/invalid-email')) return null
-    throw e
-  }
-  const uid = cred.user.uid
-  // Force-refresh the ID token so Firestore sees the new auth state immediately
-  await cred.user.getIdToken(true)
-  const ref = doc(collection(db, 'students'))
-  const payload = {
-    name,
-    nickname: student.nickname || '',
-    nameLower,
-    nameLowerWords,
-    year: student.year || String(new Date().getFullYear()),
-    email: (student.email || '').toLowerCase(),
-    parentPhone: normalizePhone(student.parentPhone),
-    teacherPhone: normalizePhone(student.teacherPhone),
-    phone: normalizePhone(student.phone),
-    subjects: student.subjects || [],
-    referredBy: String(student.referredBy || '').replace(/\D/g, '').slice(0, 6) || '',
-    uid,
-    subscriptionUntil: null,
-    freeAttemptsUsed: 0,
-    trialStartedAt: new Date().toISOString(),
-    joinedAt: new Date().toISOString(),
-  }
-  try {
-    await setDoc(ref, payload)
-  } catch (e) {
-    console.error('registerStudent/setDoc failed:', e)
-    throw e
-  }
-  // Public friend-search profile (P2-1). Best-effort: the rules allow an owner
-  // to create student_profiles/{studentId} directly.
-  try {
-    const profile = {
-      studentId: ref.id,
+    const res = await registerStudentGo({
       name,
       nickname: student.nickname || '',
-      nameLowerWords,
-      nicknameLower: (student.nickname || '').toLowerCase().trim(),
       year: student.year || String(new Date().getFullYear()),
-      updatedAt: new Date().toISOString(),
-    }
-    await setDoc(doc(db, 'student_profiles', ref.id), profile)
+      password: student.password,
+      email: (student.email || '').toLowerCase(),
+      phone: normalizePhone(student.phone),
+      parentPhone: normalizePhone(student.parentPhone),
+      teacherPhone: normalizePhone(student.teacherPhone),
+      subjects: student.subjects || [],
+      referredBy: String(student.referredBy || '').replace(/\D/g, '').slice(0, 6) || '',
+    })
+    // Public profile sync happens server-side in the same transaction.
+    return stripSensitive(res.student)
   } catch (e) {
-    console.error('registerStudent/syncStudentProfile failed:', e?.message || e)
+    if (e && /taken|conflict|exists/i.test(e.message)) return null
+    throw e
   }
-  return stripSensitive({ id: ref.id, ...payload })
 }
 
-// Returns the signed-in Firebase user's student profile (by UID), or null.
-async function getStudentByUid(uid) {
-  if (!uid) return null
-  const snap = await getDocs(query(collection(db, 'students'), where('uid', '==', uid)))
-  if (snap.empty) return null
-  const d = snap.docs[0]
-  return stripSensitive({ id: d.id, ...d.data() })
+async function getStudentByUid() {
+  try {
+    const res = await apiGet('/api/auth/me')
+    return stripSensitive(res.student || null)
+  } catch { return null }
 }
 
-async function getStudentById(id) {
-  const d = await getDoc(doc(db, 'students', id))
-  if (!d.exists()) return null
-  return stripSensitive({ id: d.id, ...d.data() })
+async function getStudentById() {
+  try {
+    const res = await apiGet('/api/auth/me')
+    return stripSensitive(res.student || null)
+  } catch { return null }
 }
 
-// Changes a password for an already-known name. Signs the user in (acts as
-// re-auth) then updates the password. Used by both the logged-in change flow
-// and the "forgot password" flow (where the user is not yet signed in).
+async function getStudentProfile(id) {
+  try {
+    const res = await apiGet(`/api/students/${encodeURIComponent(id)}/profile`)
+    return res.profile?.name || 'Friend'
+  } catch { return 'Friend' }
+}
+
 async function changePassword(name, currentPassword, newPassword) {
   if (!newPassword || newPassword.length < 8) throw new Error('Password must be at least 8 characters')
-  const nameLower = (name || '').toLowerCase().trim()
-  const email = studentAuthEmail(nameLower)
-  const cred = await signInWithEmailAndPassword(auth, email, currentPassword)
-  await updatePassword(cred.user, newPassword)
+  await apiPost('/api/auth/change-password', { currentPassword, newPassword })
   return true
 }
 
-// Admin sign-in: returns true if the signed-in admin carries the admin claim.
 async function verifyAdminSession() {
-  const user = auth.currentUser
-  if (!user) return false
   try {
-    // Force a token refresh so a freshly-applied `admin` custom claim is
-    // present. Cached tokens can lag behind claim changes and cause admin-only
-    // callables (e.g. adminDeleteStudent) to return permission-denied.
-    await user.getIdToken(true)
-    const token = await getIdTokenResult(user, true)
-    return !!token.claims.admin
-  } catch {
-    return false
-  }
+    const res = await apiGet('/api/auth/me')
+    return res?.student?.role === 'admin'
+  } catch { return false }
 }
 
 async function updateStudent(id, data) {
-  await updateDoc(doc(db, 'students', id), data)
+  const res = await apiPatch(`/api/students/${id}`, data)
+  // Keep the public profile in sync server-side (done in the same txn).
+  return res.student
 }
 
 async function deleteStudent(id) {
-  await deleteDoc(doc(db, 'students', id))
-}
-
-async function incrementFreeAttempts(studentId) {
-  try {
-    await updateDoc(doc(db, 'students', studentId), { freeAttemptsUsed: increment(1) })
-  } catch {}
-}
-
-// Server-side trial consume: increments freeAttemptsUsed and starts the
-// 14-day trial clock on the first test. Replaces raw client increments.
-async function consumeFreeAttempt(studentId) {
-  try {
-    const res = await httpsCallable(functions, 'consumeFreeAttempt')({ studentId })
-    return res.data
-  } catch {
-    return null
-  }
+  await apiDelete(`/api/admin/students/${id}`)
 }
 
 function listenStudents(callback) {
-  return onSnapshot(collection(db, 'students'), (snapshot) => {
-    const students = snapshot.docs.map((d) => stripSensitive({ id: d.id, ...d.data() }))
-    callback(students)
-  })
+  let stopped = false
+  const poll = async () => {
+    if (stopped) return
+    try {
+      const res = await apiGet('/api/admin/students?page=1&pageSize=100')
+      if (!stopped) callback(res.students || [])
+    } catch { /* offline — retry on next poll */ }
+    if (!stopped) setTimeout(poll, 30000)
+  }
+  poll()
+  return () => { stopped = true }
 }
 
+// cursorDoc doubles as a page token (number) for component compat.
 async function getStudentsPage(year, cursorDoc, pageSize = 20) {
-  let constraints = [orderBy('nameLower'), limit(pageSize)]
-  if (year) constraints.push(where('year', '==', year))
-  if (cursorDoc) constraints.push(startAfter(cursorDoc))
-  const q = query(collection(db, 'students'), ...constraints)
-  const snap = await getDocs(q)
-  const students = snap.docs.map((d) => stripSensitive({ id: d.id, ...d.data() }))
+  const page = typeof cursorDoc === 'number' ? cursorDoc : 1
+  const q = `/api/admin/students?${year ? `year=${encodeURIComponent(year)}&` : ''}page=${page}&pageSize=${pageSize}`
+  const res = await apiGet(q)
+  const students = (res.students || []).map(stripSensitive)
   return {
     students,
-    lastDoc: snap.docs[snap.docs.length - 1] || null,
-    hasMore: snap.docs.length === pageSize,
+    lastDoc: res.total > page * (res.pageSize || pageSize) ? page + 1 : null,
+    hasMore: res.total > page * (res.pageSize || pageSize),
   }
 }
 
 async function getStudentsCount(year) {
   try {
-    const constraints = []
-    if (year) constraints.push(where('year', '==', year))
-    const q = constraints.length
-      ? query(collection(db, 'students'), ...constraints)
-      : collection(db, 'students')
-    const snap = await getCountFromServer(q)
-    return snap.data().count
+    const q = `/api/admin/students?${year ? `year=${encodeURIComponent(year)}&` : ''}page=1&pageSize=1`
+    const res = await apiGet(q)
+    return res.total || 0
   } catch (e) {
     console.error('getStudentsCount failed:', e?.message || e)
     return 0
   }
 }
 
-async function linkStudentUid(name) {
-  const res = await httpsCallable(functions, 'linkStudentUid')({ name })
-  return res.data
+async function linkStudentUid() {
+  return null
+}
+
+async function incrementFreeAttempts() {}
+
+async function consumeFreeAttempt(studentId) {
+  try {
+    const res = await apiPost('/api/quiz/consume-trial', { studentId })
+    return res
+  } catch {
+    return null
+  }
 }
 
 export {
@@ -292,6 +218,7 @@ export {
   registerStudent,
   getStudentByUid,
   getStudentById,
+  getStudentProfile,
   changePassword,
   verifyAdminSession,
   updateStudent,

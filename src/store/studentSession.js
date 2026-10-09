@@ -1,12 +1,10 @@
-// Holds the signed-in student's Firebase UID for convenience. The authoritative
-// session is Firebase Auth (see onAuthStateChanged in App.jsx); this is just an
-// in-memory mirror so non-React modules can read the current UID without
-// importing auth directly. Not persisted (Firebase Auth persists itself).
+// Holds the signed-in student's ID for convenience. The authoritative
+// session is the Go JWT (see restoreSession in session.js); this is just an
+// in-memory mirror so non-React modules can read the current ID.
 let _studentUid = ''
 
-// Set only during an in-progress registration. `onAuthStateChanged` in App.jsx
-// uses this to avoid flashing the dashboard between createUser and the control
-// hand-off to the Supporters step.
+// Set only during an in-progress registration. App.jsx uses this to avoid
+// flashing the dashboard before the Supporters hand-off.
 let _registering = false
 
 export function setStudentUid(uid) {

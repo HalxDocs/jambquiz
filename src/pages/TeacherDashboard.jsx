@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { CrownIcon } from '@hugeicons/core-free-icons'
-import { signOut, auth } from '../firebase'
+import { signOut } from '../store/session'
 import { getTeacherDashboard, teacherUpdateDetails, teacherUpdatePhone, getPioneerDashboard } from '../store/useStore'
 import { useToastStore } from '../store/toast'
 import SEO from '../components/seo/SEO'
@@ -142,7 +142,7 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
   }
 
   const handleSignOut = async () => {
-    await signOut(auth)
+    signOut()
     setTeacher(null)
     setView('landing')
   }

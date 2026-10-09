@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { UserGroupIcon } from '@hugeicons/core-free-icons'
 import SEO from '../components/seo/SEO'
-import { db, doc, getDoc, functions, httpsCallable } from '../firebase'
+import { apiPost } from '../lib/api'
+import { getStudentProfile } from '../store/useStore'
 import { startQuiz, submitQuiz, getTopics, listenActiveWeek, normalizeTopic, getAccessStatus, getStudentById, listenQuizDates, isBonusQuiz, WEEKS, LIFELINES_ENABLED, isLifelinesEnabled, consumeFreeAttempt, logEvent, useLifeline, peekStatus, getCoinBalance, getWeekGoats, listGoats, load, save } from '../store/useStore'
 import { useToastStore } from '../store/toast'
 
@@ -111,8 +112,8 @@ export default function Quiz({ student, setStudent, setView, setLastScore, retak
     if (!squad.length) { setSquadNames({}); return }
     let cancelled = false
     Promise.all(squad.map((id) =>
-      getDoc(doc(db, 'student_profiles', id))
-        .then((s) => ({ id, name: s.exists() ? (s.data().name || 'Friend') : 'Friend' }))
+      getStudentProfile(id)
+        .then((name) => ({ id, name }))
         .catch(() => ({ id, name: 'Friend' }))
     )).then((rows) => {
       if (cancelled) return
@@ -605,7 +606,7 @@ export default function Quiz({ student, setStudent, setView, setLastScore, retak
         setRechecking('Confirming payment…')
         for (let i = 0; i < 4; i++) {
           try {
-            await httpsCallable(functions, 'completePaystackCheckout')({ reference: pending })
+            await apiPost('/api/payments/paystack/complete', { reference: pending })
             break
           } catch (e) {
             const m = (e?.message || '').toLowerCase()

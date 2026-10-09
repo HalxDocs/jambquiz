@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { SparklesIcon, UserGroupIcon, CheckmarkCircle02Icon, Share01Icon, Coins01Icon } from '@hugeicons/core-free-icons'
-import { functions, httpsCallable } from '../firebase'
-import { getCoinBalance, listCoinPacks, createCoinsCheckout, listenPayments } from '../store/useStore'
+import { apiPost } from '../lib/api'
+import { getCoinBalance, listCoinPacks, createCoinsCheckout, listenPayments, updateStudent } from '../store/useStore'
 import { useToastStore } from '../store/toast'
 import SEO from '../components/seo/SEO'
 import Receipt from '../components/payments/Receipt'
@@ -74,8 +74,7 @@ export default function Coins({ student, setStudent, setView }) {
     const before = balance ?? student?.coins ?? 0
     const verify = async () => {
       try {
-        const fn = httpsCallable(functions, 'completePaystackCheckout')
-        const res = await fn({ reference: target })
+        const res = await apiPost('/api/payments/paystack/complete', { reference: target })
         try { localStorage.removeItem('pending_paystack_ref') } catch {}
         try {
           const url = new URL(window.location.href)
@@ -88,7 +87,7 @@ export default function Coins({ student, setStudent, setView }) {
         setJustCredited(credited)
         // Server now returns the payment record — show the full receipt.
         // Fall back to the paid amount signal when the record isn't attached.
-        const payment = res?.data?.payment || null
+        const payment = res?.payment || null
         if (payment) {
           setReceipt({ ...payment, studentName: payment.studentName || student?.name || '' })
         } else {
@@ -120,8 +119,7 @@ export default function Coins({ student, setStudent, setView }) {
           return
         }
         try {
-          const fn = httpsCallable(functions, 'updateStudentProfile')
-          await fn({ studentId: student.id, email: cleanEmail }).catch(() => {})
+          await updateStudent(student.id, { email: cleanEmail }).catch(() => {})
         } catch {}
       }
       const res = await createCoinsCheckout(student.id, pack.id)

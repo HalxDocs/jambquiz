@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { adminGetTeachers, adminDeleteTeacher } from '../../store/useStore'
+import { adminGetTeachers, adminDeleteTeacher, makePioneer, removePioneer } from '../../store/useStore'
 import { useToastStore } from '../../store/toast'
-import { functions, httpsCallable } from '../../firebase'
 
 function monthShort(m) {
   try {
@@ -42,10 +41,10 @@ export default function TeachersPanel() {
       }
     } catch (e) {
       const msg = (e?.message) || 'Could not load teachers'
-      if (msg.includes('functions.googleapis.com') || msg.includes('NOT_FOUND')) {
-        setError('Teacher feature not deployed. Run: firebase deploy --only functions:adminTeacherDashboard')
-      } else if (msg.includes('permission') || msg.includes('denied')) {
-        setError('Firestore rules blocking read. Deploy: firebase deploy --only firestore:rules')
+      if (msg.includes('Failed to fetch') || msg.includes('Failed to load')) {
+        setError('Teacher service unreachable. Check your connection and retry.')
+      } else if (msg.includes('permission') || msg.includes('denied') || msg.includes('unauthorized')) {
+        setError('Admin access required. Sign in again.')
       } else {
         setError(msg)
       }
@@ -62,9 +61,8 @@ export default function TeachersPanel() {
   const handleMakePioneer = async (teacherId) => {
     setPioneerBusy(teacherId)
     try {
-      const fn = httpsCallable(functions, 'makePioneer')
-      const res = await fn({ teacherId })
-      useToastStore.getState().showToast(`Pioneer created — code ${res.data.code}`, 'success')
+      const res = await makePioneer(teacherId)
+      useToastStore.getState().showToast(`Pioneer created — code ${res.code}`, 'success')
       await load()
     } catch (e) {
       useToastStore.getState().showToast(e?.message || 'Failed to make Pioneer', 'error')
@@ -95,8 +93,7 @@ export default function TeachersPanel() {
     if (!window.confirm('Remove Pioneer status and code?')) return
     setPioneerBusy(teacherId)
     try {
-      const fn = httpsCallable(functions, 'removePioneer')
-      await fn({ teacherId })
+      await removePioneer(teacherId)
       useToastStore.getState().showToast('Pioneer removed', 'success')
       await load()
     } catch (e) {

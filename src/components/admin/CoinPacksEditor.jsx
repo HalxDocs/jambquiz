@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { functions, httpsCallable } from '../../firebase'
+import { apiGet, apiPost } from '../../lib/api'
 import { useToastStore } from '../../store/toast'
 
 export default function CoinPacksEditor() {
@@ -12,8 +12,8 @@ export default function CoinPacksEditor() {
   const load = async () => {
     setLoading(true)
     try {
-      const res = await httpsCallable(functions, 'listCoinPacks')()
-      if (res.data?.ok) setPacks(res.data.packs || [])
+      const res = await apiGet('/api/coins/packs')
+      if (res.ok) setPacks(res.packs || [])
     } catch {}
     setLoading(false)
   }
@@ -26,8 +26,8 @@ export default function CoinPacksEditor() {
     if (!p || p < 1 || p > 100000) { useToastStore.getState().showToast('Price must be ₦1–₦100,000'); return }
     setSaving(true)
     try {
-      const res = await httpsCallable(functions, 'upsertCoinPack')({ coins: c, priceNgn: p })
-      if (res.data?.ok) {
+      const res = await apiPost('/api/admin/coin-packs', { coins: c, priceNgn: p })
+      if (res.ok) {
         useToastStore.getState().showToast(`${c} coins → ₦${p.toLocaleString()} saved`, 'success')
         await load()
       }

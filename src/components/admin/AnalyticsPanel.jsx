@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { db, collection, getDocs, query, orderBy, limit as fbLimit } from '../../firebase'
+import { apiGet } from '../../lib/api'
 
 const RANGES = [
   { key: '7d', label: '7 days' },
@@ -73,16 +73,25 @@ export default function AnalyticsPanel() {
     setLoading(true)
     setLoadError('')
     try {
-      const q = query(collection(db, 'usage_logs'), orderBy('timestamp', 'desc'), fbLimit(5000))
-      const snap = await getDocs(q)
-      const events = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      const res = await apiGet('/api/admin/usage?limit=500')
+      const events = (res.logs || []).map((l, i) => {
+        let metadata = {}
+        try { metadata = typeof l.meta === 'string' ? JSON.parse(l.meta) : (l.meta || {}) } catch {}
+        const ts = l.createdAt || ''
+        return {
+          id: `${ts}-${i}`,
+          studentId: l.studentId || '',
+          eventType: l.eventType || '',
+          metadata,
+          timestamp: ts,
+          date: ts ? ts.split('T')[0] : '',
+        }
+      })
       events.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
       setRawEvents(events)
     } catch (e) {
       const msg = e?.message || ''
-      if (msg.includes('index')) {
-        setLoadError('Missing Firestore index — run: firebase deploy --only firestore:indexes')
-      } else if (msg.includes('permission') || msg.includes('denied')) {
+      if (msg.includes('denied') || msg.includes('forbidden') || msg.includes('unauthorized')) {
         setLoadError('Permission denied. Only an admin can view usage analytics.')
       } else {
         setLoadError('Failed to load analytics: ' + msg)

@@ -1,4 +1,5 @@
-import { db, writeBatch, collection, doc, getDoc, setDoc, getDocs, onSnapshot, query, where } from '../firebase'
+// Topics store — Go backend.
+import { apiGet, apiPut } from '../lib/api'
 
 function sanitizeTopic(t) {
   if (!t) return null
@@ -32,49 +33,37 @@ function topicDocId(week) {
 
 async function setTopics(week, topics) {
   const clean = sanitizeTopicsMap(topics)
-  const targetId = topicDocId(week)
-  const weekQuery = query(collection(db, 'topics'), where('week', '==', week))
-  const all = await getDocs(weekQuery)
-  const batch = writeBatch(db)
-  let hasDelete = false
-  all.docs.forEach((d) => {
-    if (d.id === targetId) return
-    batch.delete(doc(db, 'topics', d.id))
-    hasDelete = true
-  })
-  batch.set(doc(db, 'topics', targetId), {
-    week,
-    topics: clean,
-    updatedAt: new Date().toISOString(),
-  })
-  await batch.commit()
-  return hasDelete
+  await apiPut(`/api/admin/topics/${encodeURIComponent(week)}`, { topics: clean })
+  return false
 }
 
 async function getTopics(week) {
-  const snap = await getDoc(doc(db, 'topics', topicDocId(week)))
-  if (snap.exists()) return snap.data().topics || {}
-  const legacy = await getDocs(collection(db, 'topics'))
-  const found = legacy.docs.find((d) => d.data().week === week)
-  return found ? (found.data().topics || {}) : {}
+  try {
+    const res = await apiGet(`/api/topics/${encodeURIComponent(week)}`)
+    return res.topics || {}
+  } catch {
+    return {}
+  }
 }
 
 function listenTopics(callback) {
-  return onSnapshot(collection(db, 'topics'), (snapshot) => {
-    const byWeek = {}
-    snapshot.docs.forEach((d) => {
-      const data = d.data()
-      if (!data || !data.week) return
-      const cur = byWeek[data.week]
-      const ts = data.updatedAt || ''
-      if (!cur || (cur.updatedAt || '') < ts) {
-        byWeek[data.week] = { topics: data.topics || {}, updatedAt: ts }
-      }
-    })
-    const all = {}
-    Object.entries(byWeek).forEach(([week, v]) => { all[week] = v.topics })
-    callback(all)
-  })
+  let stopped = false
+  const poll = async () => {
+    if (stopped) return
+    try {
+      const weeks = Array.from({ length: 26 }, (_, i) => `Week ${i + 1}`)
+      const results = await Promise.all(
+        weeks.map((w) => getTopics(w).catch(() => ({})))
+      )
+      if (stopped) return
+      const all = {}
+      weeks.forEach((w, i) => { if (results[i] && Object.keys(results[i]).length) all[w] = results[i] })
+      callback(all)
+    } catch { /* offline — retry on next poll */ }
+    if (!stopped) setTimeout(poll, 60000)
+  }
+  poll()
+  return () => { stopped = true }
 }
 
 export { normalizeTopic, sanitizeTopic, sanitizeTopicsMap, topicDocId, setTopics, getTopics, listenTopics }

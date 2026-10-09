@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { MedalFirstPlaceIcon, MedalSecondPlaceIcon, MedalThirdPlaceIcon, CrownIcon, Award01Icon, BookOpen01Icon, StarIcon, StarCircleIcon, Search01Icon } from '@hugeicons/core-free-icons'
-import { db, collection, doc, onSnapshot, getDoc, getDocs, query, where } from '../firebase'
-import { WEEKS, logEvent, updateSquad } from '../store/useStore'
+import { apiGet } from '../lib/api'
+import { WEEKS, logEvent, updateSquad, getStudentProfile, SUBJECTS } from '../store/useStore'
 import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED } from '../store/constants'
 import SEO from '../components/seo/SEO'
 
@@ -73,7 +73,7 @@ export default function Leaderboard({ student, setView, setStudent }) {
     if (!squad.length) return
     let cancelled = false
     Promise.all(squad.map((id) =>
-      getDoc(doc(db, 'student_profiles', id)).then((s) => ({ id, name: s.exists() ? (s.data().name || 'Friend') : 'Friend' })).catch(() => ({ id, name: 'Friend' }))
+      getStudentProfile(id).then((name) => ({ id, name })).catch(() => ({ id, name: 'Friend' }))
     )).then((rows) => {
       if (cancelled) return
       const m = {}
@@ -104,49 +104,41 @@ export default function Leaderboard({ student, setView, setStudent }) {
     if (!selectedWeek) { setWeekScores([]); return }
     let cancelled = false
     setWeekScoresLoading(true)
-    const q = query(collection(db, 'scores'), where('week', '==', selectedWeek))
-    getDocs(q).then((snap) => {
+    apiGet(`/api/scores?week=${encodeURIComponent(selectedWeek)}`).then((res) => {
       if (cancelled) return
-      setWeekScores(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      setWeekScores(res.scores || [])
       setWeekScoresLoading(false)
     }).catch(() => { if (!cancelled) setWeekScoresLoading(false) })
     return () => { cancelled = true }
   }, [selectedWeek])
 
   useEffect(() => {
-    let unsubLeaderboard
+    let cancelled = false
 
-    // Load aggregated leaderboard overview
-    const overallRef = doc(db, 'leaderboard', 'overall')
-    getDoc(overallRef).then((snap) => {
-      if (snap.exists() && snap.data().top?.length) {
-        setOverallBoard(snap.data().top.map((s) => ({ ...s, id: s.id })))
-      }
+    // Load aggregated leaderboard overview (cached, rebuilt every 15 min)
+    apiGet('/api/portal/board/overall').then((res) => {
+      if (cancelled) return
+      if (res.top?.length) setOverallBoard(res.top)
+    }).catch(() => {})
+
+    // Per-subject boards
+    Promise.all(
+      SUBJECTS.map((subject) =>
+        apiGet(`/api/portal/board/subject_${subject.replace(/\s+/g, '_')}`)
+          .then((res) => ({ subject, ranked: res.top || [] }))
+          .catch(() => ({ subject, ranked: [] }))
+      )
+    ).then((boards) => {
+      if (cancelled) return
+      if (boards.some((b) => b.ranked.length)) setSubjectBoards(boards)
     })
-
-    // Listen for leaderboard updates (overall + per-subject)
-    unsubLeaderboard = onSnapshot(
-      collection(db, 'leaderboard'),
-      (snap) => {
-        const boards = []
-        snap.docs.forEach((d) => {
-          if (d.id === 'overall' && d.data().top?.length) {
-            setOverallBoard(d.data().top.map((s) => ({ ...s, id: s.id })))
-          } else if (d.id.startsWith('subject_')) {
-            const subject = d.id.replace(/^subject_/, '').replace(/_/g, ' ')
-            boards.push({ subject, ranked: d.data().top || [] })
-          }
-        })
-        if (boards.length) setSubjectBoards(boards)
-      }
-    )
 
     // Load user's own rank
-    getDoc(doc(db, 'leaderboard_student_ranks', student.id)).then((snap) => {
-      if (snap.exists()) setMyRank(snap.data())
-    })
+    apiGet(`/api/portal/rank/${student.id}`).then((res) => {
+      if (!cancelled && res.rank) setMyRank(res.rank)
+    }).catch(() => {})
 
-    return () => { unsubLeaderboard?.() }
+    return () => { cancelled = true }
   }, [student])
 
   // Per-week leaderboard (memoized)
@@ -180,29 +172,16 @@ export default function Leaderboard({ student, setView, setStudent }) {
     let cancelled = false
     const timer = setTimeout(() => {
       const searchTerm = q.toLowerCase().trim()
-      const searchWords = searchTerm.split(/\s+/).filter(Boolean)
-      // Friend-search reads the PUBLIC student_profiles collection (safe subset
-      // of name/nickname/year) — the full students docs are owner/admin-only.
-      const nameQuery = searchWords.length === 1
-        ? query(collection(db, 'student_profiles'), where('nameLowerWords', 'array-contains', searchWords[0]))
-        : query(collection(db, 'student_profiles'), where('nameLowerWords', 'array-contains-any', searchWords))
-      const nickQuery = query(
-        collection(db, 'student_profiles'),
-        where('nicknameLower', '>=', searchTerm),
-        where('nicknameLower', '<', searchTerm + '~')
-      )
-      Promise.all([getDocs(nameQuery), getDocs(nickQuery)]).then(async ([nameSnap, nickSnap]) => {
+      apiGet(`/api/students/search?q=${encodeURIComponent(searchTerm)}`).then(async (res) => {
       if (cancelled) return
-      const map = new Map()
-      nameSnap.docs.forEach((d) => { if (!map.has(d.id)) map.set(d.id, { id: d.id, name: d.data().name, nickname: d.data().nickname, year: d.data().year }) })
-      nickSnap.docs.forEach((d) => { if (!map.has(d.id)) map.set(d.id, { id: d.id, name: d.data().name, nickname: d.data().nickname, year: d.data().year }) })
-      const students = Array.from(map.values()).slice(0, 20)
-      const rankPromises = students.map((s) =>
-        getDoc(doc(db, 'leaderboard_student_ranks', s.id)).then((snap) =>
-          snap.exists() ? { studentId: s.id, ...snap.data() } : null
-        ).catch(() => null)
+      const students = (res.profiles || []).map((p) => ({ id: p.studentId, name: p.name, nickname: p.nickname, year: p.year })).slice(0, 20)
+      const ranks = await Promise.all(
+        students.map((s) =>
+          apiGet(`/api/portal/rank/${s.id}`).then((r) =>
+            r.rank ? { studentId: s.id, ...r.rank } : null
+          ).catch(() => null)
+        )
       )
-      const ranks = await Promise.all(rankPromises)
       const rankMap = {}
       ranks.forEach((r) => { if (r) rankMap[r.studentId] = r })
       const results = students.map((s) => {
@@ -218,7 +197,7 @@ export default function Leaderboard({ student, setView, setStudent }) {
       if (noRank.length > 0) {
         const scoreData = await Promise.all(
           noRank.map((s) =>
-            getStudentScores(s.id).then((scores) => ({ id: s.id, scores })).catch(() => ({ id: s.id, scores: [] }))
+            apiGet(`/api/scores?studentId=${s.id}`).then((r) => ({ id: s.id, scores: r.scores || [] })).catch(() => ({ id: s.id, scores: [] }))
           )
         )
         scoreData.forEach(({ id, scores }) => {

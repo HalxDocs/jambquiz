@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { functions, httpsCallable } from '../firebase'
+import { apiPost } from '../lib/api'
 import { listenPayments, getAccessStatus, SUBSCRIPTION_PRICE_NGN, getStudentById, updateStudent, logEvent } from '../store/useStore'
 import Receipt from '../components/payments/Receipt'
 
@@ -26,9 +26,8 @@ export default function Subscribe({ student, setStudent, setView }) {
     for (let i = 1; i <= attempts; i++) {
       try {
         setVerifyNote(i === 1 ? 'Confirming payment…' : `Confirming payment… (retry ${i}/${attempts})`)
-        const fn = httpsCallable(functions, 'completePaystackCheckout')
-        const res = await fn({ reference: target })
-        return res?.data || null
+        const res = await apiPost('/api/payments/paystack/complete', { reference: target })
+        return res || null
       } catch (e) {
         lastErr = e
         const msg = (e?.message || '').toLowerCase()
@@ -144,9 +143,8 @@ export default function Subscribe({ student, setStudent, setView }) {
     // ── Paystack (only gateway) ──────────────────────────────────────
     try {
       const callbackUrl = window.location.origin + '/'
-      const fn = httpsCallable(functions, 'createPaystackCheckout')
-      const result = await fn({ studentId: student.id, type: 'subscription', callbackUrl })
-      const { authorization_url, reference } = result.data
+      const result = await apiPost('/api/payments/paystack/create', { studentId: student.id, type: 'subscription', callbackUrl })
+      const { authorization_url, reference } = result
       if (authorization_url && reference) {
         try { localStorage.setItem('pending_paystack_ref', reference) } catch {}
         try { localStorage.setItem('pending_paystack_student', student.id) } catch {}

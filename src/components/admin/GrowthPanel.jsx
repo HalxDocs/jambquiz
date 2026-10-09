@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { CrownIcon, UserGroupIcon, EyeIcon, SplitIcon, ArrowReloadHorizontalIcon } from '@hugeicons/core-free-icons'
-import { functions, httpsCallable } from '../../firebase'
+import { apiGet } from '../../lib/api'
 import { useToastStore } from '../../store/toast'
 
 const KIND_META = {
@@ -63,8 +63,8 @@ export default function GrowthPanel() {
   const load = async () => {
     setLoading(true)
     try {
-      const res = await httpsCallable(functions, 'getGrowthStats')()
-      if (res?.data?.ok) setData(res.data)
+      const res = await apiGet('/api/admin/growth')
+      if (res?.ok) setData(res)
       else useToastStore.getState().showToast('Growth stats returned an error', 'error')
     } catch (e) {
       useToastStore.getState().showToast(e?.message || 'Failed to load growth stats', 'error')

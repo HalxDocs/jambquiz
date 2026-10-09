@@ -2,26 +2,17 @@ import { useState, useRef, useEffect } from 'react'
 import {
   registerStudent,
   verifyAdminSession,
-  getStudentByUid,
-  linkStudentUid,
-  studentAuthEmail,
-  ADMIN_EMAIL,
+} from '../store/useStore'
+import { setStudentUid, setRegistering } from '../store/studentSession'
+import { loginStudent, loginAdminGo } from '../store/session'
+import { apiPost } from '../lib/api'
+import { useUserNotificationStore } from '../store/notificationStore'
+import { useThemeStore } from '../store/theme'
+import {
   registerTeacher,
   teacherSignIn,
   getTeacherByUid,
 } from '../store/useStore'
-import { setStudentUid, setRegistering } from '../store/studentSession'
-import { useUserNotificationStore } from '../store/notificationStore'
-import { useThemeStore } from '../store/theme'
-import {
-  auth,
-  functions,
-  httpsCallable,
-  signInWithEmailAndPassword,
-  signInWithCustomToken,
-  signOut,
-  updatePassword,
-} from '../firebase'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { ArrowLeft01Icon, Sun01Icon, Moon01Icon } from '@hugeicons/core-free-icons'
 import SEO from '../components/seo/SEO'
@@ -37,7 +28,6 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
   const [mode, setMode] = useState(defaultMode || 'login')
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
-  const [currentPassword, setCurrentPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [nickname, setNickname] = useState('')
   const [referrer, setReferrer] = useState('')
@@ -46,18 +36,9 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
   const [adminPw, setAdminPw] = useState('')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
-  const [recoveredPassword, setRecoveredPassword] = useState('')
-  const [showForgot, setShowForgot] = useState(false)
-  const [resetStudentId, setResetStudentId] = useState(null)
-  const [showResetPassword, setShowResetPassword] = useState(false)
-  const [showResetConfirm, setShowResetConfirm] = useState(false)
-  const [adminSetupMode, setAdminSetupMode] = useState(false)
-  const [adminSetupConfirm, setAdminSetupConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [showAdminPw, setShowAdminPw] = useState(false)
-  const [showSetupPw, setShowSetupPw] = useState(false)
-  const [showSetupConfirm, setShowSetupConfirm] = useState(false)
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [showTerms, setShowTerms] = useState(false)
   // New-server password reset (Go backend)
@@ -164,73 +145,18 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
     if (loading) return
     setLoading(true); setErr('')
     try {
-      const email = studentAuthEmail(trimmed.toLowerCase())
-      const spacedEmail = `${trimmed.toLowerCase().replace(/\s+/g, ' ')}@${'274lab.app'}`
-      let signedIn = false
-      const signInErrors = []
-      // Try email formats sequentially — Firebase Auth rejects concurrent
-      // sign-in attempts on the same auth instance.
-      for (const attemptEmail of [email, spacedEmail]) {
-        try {
-          await signInWithEmailAndPassword(auth, attemptEmail, password)
-          signedIn = true
-          break
-        } catch (e) {
-          signInErrors.push(e && e.code)
-        }
-      }
-      if (!signedIn) {
-        const legacyCodes = ['auth/user-not-found', 'auth/wrong-password', 'auth/invalid-credential', 'auth/invalid-email']
-        if (signInErrors.some((c) => legacyCodes.includes(c))) {
-          // Retry verifyLegacyLogin up to 3 times — cold starts can cause
-          // transient 500/abort errors that resolve on retry.
-          const legacyFn = httpsCallable(functions, 'verifyLegacyLogin')
-          let legacyRes = null
-          let lastLegacyErr = null
-          for (let attempt = 0; attempt < 3; attempt++) {
-            try {
-              legacyRes = await legacyFn({ name: trimmed, password })
-              break
-            } catch (e) {
-              lastLegacyErr = e
-              console.warn(`[Auth] verifyLegacyLogin attempt ${attempt + 1} failed:`, e?.message || e)
-              if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
-            }
-          }
-          if (legacyRes?.data && legacyRes.data.ok && legacyRes.data.customToken) {
-            await signInWithCustomToken(auth, legacyRes.data.customToken)
-            if (password.length >= 6) {
-              try { await updatePassword(auth.currentUser, password) } catch {}
-            }
-          } else if (legacyRes?.data && !legacyRes.data.ok) {
-            setErr('Wrong name or password'); recordAttempt(); setLoading(false); return
-          } else {
-            console.error('[Auth] verifyLegacyLogin failed:', lastLegacyErr)
-            setErr('Could not verify account. Please check your connection and try again.')
-            recordAttempt(); setLoading(false); return
-          }
-        } else {
-          setErr('Could not sign in. Please try again.'); setLoading(false); return
-        }
-      }
+      const res = await loginStudent(trimmed, password)
       attemptsRef.current = 0
       cooldownUntilRef.current = 0
       persistRateLimit()
-      let stu = await getStudentByUid(auth.currentUser.uid)
-      if (!stu) {
-        // uid mismatch — link the Firebase Auth uid to the Firestore doc
-        try {
-          const linkRes = await linkStudentUid(trimmed)
-          if (linkRes?.ok && linkRes.student) stu = linkRes.student
-        } catch (e) {
-          console.error('[Auth] linkStudentUid failed:', e?.message || e)
-        }
-      }
-      if (stu) { setStudentUid(stu.uid || auth.currentUser.uid); setStudent(stu); setView('dashboard') }
+      const stu = res.student
+      if (stu) { setStudentUid(stu.id); setStudent(stu); setView('dashboard') }
       else { setErr('Could not load your account. Please try again.'); setLoading(false); return }
-    } catch {
-      if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Could not sign in. Server error — please try again.')
+    } catch (e) {
+      const msg = (e && e.message) || ''
+      if (/invalid|unauthorized|expired/i.test(msg)) { setErr('Wrong name or password'); recordAttempt() }
+      else if (!navigator.onLine) setErr('No internet connection. Check your network.')
+      else setErr(msg || 'Could not sign in. Server error — please try again.')
     }
     setLoading(false)
   }
@@ -269,13 +195,12 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
       useUserNotificationStore.getState().setSelectedPatchSubjects([])
       useUserNotificationStore.getState().setPushPermission('default')
       useUserNotificationStore.getState().setPushSubscription(null)
-      setStudentUid(saved.uid)
+      setStudentUid(saved.id)
       setStudent(saved)
       setRegistering(false)
       // Send welcome SMS in background (non-blocking)
       try {
-        const welcomeFn = httpsCallable(functions, 'sendStudentWelcomeSms')
-        welcomeFn({ studentId: saved.id }).catch((e) => {
+        apiPost('/api/notify/welcome-sms', { studentId: saved.id }).catch((e) => {
           console.error('[Auth] Welcome SMS failed:', e?.message || e)
         })
       } catch {}
@@ -289,77 +214,21 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
   }
 
   const handleAdmin = async () => {
+    const trimmed = name.trim()
+    if (trimmed.length < 3) { setErr('Enter the admin name'); return }
     if (!adminPw) { setErr('Enter the admin password'); return }
     if (!checkOnline()) return
     setLoading(true); setErr('')
-    const callWithRetry = async (fn, args, retries = 3) => {
-      for (let i = 0; i < retries; i++) {
-        try { return await fn(args) }
-        catch (e) {
-          const msg = String(e?.message || e)
-          if (i < retries - 1 && (msg.includes('CORS') || msg.includes('ERR_FAILED') || msg.includes('internal'))) {
-            await new Promise(r => setTimeout(r, 1000 * (i + 1)))
-            continue
-          }
-          throw e
-        }
-      }
-    }
     try {
-      const existsRes = await callWithRetry(httpsCallable(functions, 'adminExists'))
-      const exists = existsRes.data && existsRes.data.exists
-      if (!exists) {
-        setAdminSetupMode(true)
-        setErr('No admin password set. Enter a new password to configure.')
-        setLoading(false)
-        return
-      }
-      try {
-        await signInWithEmailAndPassword(auth, ADMIN_EMAIL, adminPw)
-        const isAdmin = await verifyAdminSession()
-        if (!isAdmin) { await signOut(auth); setErr('Not an admin account'); setLoading(false); return }
-        setAdminAuthed(true); setView('admin')
-      } catch (e) {
-        setErr('Wrong password')
-      }
-    } catch {
-      if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Could not verify admin. Server error — please try again.')
-    }
-    setLoading(false)
-  }
-
-  const handleAdminSetup = async () => {
-    if (!adminPw) { setErr('Enter a password'); return }
-    if (adminPw.length < 8) { setErr('Password must be at least 8 characters'); return }
-    if (adminPw !== adminSetupConfirm) { setErr('Passwords do not match'); return }
-    if (!checkOnline()) return
-    setLoading(true); setErr('')
-    try {
-      const callWithRetry = async (fn, args, retries = 3) => {
-        for (let i = 0; i < retries; i++) {
-          try { return await fn(args) }
-          catch (e) {
-            const msg = String(e?.message || e)
-            if (i < retries - 1 && (msg.includes('CORS') || msg.includes('ERR_FAILED') || msg.includes('internal'))) {
-              await new Promise(r => setTimeout(r, 1000 * (i + 1)))
-              continue
-            }
-            throw e
-          }
-        }
-      }
-      await callWithRetry(httpsCallable(functions, 'setupAdmin'), { adminPassword: adminPw })
-      await signInWithEmailAndPassword(auth, ADMIN_EMAIL, adminPw)
-      setAdminSetupMode(false)
-      setAdminSetupConfirm('')
-      setAdminPw('')
-      setErr('')
-      setAdminAuthed(true)
-      setView('admin')
-    } catch {
-      if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Something went wrong. Please try again.')
+      await loginAdminGo(trimmed, adminPw)
+      const isAdmin = await verifyAdminSession()
+      if (!isAdmin) { setErr('Not an admin account'); setLoading(false); return }
+      setAdminAuthed(true); setView('admin')
+    } catch (e) {
+      const msg = (e && e.message) || ''
+      if (/invalid|unauthorized|expired|not an admin/i.test(msg)) setErr(msg || 'Wrong name or password')
+      else if (!navigator.onLine) setErr('No internet connection. Check your network.')
+      else setErr(msg || 'Could not verify admin. Server error — please try again.')
     }
     setLoading(false)
   }
@@ -404,10 +273,9 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
         pioneerCode: tPioneerCode.trim() || undefined,
       })
       if (!res || !res.ok) { setErr('Registration failed. Please try again.'); setLoading(false); return }
-      // Sign the new teacher in client-side so App.jsx's onAuthStateChanged
-      // sees the `teacher` claim and routes to the teacher dashboard.
+      // Teacher session is stored by teacherSignIn; App routes to the dashboard.
       await teacherSignIn(emailTrim, tPass)
-      const t = await getTeacherByUid(auth.currentUser.uid)
+      const t = await getTeacherByUid()
       setTeacherSession(t)
       setShowPhoneConfirm(false)
       setView('teacher-dashboard')
@@ -430,7 +298,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
     setLoading(true); setErr('')
     try {
       await teacherSignIn(emailTrim, tPass)
-      const t = await getTeacherByUid(auth.currentUser.uid)
+      const t = await getTeacherByUid()
       if (!t) { setErr('No teacher account found for that email.'); setLoading(false); return }
       setTeacherSession(t)
       setView('teacher-dashboard')
@@ -440,45 +308,6 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
         setErr('Wrong email or password'); recordAttempt()
       } else if (!navigator.onLine) setErr('No internet connection. Check your network.')
       else setErr('Could not sign in. Please try again.')
-    }
-    setLoading(false)
-  }
-
-  const handleForgotPassword = async () => {
-    if (resetStudentId) {
-      if (!password) { setErr('Enter a new password'); return }
-      if (password.length < 8) { setErr('Password must be at least 8 characters'); return }
-      if (password !== confirmPassword) { setErr('Passwords do not match'); return }
-      if (!checkOnline()) return
-      setLoading(true); setErr('')
-      try {
-        await httpsCallable(functions, 'resetPassword')({ name: name.trim(), newPassword: password })
-        setRecoveredPassword('done')
-        setPassword('')
-        setConfirmPassword('')
-        setResetStudentId(null)
-        attemptsRef.current = 0
-        cooldownUntilRef.current = 0
-        persistRateLimit()
-      } catch (e) {
-        const msg = (e && e.message) || ''
-        if (msg.includes('not-found')) setErr('No account found with that name.')
-        else if (!navigator.onLine) setErr('No internet connection. Check your network.')
-        else setErr('Failed to reset password. Please try again.')
-      }
-      setLoading(false)
-      return
-    }
-
-    const trimmed = name.trim()
-    if (trimmed.length < 3) { setErr('Enter your full name'); return }
-    if (!checkOnline()) return
-    setLoading(true); setErr(''); setRecoveredPassword('')
-    try {
-      setResetStudentId('1')
-      setRecoveredPassword('reset')
-    } catch {
-      setErr('Something went wrong. Please try again.')
     }
     setLoading(false)
   }
@@ -747,7 +576,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                     </div>
                     {mode === 'login' && (
                       <div className="flex items-center gap-3 mt-1.5">
-                        <button onClick={() => { setShowForgot(true); setErr(''); setRecoveredPassword('') }}
+                        <button onClick={() => { setShowReset(true); setResetDone(false); setResetStep('name'); setResetMsg(''); setErr('') }}
                           className="text-[11px] text-[#888] hover:text-[#111] font-label underline underline-offset-2 transition-colors">
                           Forgot password?
                         </button>
@@ -826,92 +655,13 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                   </div>
                 )}
 
-                {showForgot && (
-                  <div className="bg-[#F8F8F7] border border-[#EBEBEB] rounded-xl p-4 mt-3 space-y-3">
-                    {recoveredPassword === 'done' ? (
-                      <>
-                        <p className="text-xs font-semibold text-green-700 font-label">Password reset successful</p>
-                        <p className="text-[11px] text-[#888] font-label">You can now lock in with your new password.</p>
-                        <button onClick={() => { setShowForgot(false); setErr(''); setRecoveredPassword('') }}
-                          className="w-full mt-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] transition-all font-display">
-                          Back to Login
-                        </button>
-                      </>
-                    ) : recoveredPassword === 'reset' ? (
-                      <>
-                        <p className="text-xs font-semibold text-[#111] font-label">Reset Password</p>
-                        <p className="text-[11px] text-[#888] font-label">Set a new password for <strong>{name.trim()}</strong></p>
-                        <div>
-                          <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">New Password</label>
-                          <div className="relative">
-                            <input type={showResetPassword ? 'text' : 'password'} value={password}
-                              onChange={(e) => setPassword(e.target.value)}
-                              maxLength={64}
-                              placeholder="Minimum 8 characters"
-                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
-                            <button type="button" onClick={() => setShowResetPassword(!showResetPassword)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                              <EyeIcon open={showResetPassword} />
-                            </button>
-                          </div>
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-semibold text-[#666] uppercase tracking-wide block mb-1 font-label">Confirm Password</label>
-                          <div className="relative">
-                            <input type={showResetConfirm ? 'text' : 'password'} value={confirmPassword}
-                              onChange={(e) => setConfirmPassword(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && handleForgotPassword()}
-                              placeholder="Repeat your password"
-                              className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
-                            <button type="button" onClick={() => setShowResetConfirm(!showResetConfirm)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                              <EyeIcon open={showResetConfirm} />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={handleForgotPassword} disabled={loading}
-                            className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40">
-                            {loading ? 'Resetting...' : 'Reset Password'}
-                          </button>
-                          <button onClick={() => { setShowForgot(false); setErr(''); setRecoveredPassword(''); setResetStudentId(null); setPassword(''); setConfirmPassword('') }}
-                            className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold hover:text-[#111] hover:border-[#CCC] transition-all font-label">
-                            Cancel
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-xs font-semibold text-[#111] font-label">Recover Password</p>
-                        <p className="text-[11px] text-[#888] font-label">Enter your full name to find your account, then set a new password.</p>
-                        <input value={name}
-                          onChange={(e) => setName(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleForgotPassword()}
-                          maxLength={50}
-                          placeholder="Enter your full name"
-                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
-                        <div className="flex gap-2">
-                          <button onClick={handleForgotPassword} disabled={loading}
-                            className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] transition-all font-display disabled:opacity-40">
-                            {loading ? 'Searching...' : 'Find Account'}
-                          </button>
-                          <button onClick={() => { setShowForgot(false); setErr(''); setRecoveredPassword(''); setResetStudentId(null) }}
-                            className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold hover:text-[#111] hover:border-[#CCC] transition-all font-label">
-                            Back
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-
                 {err && (
                   <div className="mt-3 px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
                     <p className="text-red-600 text-xs font-label">{err}</p>
                   </div>
                 )}
 
-                {!showForgot && (
+                {(
                   <button
                     onClick={mode === 'login' ? handleLogin : handleRegister}
                     disabled={loading}
@@ -1212,57 +962,23 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
 
 {tab === 'admin' && (
               <div>
-                {adminSetupMode ? (
-                  <div className="space-y-3.5">
-                    <p className="text-xs font-bold text-[#111] font-label">Set Admin Password</p>
-                    <p className="text-[11px] text-[#888] font-label">This is a one-time setup. The password will be stored securely in the database.</p>
-                    <div>
-                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">New Password</label>
-                      <div className="relative">
-                        <input type={showSetupPw ? 'text' : 'password'} value={adminPw}
-                          onChange={(e) => setAdminPw(e.target.value)}
-                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
-                        <button type="button" onClick={() => setShowSetupPw(!showSetupPw)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                          <EyeIcon open={showSetupPw} />
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">Confirm Password</label>
-                      <div className="relative">
-                        <input type={showSetupConfirm ? 'text' : 'password'} value={adminSetupConfirm}
-                          onChange={(e) => setAdminSetupConfirm(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleAdminSetup()}
-                          className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#111] transition-colors bg-white" />
-                        <button type="button" onClick={() => setShowSetupConfirm(!showSetupConfirm)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#AAA] hover:text-[#555] transition-colors">
-                          <EyeIcon open={showSetupConfirm} />
-                        </button>
-                      </div>
-                    </div>
-                    {err && (
-                      <div className="px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
-                        <p className="text-red-600 text-xs font-label">{err}</p>
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <button onClick={handleAdminSetup} disabled={loading}
-                        className="flex-1 bg-[#111] text-white rounded-xl py-3 text-sm font-bold hover:bg-[#222] active:scale-[0.99] transition-all font-display disabled:opacity-40">
-                        {loading ? 'Saving...' : 'Set Password'}
-                      </button>
-                      <button onClick={() => { setAdminSetupMode(false); setErr(''); setAdminPw(''); setAdminSetupConfirm('') }}
-                        className="flex-1 border border-[#E5E5E5] text-[#888] rounded-xl py-3 text-sm font-bold hover:text-[#111] transition-colors font-label">
-                        Cancel
-                      </button>
-                    </div>
+                <div>
+                  <div className="mb-4">
+                    <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                      Admin Name
+                    </label>
+                    <input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      maxLength={50}
+                      placeholder="Enter admin name"
+                      className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:border-[#111] transition-colors bg-white"
+                    />
                   </div>
-                ) : (
-                  <div>
-                    <div className="mb-4">
-                      <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
-                        Admin Password
-                      </label>
+                  <div className="mb-4">
+                    <label className="text-[11px] font-semibold text-[#666] uppercase tracking-wide block mb-1.5 font-label">
+                      Admin Password
+                    </label>
                       <div className="relative">
                         <input
                           type={showAdminPw ? 'text' : 'password'}
@@ -1291,7 +1007,6 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                       {loading ? 'Verifying...' : 'Access Admin'}
                     </button>
                   </div>
-                )}
               </div>
             )}
           </div>

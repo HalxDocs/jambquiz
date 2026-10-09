@@ -1,5 +1,3 @@
-export { db } from '../firebase'
-
 function load(key, fallback) {
   try {
     const v = localStorage.getItem(key)
