@@ -192,12 +192,12 @@ func (h *Handler) resetRequest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
 		return
 	}
-	sent, err := h.svc.RequestReset(c.Request.Context(), in.Name)
+	sent, noPhone, err := h.svc.RequestReset(c.Request.Context(), in.Name)
 	if err != nil {
 		fail(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "delivered": sent})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "delivered": sent, "noPhone": noPhone})
 }
 
 func (h *Handler) resetConfirm(c *gin.Context) {
@@ -210,10 +210,12 @@ func (h *Handler) resetConfirm(c *gin.Context) {
 		Code        string `json:"code"`
 		NewPassword string `json:"newPassword"`
 	}
-	if err := c.ShouldBindJSON(&in); err != nil || (in.StudentID == "" && in.Name == "") || in.Code == "" {
+	if err := c.ShouldBindJSON(&in); err != nil || (in.StudentID == "" && in.Name == "") {
 		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
 		return
 	}
+	// Empty code is allowed: the service only accepts it for accounts with
+	// no code issued and no phone on file.
 	if err := h.svc.ConfirmReset(c.Request.Context(), in.StudentID, in.Name, in.Code, in.NewPassword); err != nil {
 		fail(c, err)
 		return

@@ -319,11 +319,15 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
     setResetBusy(true); setResetMsg('')
     try {
       const res = await requestPasswordReset(trimmed)
-      setResetStep('code')
-      if (res.delivered > 0) {
-        setResetMsg('Code sent by SMS to your number and your parent\'s number.')
+      if (res.noPhone) {
+        // No number on file — go straight to choosing a password.
+        setResetStep('password')
+        setResetMsg('')
+      } else if (res.delivered > 0) {
+        setResetStep('code')
+        setResetMsg('Code sent by SMS. Enter it below, then choose a new password.')
       } else {
-        setResetMsg('No phone number on file — ask support (Contact page) to set your new password.')
+        setResetMsg('We could not reach your number. Please contact support (Contact page).')
       }
     } catch (e) {
       setResetMsg(e?.message || 'Could not send code. Please try again.')
@@ -332,12 +336,12 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
   }
 
   const handleResetConfirm = async () => {
-    if (resetCode.trim().length !== 4) { setResetMsg('Enter the 4-digit code'); return }
+    if (resetStep === 'code' && resetCode.trim().length !== 4) { setResetMsg('Enter the 4-digit code'); return }
     if (resetPw.length < 8) { setResetMsg('New password must be at least 8 characters'); return }
     if (resetPw !== resetConfirm) { setResetMsg('Passwords do not match'); return }
     setResetBusy(true); setResetMsg('')
     try {
-      await confirmPasswordReset(resetName.trim(), resetCode.trim(), resetPw)
+      await confirmPasswordReset(resetName.trim(), resetStep === 'code' ? resetCode.trim() : '', resetPw)
       setResetDone(true)
     } catch (e) {
       setResetMsg(e?.message || 'Could not reset password. Please try again.')
@@ -441,10 +445,14 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                   </>
                 ) : (
                   <>
-                    <p className="text-xs font-semibold text-[#111] font-label">Enter code + new password</p>
-                    <input value={resetCode} onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                      inputMode="numeric" placeholder="0000"
-                      className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-center tracking-[0.3em] focus:outline-none focus:border-[#111] bg-white" />
+                    <p className="text-xs font-semibold text-[#111] font-label">
+                      {resetStep === 'code' ? 'Enter code + new password' : 'Choose a new password'}
+                    </p>
+                    {resetStep === 'code' && (
+                      <input value={resetCode} onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                        inputMode="numeric" placeholder="0000"
+                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-center tracking-[0.3em] focus:outline-none focus:border-[#111] bg-white" />
+                    )}
                     <input type="password" value={resetPw} onChange={(e) => setResetPw(e.target.value)}
                       maxLength={64} placeholder="New password (min 8 characters)"
                       className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] bg-white" />
@@ -456,7 +464,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                     <div className="flex gap-2">
                       <button onClick={handleResetConfirm} disabled={resetBusy}
                         className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] font-display disabled:opacity-40">
-                        {resetBusy ? 'Resetting...' : 'Reset Password'}
+                        {resetBusy ? 'Saving...' : 'Set Password'}
                       </button>
                       <button onClick={() => { setResetStep('name'); setResetMsg('') }}
                         className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold font-label">

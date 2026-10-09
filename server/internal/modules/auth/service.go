@@ -447,48 +447,49 @@ func resetCode() string {
 	return fmt.Sprintf("%d%d%d%d", b[0]%10, b[1]%10, b[2]%10, b[3]%10)
 }
 
-// RequestReset generates a code and texts it to the student's own and
-// parent numbers. Unknown names succeed silently. Returns SMS delivered.
-func (s *Service) RequestReset(ctx context.Context, name string) (int, error) {
+// RequestReset looks up the name. Accounts WITH a phone on file get an SMS
+// code; accounts WITHOUT one get noPhone=true and may set a password
+// directly (there is no other channel to reach them).
+func (s *Service) RequestReset(ctx context.Context, name string) (sent int, noPhone bool, err error) {
 	nameLower := strings.ToLower(strings.TrimSpace(name))
 	if nameLower == "" {
-		return 0, ErrShortName
+		return 0, false, ErrShortName
 	}
 	var id, phone, parent, studentName string
-	err := s.pool.QueryRow(ctx, `SELECT id, phone, parent_phone, name FROM students WHERE name_lower=$1`,
+	err = s.pool.QueryRow(ctx, `SELECT id, phone, parent_phone, name FROM students WHERE name_lower=$1`,
 		nameLower).Scan(&id, &phone, &parent, &studentName)
 	if err != nil {
-		return 0, nil
+		return 0, false, nil
 	}
 	if !ratelimit.Allow(ctx, s.pool, "reset:"+id, resetRateMax, 60*60*1000) {
-		return 0, ErrTooMany
+		return 0, false, ErrTooMany
+	}
+	phone, parent = phones.Normalize(phone), phones.Normalize(parent)
+	if phone == "" && parent == "" {
+		return 0, true, nil
 	}
 	if s.sms.APIKey == "" {
-		return 0, ErrNoSMS
+		return 0, false, ErrNoSMS
 	}
 	code := resetCode()
 	if code == "" {
-		return 0, ErrNoSMS
+		return 0, false, ErrNoSMS
 	}
 	if _, err := s.pool.Exec(ctx, `UPDATE students SET reset_code=$1, reset_attempts=0,
 		reset_last_attempt=NULL, updated_at=now() WHERE id=$2`, code, id); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	if studentName == "" {
 		studentName = "Student"
 	}
 	text := "Hi " + studentName + ", your 274Lab password reset code is " + code +
 		". It expires with use. If you didn't ask for this, ignore it. - 274Lab"
-	sent := 0
-	for _, to := range []string{phones.Normalize(phone), phones.Normalize(parent)} {
-		if to == "" {
-			continue
-		}
+	for _, to := range []string{phone, parent} {
 		if r := s.sms.Send(ctx, to, text); r.OK {
 			sent++
 		}
 	}
-	return sent, nil
+	return sent, false, nil
 }
 
 // ConfirmReset verifies the code and sets the new password. The account can
@@ -516,15 +517,23 @@ func (s *Service) ConfirmReset(ctx context.Context, studentID, name, code, newPa
 	var stored string
 	var attempts int
 	var last *time.Time
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(reset_code,''), reset_attempts, reset_last_attempt
-		FROM students WHERE id=$1 FOR UPDATE`, studentID).Scan(&stored, &attempts, &last); err != nil {
+	var phone, parent string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(reset_code,''), reset_attempts, reset_last_attempt,
+		phone, parent_phone FROM students WHERE id=$1 FOR UPDATE`, studentID,
+	).Scan(&stored, &attempts, &last, &phone, &parent); err != nil {
 		return ErrBadCode
 	}
 	now := time.Now().UTC()
 	if attempts >= maxResetAttempts && last != nil && now.Sub(*last) < resetCooldown {
 		return ErrTooMany
 	}
-	if stored == "" || strings.TrimSpace(code) != stored {
+	if stored == "" {
+		// No code was ever issued: only allowed when the account has no
+		// phone on file (nothing to send a code to).
+		if phones.Normalize(phone) != "" || phones.Normalize(parent) != "" {
+			return ErrBadCode
+		}
+	} else if strings.TrimSpace(code) != stored {
 		next := attempts + 1
 		if last == nil || now.Sub(*last) > resetCooldown {
 			next = 1

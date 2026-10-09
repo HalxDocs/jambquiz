@@ -321,6 +321,24 @@ function SectionHeading({ label, title, subtitle }) {
    ─────────────────────────────────────────────── */
 export default function Home({ setView, setHomeMode, setHomeTab }) {
   const [scrolled, setScrolled] = useState(false)
+  const [showMovePopup, setShowMovePopup] = useState(false)
+
+  // Server-move notice popup on Sign In: cancellable, remembered.
+  const goSignIn = () => {
+    let seen = false
+    try { seen = localStorage.getItem('server_move_popup_seen') === '1' } catch { /* non-fatal */ }
+    if (seen) {
+      setHomeTab?.('student'); setView('home')
+      return
+    }
+    setShowMovePopup(true)
+  }
+  const dismissPopup = (remember) => {
+    if (remember) {
+      try { localStorage.setItem('server_move_popup_seen', '1') } catch { /* non-fatal */ }
+    }
+    setShowMovePopup(false)
+  }
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40)
@@ -371,7 +389,7 @@ export default function Home({ setView, setHomeMode, setHomeTab }) {
           </div>
 
           <button
-            onClick={() => { setHomeTab?.('student'); setView('home') }}
+            onClick={goSignIn}
             className="bg-white text-neutral-950 text-xs font-bold font-label px-4 py-1.5 rounded-full hover:bg-neutral-200 active:scale-95 transition-all whitespace-nowrap"
           >
             Sign In
@@ -686,6 +704,36 @@ export default function Home({ setView, setHomeMode, setHomeTab }) {
           animation: gradient-shift 4s ease infinite;
         }
       `}</style>
+
+      {/* ─── Server-move notice popup (on Sign In, cancellable) ─── */}
+      {showMovePopup && (
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-5"
+          onClick={() => { dismissPopup(true); setHomeTab?.('student'); setView('home') }}>
+          <div className="w-full max-w-sm bg-neutral-900 border border-white/10 rounded-3xl p-6 text-center relative"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="text-3xl mb-3">⚡</div>
+            <p className="text-base font-bold text-white font-display mb-2">We moved to faster servers</p>
+            <p className="text-xs text-neutral-400 font-label leading-relaxed mb-5">
+              To serve you better, returning users should reset their password first —
+              it takes 30 seconds. Thank you for your understanding.
+            </p>
+            <button
+              onClick={() => { dismissPopup(true); try { localStorage.setItem('jamb_show_reset', '1') } catch { /* non-fatal */ } setHomeMode?.('login'); setView('home') }}
+              className="w-full bg-amber-400 text-neutral-950 rounded-xl py-3 text-sm font-bold hover:bg-amber-300 transition-colors font-display mb-2">
+              Reset password →
+            </button>
+            <button
+              onClick={() => { dismissPopup(true); setHomeTab?.('student'); setView('home') }}
+              className="w-full text-xs text-neutral-400 hover:text-white font-label py-2 transition-colors">
+              Continue to sign in
+            </button>
+            <button onClick={() => dismissPopup(true)}
+              className="absolute top-3 right-4 text-neutral-500 hover:text-white text-xl leading-none">
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }
