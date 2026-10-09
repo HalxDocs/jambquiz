@@ -153,5 +153,10 @@ func (h *Handler) listScores(c *gin.Context) {
 		fail(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "scores": scores})
+	dbg := gin.H{"role": u.Role, "uid": u.ID}
+	var total int
+	if err := h.svc.pool.QueryRow(c.Request.Context(), `SELECT count(*) FROM scores`).Scan(&total); err == nil {
+		dbg["scoresInDb"] = total
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "scores": scores, "_debug": dbg})
 }
