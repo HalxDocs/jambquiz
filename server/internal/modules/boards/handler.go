@@ -29,6 +29,7 @@ func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string) {
 	r.POST("/api/admin/boards/refresh", auth, admin, h.refresh)
 	r.GET("/api/admin/stats", auth, admin, h.adminStats)
 	r.GET("/api/admin/growth", auth, admin, h.growth)
+	r.POST("/api/admin/boards/recompute", auth, admin, h.recompute)
 }
 
 func unavailable(c *gin.Context, svc *Service) bool {
@@ -190,4 +191,16 @@ func (h *Handler) rank(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "rank": map[string]any{
 		"studentId": c.Param("studentId"), "name": name, "nickname": nick,
 		"total": total, "sessionCount": sess, "goldMedals": medals}})
+}
+
+func (h *Handler) recompute(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	students, weeks, err := h.svc.RecomputeRanks(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "internal error"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "students": students, "weeks": weeks})
 }

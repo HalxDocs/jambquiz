@@ -218,3 +218,105 @@ func (s *Service) PortalStats(ctx context.Context) map[string]any {
 	_ = json.Unmarshal(raw, &out)
 	return out
 }
+
+// RecomputeRanks rebuilds all rank rows from scores (post-backfill repair).
+// Same math as the submit-time incremental update, applied to every student.
+func (s *Service) RecomputeRanks(ctx context.Context) (students, weeks int, err error) {
+	type sc struct {
+		student, subject, week string
+		score                  int
+	}
+	rows, err := s.pool.Query(ctx, `SELECT student_id, subject, week, score FROM scores`)
+	if err != nil {
+		return 0, 0, err
+	}
+	byStudent := map[string][]sc{}
+	weeksSeen := map[string]bool{}
+	for rows.Next() {
+		var r sc
+		if err := rows.Scan(&r.student, &r.subject, &r.week, &r.score); err == nil {
+			byStudent[r.student] = append(byStudent[r.student], r)
+			weeksSeen[r.week] = true
+		}
+	}
+	rows.Close()
+	names := map[string]struct {
+		name, nickname, year string
+		subjects             []string
+	}{}
+	nrows, err := s.pool.Query(ctx, `SELECT id, name, nickname, year, subjects FROM students`)
+	if err != nil {
+		return 0, 0, err
+	}
+	for nrows.Next() {
+		var id, name, nick, year string
+		var subjects []string
+		if err := nrows.Scan(&id, &name, &nick, &year, &subjects); err == nil {
+			names[id] = struct {
+				name, nickname, year string
+				subjects             []string
+			}{name, nick, year, subjects}
+		}
+	}
+	nrows.Close()
+
+	for sid, list := range byStudent {
+		best := map[string]map[string]int{}
+		sess := map[string]bool{}
+		wks := map[string]bool{}
+		for _, r := range list {
+			if cur, ok := best[r.subject]; !ok || r.score > cur["score"] {
+				best[r.subject] = map[string]int{"score": r.score, "outOf": 100}
+			}
+			sess[r.week+"::"+r.subject] = true
+			wks[r.week] = true
+		}
+		top := []int{}
+		for _, v := range best {
+			top = append(top, v["score"])
+		}
+		sort.Slice(top, func(i, j int) bool { return top[i] > top[j] })
+		total := 0
+		if len(best) >= 4 {
+			for i := 0; i < 4 && i < len(top); i++ {
+				total += top[i]
+			}
+		}
+		meta := names[sid]
+		bestOut, _ := json.Marshal(best)
+		sessOut, _ := json.Marshal(sess)
+		weeksOut, _ := json.Marshal(wks)
+		if _, err := s.pool.Exec(ctx, `INSERT INTO leaderboard_student_ranks
+			(student_id, name, nickname, year, subjects, best_by_subject, sessions, weeks,
+			 total, session_count, gold_medals, qualified, updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
+			ON CONFLICT (student_id) DO UPDATE SET name=$2, nickname=$3, year=$4, subjects=$5,
+			best_by_subject=$6, sessions=$7, weeks=$8, total=$9, session_count=$10,
+			gold_medals=$11, qualified=$12, updated_at=now()`,
+			sid, meta.name, meta.nickname, meta.year, meta.subjects, bestOut, sessOut, weeksOut,
+			total, len(sess), len(wks), len(best) >= 4); err != nil {
+			return students, weeks, err
+		}
+		students++
+
+		byWeek := map[string][]sc{}
+		for _, r := range list {
+			byWeek[r.week] = append(byWeek[r.week], r)
+		}
+		for week, wl := range byWeek {
+			wt := 0
+			for _, r := range wl {
+				wt += r.score
+			}
+			weekID := sid + "_" + strings.ReplaceAll(week, " ", "_")
+			if _, err := s.pool.Exec(ctx, `INSERT INTO leaderboard_week_ranks
+				(id, student_id, week, name, nickname, total, session_count, updated_at)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,now())
+				ON CONFLICT (id) DO UPDATE SET total=$6, session_count=$7, name=$4, nickname=$5, updated_at=now()`,
+				weekID, sid, week, meta.name, meta.nickname, wt, len(wl)); err != nil {
+				return students, weeks, err
+			}
+		}
+	}
+	return students, len(weeksSeen), nil
+}
