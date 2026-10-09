@@ -163,10 +163,10 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (Studen
 		add("phone", phones.Normalize(*in.Phone))
 	}
 	if in.ParentPhone != nil {
-		add("parentPhone", phones.Normalize(*in.ParentPhone))
+		add("parent_phone", phones.Normalize(*in.ParentPhone))
 	}
 	if in.TeacherPhone != nil {
-		add("teacherPhone", phones.Normalize(*in.TeacherPhone))
+		add("teacher_phone", phones.Normalize(*in.TeacherPhone))
 	}
 	_ = newName
 	if in.HasSubjects {
