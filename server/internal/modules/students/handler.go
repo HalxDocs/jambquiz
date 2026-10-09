@@ -26,6 +26,8 @@ func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string) {
 	r.GET("/api/admin/students", auth, admin, h.list)
 	r.POST("/api/admin/students/:id/grant", auth, admin, h.grant)
 	r.DELETE("/api/admin/students/:id", auth, admin, h.delete)
+	r.GET("/api/students/search", auth, h.search)
+	r.GET("/api/students/:id/profile", auth, h.profile)
 }
 
 func unavailable(c *gin.Context, svc *Service) bool {
@@ -185,4 +187,28 @@ func (h *Handler) delete(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *Handler) search(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	profiles, err := h.svc.SearchProfiles(c.Request.Context(), c.Query("q"))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "profiles": profiles})
+}
+
+func (h *Handler) profile(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	p, err := h.svc.PublicProfile(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "profile": p})
 }

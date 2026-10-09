@@ -235,3 +235,106 @@ func (s *Service) UpdateSquad(ctx context.Context, studentID string, squad []str
 	}
 	return clean, nil
 }
+
+type Goat struct {
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Profession   string            `json:"profession"`
+	Stars        map[string]int    `json:"stars"`
+	Explanations map[string]string `json:"explanations"`
+	Comments     map[string]string `json:"comments"`
+}
+
+// ListGoats returns all GOATs sorted by name (public, safe fields).
+func (s *Service) ListGoats(ctx context.Context) ([]Goat, error) {
+	out := []Goat{}
+	rows, err := s.pool.Query(ctx, `SELECT id, name, profession, stars, explanations, comments FROM goats ORDER BY name`)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var g Goat
+		var stars, expl, comments []byte
+		if err := rows.Scan(&g.ID, &g.Name, &g.Profession, &stars, &expl, &comments); err == nil {
+			g.Stars = map[string]int{}
+			g.Explanations = map[string]string{}
+			g.Comments = map[string]string{}
+			_ = json.Unmarshal(nullJSON(stars), &g.Stars)
+			_ = json.Unmarshal(nullJSON(expl), &g.Explanations)
+			_ = json.Unmarshal(nullJSON(comments), &g.Comments)
+			out = append(out, g)
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) CreateGoat(ctx context.Context, g Goat) (string, error) {
+	if g.Name == "" {
+		return "", ErrBadInput
+	}
+	if len(g.Stars) == 0 {
+		return "", ErrBadInput
+	}
+	id := ids.New()
+	stars, _ := json.Marshal(g.Stars)
+	expl, _ := json.Marshal(g.Explanations)
+	comments, _ := json.Marshal(g.Comments)
+	if _, err := s.pool.Exec(ctx, `INSERT INTO goats (id, name, profession, stars, explanations, comments)
+		VALUES ($1,$2,$3,$4,$5,$6)`, id, g.Name, g.Profession, stars, expl, comments); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func (s *Service) UpdateGoat(ctx context.Context, id string, g Goat) error {
+	if g.Name == "" || len(g.Stars) == 0 {
+		return ErrBadInput
+	}
+	stars, _ := json.Marshal(g.Stars)
+	expl, _ := json.Marshal(g.Explanations)
+	comments, _ := json.Marshal(g.Comments)
+	res, err := s.pool.Exec(ctx, `UPDATE goats SET name=$1, profession=$2, stars=$3,
+		explanations=$4, comments=$5, updated_at=now() WHERE id=$6`,
+		g.Name, g.Profession, stars, expl, comments, id)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Service) DeleteGoat(ctx context.Context, id string) error {
+	res, err := s.pool.Exec(ctx, `DELETE FROM goats WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Service) WeekGoats(ctx context.Context, week string) ([]string, error) {
+	var ids []string
+	if err := s.pool.QueryRow(ctx, `SELECT goat_ids FROM goat_weeks WHERE week=$1`, week).Scan(&ids); err != nil {
+		return []string{}, nil
+	}
+	if ids == nil {
+		return []string{}, nil
+	}
+	return ids, nil
+}
+
+func (s *Service) SetWeekGoats(ctx context.Context, week string, goatIDs []string) error {
+	if len(goatIDs) != 4 {
+		return ErrBadInput
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO goat_weeks (week, goat_ids) VALUES ($1,$2)
+		ON CONFLICT (week) DO UPDATE SET goat_ids=$2`, week, goatIDs); err != nil {
+		return err
+	}
+	return nil
+}

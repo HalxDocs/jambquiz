@@ -22,6 +22,12 @@ func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string) {
 	r.POST("/api/coins/squad", auth, h.squad)
 	r.POST("/api/coins/lifeline", auth, h.lifeline)
 	r.POST("/api/coins/peek-status", auth, h.peekStatus)
+	r.GET("/api/goats", h.listGoats)
+	r.GET("/api/goats/week", h.weekGoats)
+	r.POST("/api/admin/goats", auth, middleware.RequireRole("admin"), h.createGoat)
+	r.PUT("/api/admin/goats/:id", auth, middleware.RequireRole("admin"), h.updateGoat)
+	r.DELETE("/api/admin/goats/:id", auth, middleware.RequireRole("admin"), h.deleteGoat)
+	r.PUT("/api/admin/goats/week", auth, middleware.RequireRole("admin"), h.setWeekGoats)
 	r.POST("/api/admin/coin-packs", auth, middleware.RequireRole("admin"), h.upsertPack)
 }
 
@@ -205,4 +211,91 @@ func (h *Handler) peekStatus(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "statuses": st})
+}
+
+func (h *Handler) listGoats(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	goats, err := h.svc.ListGoats(c.Request.Context())
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "goats": goats})
+}
+
+func (h *Handler) createGoat(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	var g Goat
+	if err := c.ShouldBindJSON(&g); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		return
+	}
+	id, err := h.svc.CreateGoat(c.Request.Context(), g)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"ok": true, "id": id})
+}
+
+func (h *Handler) updateGoat(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	var g Goat
+	if err := c.ShouldBindJSON(&g); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		return
+	}
+	if err := h.svc.UpdateGoat(c.Request.Context(), c.Param("id"), g); err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *Handler) deleteGoat(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	if err := h.svc.DeleteGoat(c.Request.Context(), c.Param("id")); err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *Handler) weekGoats(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	ids, err := h.svc.WeekGoats(c.Request.Context(), c.Query("week"))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "goatIds": ids})
+}
+
+func (h *Handler) setWeekGoats(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	var in struct {
+		Week    string   `json:"week"`
+		GoatIDs []string `json:"goatIds"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.Week == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		return
+	}
+	if err := h.svc.SetWeekGoats(c.Request.Context(), in.Week, in.GoatIDs); err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

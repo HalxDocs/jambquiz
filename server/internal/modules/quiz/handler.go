@@ -20,6 +20,7 @@ func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string) *Service {
 	r.POST("/api/quiz/submit", auth, h.submit)
 	r.POST("/api/quiz/details", auth, h.details)
 	r.POST("/api/quiz/consume-trial", auth, h.consumeTrial)
+	r.GET("/api/scores", auth, h.listScores)
 	return h.svc
 }
 
@@ -140,4 +141,17 @@ func (h *Handler) consumeTrial(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "consumed": res.Consumed, "freeAttemptsUsed": res.FreeAttemptsUsed})
+}
+
+func (h *Handler) listScores(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	u := middleware.Current(c)
+	scores, err := h.svc.ListScores(c.Request.Context(), u.ID, u.Role, c.Query("week"), c.Query("studentId"))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "scores": scores})
 }

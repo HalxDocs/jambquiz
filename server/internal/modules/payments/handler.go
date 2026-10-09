@@ -2,6 +2,7 @@ package payments
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -24,6 +25,8 @@ func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string, cfg Config
 	r.POST("/api/webhooks/paystack", h.paystackWebhook)
 	r.POST("/api/webhooks/bachs", h.bachsWebhook)
 	r.GET("/api/admin/payments/sync", middleware.RequireAuth(secret), middleware.RequireRole("admin"), h.syncPaystack)
+	r.GET("/api/payments", middleware.RequireAuth(secret), h.listMine)
+	r.GET("/api/admin/payments", middleware.RequireAuth(secret), middleware.RequireRole("admin"), h.adminList)
 }
 
 func unavailable(c *gin.Context, svc *Service) bool {
@@ -221,4 +224,42 @@ func (h *Handler) syncPaystack(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "synced": synced, "skipped": skipped, "failed": failed})
+}
+
+func (h *Handler) listMine(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	sid := c.Query("studentId")
+	if sid == "" || !ownerOrAdmin(c, sid) {
+		if sid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		}
+		return
+	}
+	payments, err := h.svc.ListPayments(c.Request.Context(), sid)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "payments": payments})
+}
+
+func (h *Handler) adminList(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	page, pageSize := 1, 20
+	if v := c.Query("page"); v != "" {
+		fmt.Sscanf(v, "%d", &page)
+	}
+	if v := c.Query("pageSize"); v != "" {
+		fmt.Sscanf(v, "%d", &pageSize)
+	}
+	payments, total, err := h.svc.AdminPayments(c.Request.Context(), c.Query("search"), page, pageSize)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "payments": payments, "total": total, "page": page})
 }

@@ -416,7 +416,8 @@ func (s *Service) LoginTeacher(ctx context.Context, phone, password string) (Tea
 	p := phones.Normalize(phone)
 	var t Teacher
 	var pwHash string
-	err := s.pool.QueryRow(ctx, `SELECT id, name, email, phone, is_pioneer, password_hash FROM teachers WHERE phone = $1`, p).Scan(
+	err := s.pool.QueryRow(ctx, `SELECT id, name, email, phone, is_pioneer, password_hash FROM teachers
+		WHERE phone=$1 OR email=$2`, p, strings.ToLower(strings.TrimSpace(phone))).Scan(
 		&t.ID, &t.Name, &t.Email, &t.Phone, &t.IsPioneer, &pwHash,
 	)
 	if err != nil || !hash.Check(pwHash, password) {

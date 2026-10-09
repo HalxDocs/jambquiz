@@ -847,3 +847,70 @@ func parseTimeOrNow(s string) time.Time {
 	}
 	return time.Now().UTC()
 }
+
+type PaymentRow struct {
+	ID          string `json:"id"`
+	StudentID   string `json:"studentId"`
+	StudentName string `json:"studentName"`
+	Email       string `json:"email"`
+	Amount      int    `json:"amount"`
+	Method      string `json:"method"`
+	Reference   string `json:"reference"`
+	Type        string `json:"type"`
+	PaidAt      string `json:"paidAt"`
+}
+
+// ListPayments returns a student's payments (owner/admin).
+func (s *Service) ListPayments(ctx context.Context, studentID string) ([]PaymentRow, error) {
+	out := []PaymentRow{}
+	rows, err := s.pool.Query(ctx, `SELECT id, student_id, student_name, email, amount, method,
+		reference, type, paid_at FROM payments WHERE student_id=$1 ORDER BY paid_at DESC LIMIT 100`, studentID)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p PaymentRow
+		var paid time.Time
+		if err := rows.Scan(&p.ID, &p.StudentID, &p.StudentName, &p.Email, &p.Amount,
+			&p.Method, &p.Reference, &p.Type, &paid); err == nil {
+			p.PaidAt = paid.UTC().Format(time.RFC3339)
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// AdminPayments pages all payments with optional name search.
+func (s *Service) AdminPayments(ctx context.Context, search string, page, pageSize int) ([]PaymentRow, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	out := []PaymentRow{}
+	var total int
+	like := "%" + search + "%"
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM payments WHERE $1='' OR student_name ILIKE $2`,
+		search, like).Scan(&total); err != nil {
+		return out, 0, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id, student_id, student_name, email, amount, method,
+		reference, type, paid_at FROM payments WHERE $1='' OR student_name ILIKE $2
+		ORDER BY paid_at DESC LIMIT $3 OFFSET $4`, search, like, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return out, total, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p PaymentRow
+		var paid time.Time
+		if err := rows.Scan(&p.ID, &p.StudentID, &p.StudentName, &p.Email, &p.Amount,
+			&p.Method, &p.Reference, &p.Type, &paid); err == nil {
+			p.PaidAt = paid.UTC().Format(time.RFC3339)
+			out = append(out, p)
+		}
+	}
+	return out, total, nil
+}

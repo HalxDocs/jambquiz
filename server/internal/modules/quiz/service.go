@@ -658,3 +658,99 @@ func (s *Service) ConsumeTrial(ctx context.Context, authUID, studentID string) (
 }
 
 func newID() string { return ids.New() }
+
+// Score is a score row with corrections merged (mirrors fetchDetails).
+type Score struct {
+	ID          string `json:"id"`
+	StudentID   string `json:"studentId"`
+	StudentName string `json:"studentName"`
+	Subject     string `json:"subject"`
+	Week        string `json:"week"`
+	Score       int    `json:"score"`
+	OutOf       int    `json:"outOf"`
+	Correct     int    `json:"correct"`
+	Wrong       int    `json:"wrong"`
+	Unanswered  int    `json:"unanswered"`
+	Total       int    `json:"total"`
+	IsRetake    bool   `json:"isRetake"`
+	CreatedAt   string `json:"createdAt"`
+	Released    bool   `json:"released"`
+	Questions   any    `json:"questions"`
+	Answers     any    `json:"answers"`
+}
+
+// ListScores returns scores filtered by week and/or student, with details
+// merged per (student, week) exactly like the client's fetchDetails did.
+func (s *Service) ListScores(ctx context.Context, authUID, authRole, week, studentID string) ([]Score, error) {
+	out := []Score{}
+	q := `SELECT id, student_id, student_name, subject, week, score, out_of, correct, wrong,
+		unanswered, total, is_retake, created_at FROM scores WHERE ($1='' OR week=$1) AND ($2='' OR student_id=$2)
+		ORDER BY created_at DESC LIMIT 1000`
+	rows, err := s.pool.Query(ctx, q, week, studentID)
+	if err != nil {
+		return out, err
+	}
+	type raw struct {
+		Score
+		created time.Time
+		owner   string
+	}
+	all := []raw{}
+	for rows.Next() {
+		var r raw
+		if err := rows.Scan(&r.ID, &r.StudentID, &r.StudentName, &r.Subject, &r.Week, &r.Score,
+			&r.OutOf, &r.Correct, &r.Wrong, &r.Unanswered, &r.Total, &r.IsRetake, &r.created); err == nil {
+			all = append(all, r)
+		}
+	}
+	rows.Close()
+	// Ownership: non-admins may only see their own scores.
+	if authRole != "admin" {
+		filtered := []raw{}
+		for _, r := range all {
+			if r.StudentID == authUID {
+				filtered = append(filtered, r)
+			}
+		}
+		all = filtered
+	}
+	// Group detail keys to merge.
+	type key struct{ student, week string }
+	byKey := map[key][]int{}
+	for i, r := range all {
+		k := key{r.StudentID, r.Week}
+		byKey[k] = append(byKey[k], i)
+	}
+	for k, idxs := range byKey {
+		det, err := s.Details(ctx, authUID, authRole, k.student, k.week)
+		if err != nil || !det.Released {
+			continue
+		}
+		bySubject := map[string][]any{}
+		for _, sub := range det.Subjects {
+			if name, ok := sub["subject"].(string); ok {
+				if qs, ok := sub["questions"].([]any); ok {
+					bySubject[name] = qs
+				}
+			}
+		}
+		byAns := map[string][]any{}
+		for _, an := range det.Answers {
+			if name, ok := an["subject"].(string); ok {
+				if as, ok := an["answers"].([]any); ok {
+					byAns[name] = as
+				}
+			}
+		}
+		for _, i := range idxs {
+			all[i].Released = true
+			all[i].Questions = bySubject[all[i].Subject]
+			all[i].Answers = byAns[all[i].Subject]
+		}
+	}
+	for _, r := range all {
+		r.CreatedAt = r.created.UTC().Format(time.RFC3339)
+		out = append(out, r.Score)
+	}
+	return out, nil
+}

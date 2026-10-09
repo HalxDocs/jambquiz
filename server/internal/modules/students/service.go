@@ -359,3 +359,64 @@ func (s *Service) VerifyRecovery(ctx context.Context, authUID, studentID, code s
 	}
 	return true, "", nil
 }
+
+type Profile struct {
+	StudentID      string   `json:"studentId"`
+	Name           string   `json:"name"`
+	Nickname       string   `json:"nickname"`
+	Year           string   `json:"year"`
+	NameLowerWords []string `json:"-"`
+	NicknameLower  string   `json:"-"`
+}
+
+// SearchProfiles matches by name words or nickname prefix (max 20).
+func (s *Service) SearchProfiles(ctx context.Context, q string) ([]Profile, error) {
+	out := []Profile{}
+	term := strings.ToLower(strings.TrimSpace(q))
+	if len(term) < 2 {
+		return out, nil
+	}
+	words := strings.Fields(term)
+	rows, err := s.pool.Query(ctx, `SELECT student_id, name, nickname, year, name_lower_words, nickname_lower
+		FROM student_profiles LIMIT 2000`)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p Profile
+		if err := rows.Scan(&p.StudentID, &p.Name, &p.Nickname, &p.Year, &p.NameLowerWords, &p.NicknameLower); err != nil {
+			continue
+		}
+		hit := false
+		for _, w := range words {
+			for _, nw := range p.NameLowerWords {
+				if nw == w {
+					hit = true
+					break
+				}
+			}
+		}
+		if !hit && strings.HasPrefix(strings.ToLower(p.NicknameLower), term) {
+			hit = true
+		}
+		if hit {
+			out = append(out, p)
+			if len(out) >= 20 {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// PublicProfile returns one safe profile row.
+func (s *Service) PublicProfile(ctx context.Context, id string) (Profile, error) {
+	var p Profile
+	err := s.pool.QueryRow(ctx, `SELECT student_id, name, nickname, year FROM student_profiles WHERE student_id=$1`,
+		id).Scan(&p.StudentID, &p.Name, &p.Nickname, &p.Year)
+	if err != nil {
+		return p, ErrNotFound
+	}
+	return p, nil
+}
