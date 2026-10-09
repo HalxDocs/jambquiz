@@ -91,17 +91,19 @@ func boolean(m map[string]any, key string) bool {
 	return false
 }
 
-func ts(m map[string]any, key string) any {
+func ts(m map[string]any, key string) *time.Time {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return nil
 	}
 	switch t := v.(type) {
 	case time.Time:
-		return t.UTC()
+		u := t.UTC()
+		return &u
 	case string:
 		if parsed, err := time.Parse(time.RFC3339, t); err == nil {
-			return parsed.UTC()
+			u := parsed.UTC()
+			return &u
 		}
 		return nil
 	}
@@ -120,19 +122,34 @@ func jsonField(v any) []byte {
 }
 
 func allDocs(ctx context.Context, fs *firestore.Client, col string) ([]*firestore.DocumentSnapshot, error) {
-	var out []*firestore.DocumentSnapshot
-	it := fs.Collection(col).Documents(ctx)
-	for {
-		doc, err := it.Next()
-		if err == iterator.Done {
-			break
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			wait := time.Duration(2<<attempt) * time.Second
+			log.Printf("%s: read error (%v), retrying in %s", col, lastErr, wait)
+			time.Sleep(wait)
 		}
-		if err != nil {
-			return out, err
+		var out []*firestore.DocumentSnapshot
+		it := fs.Collection(col).Documents(ctx)
+		failed := false
+		for {
+			doc, err := it.Next()
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				lastErr = err
+				failed = true
+				break
+			}
+			out = append(out, doc)
 		}
-		out = append(out, doc)
+		it.Stop()
+		if !failed {
+			return out, nil
+		}
 	}
-	return out, nil
+	return nil, fmt.Errorf("%s: %v", col, lastErr)
 }
 
 func wanted(step string) bool {
@@ -229,14 +246,34 @@ func execAll(ctx context.Context, pool *pgxpool.Pool, sql string, rows [][]any) 
 		batch.Queue(sql, r...)
 	}
 	br := pool.SendBatch(ctx, batch)
-	defer br.Close()
+	failed := false
 	for range rows {
 		if _, err := br.Exec(); err != nil {
-			br.Close()
-			return 0, err
+			failed = true
+			break
 		}
 	}
-	return len(rows), br.Close()
+	br.Close()
+	if !failed {
+		return len(rows), nil
+	}
+	// Fall back to row-by-row so orphans (e.g. scores keyed by deleted
+	// student IDs) are skipped instead of aborting the batch.
+	ok, skipped := 0, 0
+	for i, r := range rows {
+		if _, err := pool.Exec(ctx, sql, r...); err != nil {
+			skipped++
+			if skipped <= 3 {
+				log.Printf("skip row %d: %v", i, err)
+			}
+			continue
+		}
+		ok++
+	}
+	if skipped > 0 {
+		log.Printf("skipped %d orphan rows", skipped)
+	}
+	return ok, nil
 }
 
 func importStudents(ctx context.Context, fs *firestore.Client, pool *pgxpool.Pool) int {
@@ -300,7 +337,7 @@ func importTeachers(ctx context.Context, fs *firestore.Client, pool *pgxpool.Poo
 			d.Ref.ID, str(m, "uid"), "", str(m, "name"), str(m, "email"), str(m, "phone"),
 			str(m, "accountNumber"), str(m, "bankName"), str(m, "accountName"), str(m, "bankCode"),
 			boolean(m, "bankVerified"), ts(m, "bankVerifiedAt"), boolean(m, "isPioneer"),
-			str(m, "pioneerCode"), str(m, "referredByPioneerId"), ts(m, "pioneerSince"),
+			str(m, "pioneerCode"), ts(m, "pioneerSince"),
 			ts(m, "phoneUpdatedAt"), ts(m, "createdAt"),
 		})
 		if code := str(m, "pioneerCode"); code != "" {
@@ -309,12 +346,23 @@ func importTeachers(ctx context.Context, fs *firestore.Client, pool *pgxpool.Poo
 	}
 	n, err := execAll(ctx, pool, `INSERT INTO teachers
 		(id, uid, password_hash, name, email, phone, account_number, bank_name, account_name, bank_code,
-		 bank_verified, bank_verified_at, is_pioneer, pioneer_code, referred_by_pioneer_id, pioneer_since,
+		 bank_verified, bank_verified_at, is_pioneer, pioneer_code, pioneer_since,
 		 phone_updated_at, created_at)
-		VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,''),$15,$16,$17,COALESCE($18,now()))
+		VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,''),$15,$16,COALESCE($17,now()))
 		ON CONFLICT (id) DO NOTHING`, rows)
 	if err != nil {
 		log.Fatalf("teachers insert: %v", err)
+	}
+	// Second pass: pioneer links (the referenced pioneer may sort after us).
+	linkRows := [][]any{}
+	for _, d := range docs {
+		if pid := str(d.Data(), "referredByPioneerId"); pid != "" {
+			linkRows = append(linkRows, []any{d.Ref.ID, pid})
+		}
+	}
+	if _, err := execAll(ctx, pool, `UPDATE teachers SET referred_by_pioneer_id=$2, updated_at=now()
+		WHERE id=$1 AND EXISTS(SELECT 1 FROM teachers WHERE id=$2)`, linkRows); err != nil {
+		log.Fatalf("teacher links: %v", err)
 	}
 	n2, err := execAll(ctx, pool, `INSERT INTO pioneer_codes (code, teacher_id, created_at)
 		VALUES ($1,$2,COALESCE($3,now())) ON CONFLICT (code) DO NOTHING`, codes)
@@ -486,10 +534,15 @@ func importPayments(ctx context.Context, fs *firestore.Client, pool *pgxpool.Poo
 	rows := [][]any{}
 	for _, d := range docs {
 		m := d.Data()
+		var coinsVal *int
+		if str(m, "type") == "coin_purchase" {
+			c := num(m, "coins")
+			coinsVal = &c
+		}
 		rows = append(rows, []any{
 			d.Ref.ID, str(m, "studentId"), str(m, "uid"), str(m, "studentName"), str(m, "email"),
 			num(m, "amount"), str(m, "currency"), str(m, "method"), str(m, "reference"),
-			str(m, "checkoutId"), str(m, "type"), num(m, "coins"), str(m, "extendsTo"), ts(m, "paidAt"),
+			str(m, "checkoutId"), str(m, "type"), coinsVal, str(m, "extendsTo"), ts(m, "paidAt"),
 		})
 	}
 	n1, err := execAll(ctx, pool, `INSERT INTO payments
