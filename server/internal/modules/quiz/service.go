@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -684,9 +685,22 @@ type Score struct {
 func (s *Service) ListScores(ctx context.Context, authUID, authRole, week, studentID string) ([]Score, error) {
 	out := []Score{}
 	q := `SELECT id, student_id, student_name, subject, week, score, out_of, correct, wrong,
-		unanswered, total, is_retake, created_at FROM scores WHERE ($1='' OR week=$1) AND ($2='' OR student_id=$2)
-		ORDER BY created_at DESC LIMIT 1000`
-	rows, err := s.pool.Query(ctx, q, week, studentID)
+		unanswered, total, is_retake, created_at FROM scores`
+	conds := []string{}
+	args := []any{}
+	if week != "" {
+		args = append(args, week)
+		conds = append(conds, fmt.Sprintf("week=$%d", len(args)))
+	}
+	if studentID != "" {
+		args = append(args, studentID)
+		conds = append(conds, fmt.Sprintf("student_id=$%d", len(args)))
+	}
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
+	}
+	q += ` ORDER BY created_at DESC LIMIT 1000`
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return out, err
 	}
@@ -699,11 +713,16 @@ func (s *Service) ListScores(ctx context.Context, authUID, authRole, week, stude
 	for rows.Next() {
 		var r raw
 		if err := rows.Scan(&r.ID, &r.StudentID, &r.StudentName, &r.Subject, &r.Week, &r.Score,
-			&r.OutOf, &r.Correct, &r.Wrong, &r.Unanswered, &r.Total, &r.IsRetake, &r.created); err == nil {
-			all = append(all, r)
+			&r.OutOf, &r.Correct, &r.Wrong, &r.Unanswered, &r.Total, &r.IsRetake, &r.created); err != nil {
+			log.Printf("[quiz] ListScores scan skip: %v", err)
+			continue
 		}
+		all = append(all, r)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
 	// Ownership: non-admins may only see their own scores.
 	if authRole != "admin" {
 		filtered := []raw{}
