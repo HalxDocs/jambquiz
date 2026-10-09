@@ -25,6 +25,9 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { ArrowLeft01Icon, Sun01Icon, Moon01Icon } from '@hugeicons/core-free-icons'
 import SEO from '../components/seo/SEO'
+import ServerMoveBanner from '../components/ui/ServerMoveBanner'
+import { RESET_FLAG } from '../lib/api'
+import { apiConfigured, requestPasswordReset, confirmPasswordReset } from '../lib/api'
 
 const LOGIN_COOLDOWN_MS = 30000
 const MAX_ATTEMPTS = 5
@@ -57,6 +60,16 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
   const [showSetupConfirm, setShowSetupConfirm] = useState(false)
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [showTerms, setShowTerms] = useState(false)
+  // New-server password reset (Go backend)
+  const [showReset, setShowReset] = useState(false)
+  const [resetStep, setResetStep] = useState('name')
+  const [resetName, setResetName] = useState('')
+  const [resetCode, setResetCode] = useState('')
+  const [resetPw, setResetPw] = useState('')
+  const [resetConfirm, setResetConfirm] = useState('')
+  const [resetBusy, setResetBusy] = useState(false)
+  const [resetMsg, setResetMsg] = useState('')
+  const [resetDone, setResetDone] = useState(false)
 
   // Teacher tab state
   const [tName, setTName] = useState('')
@@ -83,6 +96,16 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
         const { attempts, cooldownUntil } = JSON.parse(raw)
         if (Number.isFinite(attempts)) attemptsRef.current = attempts
         if (Number.isFinite(cooldownUntil)) cooldownUntilRef.current = cooldownUntil
+      }
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(RESET_FLAG) === '1') {
+        localStorage.removeItem(RESET_FLAG)
+        setShowReset(true)
+        setTab('student')
       }
     } catch {}
   }, [])
@@ -460,6 +483,35 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
     setLoading(false)
   }
 
+  const handleResetRequest = async () => {
+    const trimmed = resetName.trim()
+    if (trimmed.length < 3) { setResetMsg('Enter your full name'); return }
+    if (!apiConfigured()) { setResetMsg('Online reset is not available yet. Please try again later or contact support.'); return }
+    setResetBusy(true); setResetMsg('')
+    try {
+      await requestPasswordReset(trimmed)
+      setResetStep('code')
+      setResetMsg('Code sent by SMS to your number and your parent\'s number.')
+    } catch (e) {
+      setResetMsg(e?.message || 'Could not send code. Please try again.')
+    }
+    setResetBusy(false)
+  }
+
+  const handleResetConfirm = async () => {
+    if (resetCode.trim().length !== 4) { setResetMsg('Enter the 4-digit code'); return }
+    if (resetPw.length < 8) { setResetMsg('New password must be at least 8 characters'); return }
+    if (resetPw !== resetConfirm) { setResetMsg('Passwords do not match'); return }
+    setResetBusy(true); setResetMsg('')
+    try {
+      await confirmPasswordReset(resetName.trim(), resetCode.trim(), resetPw)
+      setResetDone(true)
+    } catch (e) {
+      setResetMsg(e?.message || 'Could not reset password. Please try again.')
+    }
+    setResetBusy(false)
+  }
+
   const EyeIcon = ({ open }) => open ? (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
@@ -522,6 +574,66 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
           </div>
 
           <div className="p-6">
+            <ServerMoveBanner setView={setView} />
+            {showReset && (
+              <div className="bg-[#F8F8F7] border border-[#EBEBEB] rounded-xl p-4 mb-4 space-y-3">
+                {resetDone ? (
+                  <>
+                    <p className="text-xs font-semibold text-green-700 font-label">Password reset successful</p>
+                    <p className="text-[11px] text-[#888] font-label">Sign in below with your new password.</p>
+                    <button onClick={() => { setShowReset(false); setResetDone(false); setResetStep('name'); setResetMsg('') }}
+                      className="w-full bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] font-display">
+                      Back to Sign In
+                    </button>
+                  </>
+                ) : resetStep === 'name' ? (
+                  <>
+                    <p className="text-xs font-semibold text-[#111] font-label">Reset password for the new servers</p>
+                    <p className="text-[11px] text-[#888] font-label">Enter your full name — we will text a 4-digit code to your number.</p>
+                    <input value={resetName} onChange={(e) => setResetName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleResetRequest()}
+                      maxLength={50} placeholder="e.g. Chukwuemeka Okafor"
+                      className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] bg-white" />
+                    {resetMsg && <p className="text-[11px] text-[#888] font-label">{resetMsg}</p>}
+                    <div className="flex gap-2">
+                      <button onClick={handleResetRequest} disabled={resetBusy}
+                        className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] font-display disabled:opacity-40">
+                        {resetBusy ? 'Sending...' : 'Send Code'}
+                      </button>
+                      <button onClick={() => { setShowReset(false); setResetMsg('') }}
+                        className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold font-label">
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs font-semibold text-[#111] font-label">Enter code + new password</p>
+                    <input value={resetCode} onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      inputMode="numeric" placeholder="0000"
+                      className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-center tracking-[0.3em] focus:outline-none focus:border-[#111] bg-white" />
+                    <input type="password" value={resetPw} onChange={(e) => setResetPw(e.target.value)}
+                      maxLength={64} placeholder="New password (min 8 characters)"
+                      className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] bg-white" />
+                    <input type="password" value={resetConfirm} onChange={(e) => setResetConfirm(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleResetConfirm()}
+                      placeholder="Repeat new password"
+                      className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] bg-white" />
+                    {resetMsg && <p className="text-[11px] text-[#888] font-label">{resetMsg}</p>}
+                    <div className="flex gap-2">
+                      <button onClick={handleResetConfirm} disabled={resetBusy}
+                        className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] font-display disabled:opacity-40">
+                        {resetBusy ? 'Resetting...' : 'Reset Password'}
+                      </button>
+                      <button onClick={() => { setResetStep('name'); setResetMsg('') }}
+                        className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold font-label">
+                        Back
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             {tab === 'student' && (
               <div>
                 {/* Mode toggle */}
@@ -634,10 +746,16 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                       </button>
                     </div>
                     {mode === 'login' && (
-                      <button onClick={() => { setShowForgot(true); setErr(''); setRecoveredPassword('') }}
-                        className="text-[11px] text-[#888] hover:text-[#111] mt-1.5 font-label underline underline-offset-2 transition-colors">
-                        Forgot password?
-                      </button>
+                      <div className="flex items-center gap-3 mt-1.5">
+                        <button onClick={() => { setShowForgot(true); setErr(''); setRecoveredPassword('') }}
+                          className="text-[11px] text-[#888] hover:text-[#111] font-label underline underline-offset-2 transition-colors">
+                          Forgot password?
+                        </button>
+                        <button onClick={() => { setShowReset(true); setResetDone(false); setResetStep('name'); setResetMsg(''); setErr('') }}
+                          className="text-[11px] text-[#888] hover:text-[#111] font-label underline underline-offset-2 transition-colors">
+                          New servers? Reset password
+                        </button>
+                      </div>
                     )}
                   </div>
 

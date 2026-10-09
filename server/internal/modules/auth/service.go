@@ -35,6 +35,7 @@ var (
 	ErrShortName    = errors.New("name must be at least 3 characters")
 	ErrBadEmail     = errors.New("enter a valid email address")
 	ErrBadPhone     = errors.New("enter a valid phone number")
+	ErrBadInput     = errors.New("invalid input")
 	ErrNoSMS        = errors.New("messaging not configured")
 	ErrBadCode      = errors.New("invalid or expired code")
 	ErrTooMany      = errors.New("too many attempts, try again later")
@@ -486,10 +487,22 @@ func (s *Service) RequestReset(ctx context.Context, name string) error {
 	return nil
 }
 
-// ConfirmReset verifies the code and sets the new password.
-func (s *Service) ConfirmReset(ctx context.Context, studentID, code, newPassword string) error {
+// ConfirmReset verifies the code and sets the new password. The account can
+// be identified by ID or by full name (lookup is exact, case-insensitive).
+func (s *Service) ConfirmReset(ctx context.Context, studentID, name, code, newPassword string) error {
 	if len(newPassword) < 8 {
 		return ErrWeakPassword
+	}
+	if studentID == "" && name != "" {
+		var id string
+		if err := s.pool.QueryRow(ctx, `SELECT id FROM students WHERE name_lower=$1`,
+			strings.ToLower(strings.TrimSpace(name))).Scan(&id); err != nil {
+			return ErrBadCode
+		}
+		studentID = id
+	}
+	if studentID == "" {
+		return ErrBadInput
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

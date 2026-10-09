@@ -9,6 +9,7 @@ import {
   Mail01Icon, HeartAddIcon,
 } from '@hugeicons/core-free-icons'
 import SEO from '../components/seo/SEO'
+import ServerMoveBanner from '../components/ui/ServerMoveBanner'
 
 const PORTAL_STATS_URL = 'https://getportalstats-w7cojpp2aq-uc.a.run.app'
 
@@ -376,6 +377,9 @@ export default function Home({ setView, setHomeMode, setHomeTab }) {
             Sign In
           </button>
         </motion.nav>
+
+        {/* ─── Server-move notice ─── */}
+        <ServerMoveBanner dark setView={setView} setHomeMode={setHomeMode} />
 
         {/* ─── Hero ─── */}
         <section className="relative pt-28 pb-16 sm:pt-36 sm:pb-20">

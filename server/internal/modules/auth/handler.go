@@ -205,14 +205,15 @@ func (h *Handler) resetConfirm(c *gin.Context) {
 	}
 	var in struct {
 		StudentID   string `json:"studentId"`
+		Name        string `json:"name"`
 		Code        string `json:"code"`
 		NewPassword string `json:"newPassword"`
 	}
-	if err := c.ShouldBindJSON(&in); err != nil || in.StudentID == "" || in.Code == "" {
+	if err := c.ShouldBindJSON(&in); err != nil || (in.StudentID == "" && in.Name == "") || in.Code == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
 		return
 	}
-	if err := h.svc.ConfirmReset(c.Request.Context(), in.StudentID, in.Code, in.NewPassword); err != nil {
+	if err := h.svc.ConfirmReset(c.Request.Context(), in.StudentID, in.Name, in.Code, in.NewPassword); err != nil {
 		fail(c, err)
 		return
 	}
