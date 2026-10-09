@@ -43,7 +43,7 @@ func main() {
 	}
 
 	r := gin.Default()
-	auth.RegisterRoutes(r, pool, cfg.JWTSecret)
+	auth.RegisterRoutes(r, pool, cfg.JWTSecret, cfg.TermiiKey, cfg.TermiiSender)
 	quizSvc := quiz.RegisterRoutes(r, pool, cfg.JWTSecret)
 	notifySvc := notify.RegisterService(r, pool, cfg.JWTSecret, notify.Config{
 		VapidPublic: cfg.VapidPublic, VapidPrivate: cfg.VapidPrivate,

@@ -2,15 +2,19 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/274lab/server/internal/ratelimit"
 	"github.com/274lab/server/pkg/hash"
 	"github.com/274lab/server/pkg/ids"
 	gojwt "github.com/274lab/server/pkg/jwt"
 	"github.com/274lab/server/pkg/phones"
+	"github.com/274lab/server/pkg/sms"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -31,6 +35,9 @@ var (
 	ErrShortName    = errors.New("name must be at least 3 characters")
 	ErrBadEmail     = errors.New("enter a valid email address")
 	ErrBadPhone     = errors.New("enter a valid phone number")
+	ErrNoSMS        = errors.New("messaging not configured")
+	ErrBadCode      = errors.New("invalid or expired code")
+	ErrTooMany      = errors.New("too many attempts, try again later")
 )
 
 var emailRe = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
@@ -50,10 +57,16 @@ func lowerWords(nameLower string) []string {
 type Service struct {
 	pool   *pgxpool.Pool
 	secret string
+	sms    *sms.Client
 }
 
 func NewService(pool *pgxpool.Pool, secret string) *Service {
-	return &Service{pool: pool, secret: secret}
+	return &Service{pool: pool, secret: secret, sms: sms.New("", "")}
+}
+
+// SetSMS configures outbound texting (Termii). Leave unset to disable.
+func (s *Service) SetSMS(apiKey, senderID string) {
+	s.sms = sms.New(apiKey, senderID)
 }
 
 func (s *Service) sign(id, role string) (string, error) {
@@ -413,4 +426,104 @@ func (s *Service) LoginTeacher(ctx context.Context, phone, password string) (Tea
 		return empty, "", err
 	}
 	return t, tok, nil
+}
+
+// --- Password reset (migration cutover + forgot password) ---
+// request: always returns nil error for unknown names (no enumeration).
+
+const (
+	maxResetAttempts = 5
+	resetCooldown    = 15 * time.Minute
+	resetRateMax     = 3
+)
+
+func resetCode() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d%d%d%d", b[0]%10, b[1]%10, b[2]%10, b[3]%10)
+}
+
+// RequestReset generates a code and texts it to the student's own and
+// parent numbers. Unknown names succeed silently.
+func (s *Service) RequestReset(ctx context.Context, name string) error {
+	nameLower := strings.ToLower(strings.TrimSpace(name))
+	if nameLower == "" {
+		return ErrShortName
+	}
+	var id, phone, parent, studentName string
+	err := s.pool.QueryRow(ctx, `SELECT id, phone, parent_phone, name FROM students WHERE name_lower=$1`,
+		nameLower).Scan(&id, &phone, &parent, &studentName)
+	if err != nil {
+		return nil
+	}
+	if !ratelimit.Allow(ctx, s.pool, "reset:"+id, resetRateMax, 60*60*1000) {
+		return ErrTooMany
+	}
+	if s.sms.APIKey == "" {
+		return ErrNoSMS
+	}
+	code := resetCode()
+	if code == "" {
+		return ErrNoSMS
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE students SET reset_code=$1, reset_attempts=0,
+		reset_last_attempt=NULL, updated_at=now() WHERE id=$2`, code, id); err != nil {
+		return err
+	}
+	if studentName == "" {
+		studentName = "Student"
+	}
+	text := "Hi " + studentName + ", your 274Lab password reset code is " + code +
+		". It expires with use. If you didn't ask for this, ignore it. - 274Lab"
+	for _, to := range []string{phones.Normalize(phone), phones.Normalize(parent)} {
+		if to == "" {
+			continue
+		}
+		_ = s.sms.Send(ctx, to, text)
+	}
+	return nil
+}
+
+// ConfirmReset verifies the code and sets the new password.
+func (s *Service) ConfirmReset(ctx context.Context, studentID, code, newPassword string) error {
+	if len(newPassword) < 8 {
+		return ErrWeakPassword
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var stored string
+	var attempts int
+	var last *time.Time
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(reset_code,''), reset_attempts, reset_last_attempt
+		FROM students WHERE id=$1 FOR UPDATE`, studentID).Scan(&stored, &attempts, &last); err != nil {
+		return ErrBadCode
+	}
+	now := time.Now().UTC()
+	if attempts >= maxResetAttempts && last != nil && now.Sub(*last) < resetCooldown {
+		return ErrTooMany
+	}
+	if stored == "" || strings.TrimSpace(code) != stored {
+		next := attempts + 1
+		if last == nil || now.Sub(*last) > resetCooldown {
+			next = 1
+		}
+		tx.Exec(ctx, `UPDATE students SET reset_attempts=$1, reset_last_attempt=$2, updated_at=now() WHERE id=$3`,
+			next, now, studentID)
+		tx.Commit(ctx)
+		return ErrBadCode
+	}
+	nh, err := hash.Password(newPassword)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE students SET password_hash=$1, reset_code=NULL,
+		reset_attempts=0, reset_last_attempt=NULL, updated_at=now() WHERE id=$2`, nh, studentID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

@@ -13,13 +13,16 @@ type Handler struct {
 	svc *Service
 }
 
-func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string) {
+func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret, termiiKey, termiiSender string) {
 	h := &Handler{svc: NewService(pool, secret)}
+	h.svc.SetSMS(termiiKey, termiiSender)
 	g := r.Group("/api/auth")
 	g.POST("/register", h.register)
 	g.POST("/login", h.login)
 	g.POST("/teacher/register", h.registerTeacher)
 	g.POST("/teacher/login", h.loginTeacher)
+	g.POST("/reset-request", h.resetRequest)
+	g.POST("/reset-confirm", h.resetConfirm)
 	g.GET("/me", middleware.RequireAuth(secret), h.me)
 	g.POST("/change-password", middleware.RequireAuth(secret), h.changePassword)
 }
@@ -36,11 +39,15 @@ func fail(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ErrTaken) || errors.Is(err, ErrPhoneTaken) || errors.Is(err, ErrEmailTaken):
 		c.JSON(http.StatusConflict, gin.H{"ok": false, "error": err.Error()})
-	case errors.Is(err, ErrBadLogin):
+	case errors.Is(err, ErrBadLogin) || errors.Is(err, ErrBadCode):
 		c.JSON(http.StatusUnauthorized, gin.H{"ok": false, "error": err.Error()})
 	case errors.Is(err, ErrShortName) || errors.Is(err, ErrWeakPassword) ||
 		errors.Is(err, ErrBadEmail) || errors.Is(err, ErrBadPhone) || errors.Is(err, ErrBadPioneer):
 		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": err.Error()})
+	case errors.Is(err, ErrTooMany):
+		c.JSON(http.StatusTooManyRequests, gin.H{"ok": false, "error": err.Error()})
+	case errors.Is(err, ErrNoSMS):
+		c.JSON(http.StatusFailedDependency, gin.H{"ok": false, "error": err.Error()})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "internal error"})
 	}
@@ -172,4 +179,42 @@ func (h *Handler) loginTeacher(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "token": tok, "teacher": t})
+}
+
+func (h *Handler) resetRequest(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	var in struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		return
+	}
+	if err := h.svc.RequestReset(c.Request.Context(), in.Name); err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *Handler) resetConfirm(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	var in struct {
+		StudentID   string `json:"studentId"`
+		Code        string `json:"code"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.StudentID == "" || in.Code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		return
+	}
+	if err := h.svc.ConfirmReset(c.Request.Context(), in.StudentID, in.Code, in.NewPassword); err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
