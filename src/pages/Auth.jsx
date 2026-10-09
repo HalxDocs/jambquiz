@@ -45,7 +45,6 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
   const [showReset, setShowReset] = useState(false)
   const [resetStep, setResetStep] = useState('name')
   const [resetName, setResetName] = useState('')
-  const [resetCode, setResetCode] = useState('')
   const [resetPw, setResetPw] = useState('')
   const [resetConfirm, setResetConfirm] = useState('')
   const [resetBusy, setResetBusy] = useState(false)
@@ -319,29 +318,24 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
     setResetBusy(true); setResetMsg('')
     try {
       const res = await requestPasswordReset(trimmed)
-      if (res.noPhone) {
-        // No number on file — go straight to choosing a password.
+      if (res.found === false) {
+        setResetMsg('No account found with that name. Check the spelling or register a new account.')
+      } else {
         setResetStep('password')
         setResetMsg('')
-      } else if (res.delivered > 0) {
-        setResetStep('code')
-        setResetMsg('Code sent by SMS. Enter it below, then choose a new password.')
-      } else {
-        setResetMsg('We could not reach your number. Please contact support (Contact page).')
       }
     } catch (e) {
-      setResetMsg(e?.message || 'Could not send code. Please try again.')
+      setResetMsg(e?.message || 'Could not continue. Please try again.')
     }
     setResetBusy(false)
   }
 
   const handleResetConfirm = async () => {
-    if (resetStep === 'code' && resetCode.trim().length !== 4) { setResetMsg('Enter the 4-digit code'); return }
     if (resetPw.length < 8) { setResetMsg('New password must be at least 8 characters'); return }
     if (resetPw !== resetConfirm) { setResetMsg('Passwords do not match'); return }
     setResetBusy(true); setResetMsg('')
     try {
-      await confirmPasswordReset(resetName.trim(), resetStep === 'code' ? resetCode.trim() : '', resetPw)
+      await confirmPasswordReset(resetName.trim(), '', resetPw)
       setResetDone(true)
     } catch (e) {
       setResetMsg(e?.message || 'Could not reset password. Please try again.')
@@ -425,8 +419,8 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                   </>
                 ) : resetStep === 'name' ? (
                   <>
-                    <p className="text-xs font-semibold text-[#111] font-label">Reset password for the new servers</p>
-                    <p className="text-[11px] text-[#888] font-label">Enter your full name — we will text a 4-digit code to your number.</p>
+                    <p className="text-xs font-semibold text-[#111] font-label">Find your account</p>
+                    <p className="text-[11px] text-[#888] font-label">Enter your full name exactly as you registered it.</p>
                     <input value={resetName} onChange={(e) => setResetName(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleResetRequest()}
                       maxLength={50} placeholder="e.g. Chukwuemeka Okafor"
@@ -435,7 +429,7 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                     <div className="flex gap-2">
                       <button onClick={handleResetRequest} disabled={resetBusy}
                         className="flex-1 bg-[#111] text-white rounded-xl py-2.5 text-xs font-bold hover:bg-[#222] font-display disabled:opacity-40">
-                        {resetBusy ? 'Sending...' : 'Send Code'}
+                        {resetBusy ? 'Checking...' : 'Continue →'}
                       </button>
                       <button onClick={() => { setShowReset(false); setResetMsg('') }}
                         className="flex-1 bg-white border border-[#E5E5E5] text-[#888] rounded-xl py-2.5 text-xs font-bold font-label">
@@ -446,13 +440,8 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
                 ) : (
                   <>
                     <p className="text-xs font-semibold text-[#111] font-label">
-                      {resetStep === 'code' ? 'Enter code + new password' : 'Choose a new password'}
+                      Hi {resetName.trim().split(' ')[0] || 'there'} — choose a new password
                     </p>
-                    {resetStep === 'code' && (
-                      <input value={resetCode} onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                        inputMode="numeric" placeholder="0000"
-                        className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm text-center tracking-[0.3em] focus:outline-none focus:border-[#111] bg-white" />
-                    )}
                     <input type="password" value={resetPw} onChange={(e) => setResetPw(e.target.value)}
                       maxLength={64} placeholder="New password (min 8 characters)"
                       className="w-full border border-[#E5E5E5] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#111] bg-white" />

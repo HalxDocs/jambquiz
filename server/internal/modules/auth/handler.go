@@ -192,12 +192,12 @@ func (h *Handler) resetRequest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
 		return
 	}
-	sent, noPhone, err := h.svc.RequestReset(c.Request.Context(), in.Name)
+	found, err := h.svc.RequestReset(c.Request.Context(), in.Name)
 	if err != nil {
 		fail(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "delivered": sent, "noPhone": noPhone})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "found": found})
 }
 
 func (h *Handler) resetConfirm(c *gin.Context) {
