@@ -282,13 +282,12 @@ func (s *Service) getStudent(ctx context.Context, id string) (Student, error) {
 
 func (s *Service) Login(ctx context.Context, name, password string) (Student, string, error) {
 	var empty Student
-	nameLower := strings.ToLower(strings.TrimSpace(name))
 	var st Student
 	var pwHash string
 	var subjects []string
 	var subUntil *time.Time
 	var referralNo *string
-	err := s.pool.QueryRow(ctx, `SELECT `+studentCols+`, password_hash FROM students WHERE name_lower = $1`, nameLower).Scan(
+	err := s.pool.QueryRow(ctx, `SELECT `+studentCols+`, password_hash FROM students WHERE `+nameMatchSQL+`1`, normName(name)).Scan(
 		&st.ID, &st.Name, &st.Nickname, &st.Year, &st.Email,
 		&st.Phone, &st.ParentPhone, &st.TeacherPhone,
 		&subjects, &st.Role, &subUntil,
@@ -454,9 +453,12 @@ func (s *Service) RequestReset(ctx context.Context, name string) (bool, error) {
 	if nameLower == "" {
 		return false, ErrShortName
 	}
+	norm := normName(name)
+	if norm == "" {
+		return false, ErrShortName
+	}
 	var id string
-	if err := s.pool.QueryRow(ctx, `SELECT id FROM students WHERE name_lower=$1`,
-		nameLower).Scan(&id); err != nil {
+	if err := s.pool.QueryRow(ctx, `SELECT id FROM students WHERE `+nameMatchSQL+`1`, norm).Scan(&id); err != nil {
 		return false, nil
 	}
 	if !ratelimit.Allow(ctx, s.pool, "reset:"+id, resetRateMax, 60*60*1000) {
@@ -473,8 +475,8 @@ func (s *Service) ConfirmReset(ctx context.Context, studentID, name, code, newPa
 	}
 	if studentID == "" && name != "" {
 		var id string
-		if err := s.pool.QueryRow(ctx, `SELECT id FROM students WHERE name_lower=$1`,
-			strings.ToLower(strings.TrimSpace(name))).Scan(&id); err != nil {
+		if err := s.pool.QueryRow(ctx, `SELECT id FROM students WHERE `+nameMatchSQL+`1`,
+			normName(name)).Scan(&id); err != nil {
 			return ErrBadCode
 		}
 		studentID = id
@@ -530,8 +532,8 @@ func (s *Service) TeacherResetRequest(ctx context.Context, name string) (bool, e
 		return false, ErrShortName
 	}
 	var id string
-	if err := s.pool.QueryRow(ctx, `SELECT id FROM teachers WHERE LOWER(name)=LOWER($1)`,
-		name).Scan(&id); err != nil {
+	if err := s.pool.QueryRow(ctx, `SELECT id FROM teachers WHERE `+nameMatchSQL+`1`,
+		normName(name)).Scan(&id); err != nil {
 		return false, nil
 	}
 	if !ratelimit.Allow(ctx, s.pool, "teacher-reset:"+id, resetRateMax, 60*60*1000) {
@@ -550,8 +552,8 @@ func (s *Service) TeacherResetConfirm(ctx context.Context, name, newPassword str
 		return ErrShortName
 	}
 	var id string
-	if err := s.pool.QueryRow(ctx, `SELECT id FROM teachers WHERE LOWER(name)=LOWER($1)`,
-		name).Scan(&id); err != nil {
+	if err := s.pool.QueryRow(ctx, `SELECT id FROM teachers WHERE `+nameMatchSQL+`1`,
+		normName(name)).Scan(&id); err != nil {
 		return ErrBadInput
 	}
 	if !ratelimit.Allow(ctx, s.pool, "teacher-reset-confirm:"+id, maxResetAttempts, 60*60*1000) {
@@ -567,3 +569,26 @@ func (s *Service) TeacherResetConfirm(ctx context.Context, name, newPassword str
 	}
 	return nil
 }
+
+// normName lowercases and strips punctuation/extra spaces so
+// "Mrs. Adebayo" matches "mrs adebayo". Used for all name lookups.
+func normName(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	var b strings.Builder
+	prevSpace := true
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevSpace = false
+		} else if r == ' ' || r == '-' || r == '_' || r == '.' || r == '\'' {
+			if !prevSpace {
+				b.WriteByte(' ')
+				prevSpace = true
+			}
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// nameMatchSQL matches the normalized form on either side.
+const nameMatchSQL = `regexp_replace(regexp_replace(regexp_replace(LOWER(TRIM(name)), '[-_.'']', ' ', 'g'), '[^a-z0-9 ]', '', 'g'), '\s+', ' ', 'g') = $`
