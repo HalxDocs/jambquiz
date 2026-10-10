@@ -202,6 +202,10 @@ export default function Quiz({ student, setStudent, setView, setLastScore, retak
           setErrTitle('Time Is Up')
           setErr('Time is up — your quiz could not be submitted.')
           setStep('error')
+        } else if (/no questions available/i.test(msg)) {
+          setErrTitle('No Questions Yet')
+          setErr(msg + ' — check back later or try another week.')
+          setStep('error')
         } else {
           setErrTitle('No Questions Yet')
           setErr('Failed to load questions. Check your connection.')
