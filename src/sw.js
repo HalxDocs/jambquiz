@@ -1,7 +1,7 @@
 // src/sw.js
 import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching'
 import { registerRoute } from 'workbox-routing'
-import { NetworkFirst, CacheFirst } from 'workbox-strategies'
+import { NetworkFirst } from 'workbox-strategies'
 import { skipWaiting, clientsClaim } from 'workbox-core'
 
 // The app is auto-update (`registerType: 'autoUpdate'`). Without these, an
@@ -106,4 +106,24 @@ self.addEventListener('notificationclick', (event) => {
 })
 
 // ─── Caching strategies for app data ───
-registerRoute(({ url }) => url.pathname.startsWith('/api/'), new NetworkFirst({ cacheName: 'api-cache' }))
+// (no API caching — see the note below)
+// The Go API is the source of truth for everything time-sensitive: access
+// status, subscription expiry, coins, scores and the weekly quiz window.
+// Caching it with NetworkFirst means that whenever the network request fails —
+// routine on mobile data — the service worker replays a stale response. A
+// quiz-dates response cached before openFrom/openUntil existed has neither
+// field, so the client computes the window as closed and shows "Quiz Locked"
+// even though the server would accept the attempt. That is why the quiz worked
+// on desktop and failed on phones. Never cache API responses; let them fail
+// visibly instead of lying about access.
+
+// Existing installs still hold a poisoned 'api-cache'. Drop it on activation so
+// a stale quiz-dates or access-status entry can't be replayed by an older copy
+// of this worker either.
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k === 'api-cache').map((k) => caches.delete(k)))
+    )
+  )
+})
