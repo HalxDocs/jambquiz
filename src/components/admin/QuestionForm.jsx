@@ -13,7 +13,7 @@ export default function QuestionForm({
   questionLimit,
   onSaveLimit,
 }) {
-  const [form, setForm] = useState({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '', explanationImage: '', image: '', optionImages: ['', '', '', ''] })
+  const [form, setForm] = useState({ question: '', passage: '', optionA: '', optionB: '', optionC: '', optionD: '', answer: 0, explanation: '', explanationImage: '', image: '', optionImages: ['', '', '', ''] })
   const [uploadingImg, setUploadingImg] = useState(null)
   const [editingFirestoreId, setEditingFirestoreId] = useState(null)
   const [expandedQuestion, setExpandedQuestion] = useState(null)
@@ -69,6 +69,7 @@ export default function QuestionForm({
     if (!form.optionA.trim() || !form.optionB.trim() || !form.optionC.trim() || !form.optionD.trim()) { setErr('Fill in all 4 options'); return }
     const qData = {
       question: form.question.trim(),
+      passage: (form.passage || '').trim(),
       options: [form.optionA.trim(), form.optionB.trim(), form.optionC.trim(), form.optionD.trim()],
       answer: parseInt(form.answer),
       explanation: form.explanation.trim(),
@@ -93,6 +94,7 @@ export default function QuestionForm({
   const handleEdit = (q) => {
     setForm({
       question: q.question,
+      passage: q.passage || '',
       optionA: q.options[0], optionB: q.options[1], optionC: q.options[2], optionD: q.options[3],
       answer: q.answer,
       explanation: q.explanation || '',
@@ -277,6 +279,18 @@ export default function QuestionForm({
           </span>
         </p>
         <div className="space-y-3">
+          <div>
+            <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">
+              Passage / Poem <span className="text-[#CCC] normal-case tracking-normal">optional · for comprehension</span>
+            </label>
+            <textarea
+              value={form.passage}
+              onChange={(e) => setForm({ ...form, passage: e.target.value })}
+              placeholder="Paste the comprehension passage or poem here. It shows above the question during the test."
+              rows={6}
+              className="w-full border border-[#E5E5E5] rounded-xl px-3 py-2.5 text-sm text-[#111] focus:outline-none focus:border-[#111] resize-y font-body leading-relaxed"
+            />
+          </div>
           <div>
             <label className="text-[11px] font-bold text-[#888] uppercase tracking-wide block mb-1.5 font-label">Question</label>
             <textarea

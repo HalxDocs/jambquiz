@@ -190,6 +190,7 @@ type StartResult struct {
 
 type PublicQuestion struct {
 	ID           string   `json:"id"`
+	Passage      string   `json:"passage"`
 	Question     string   `json:"question"`
 	Options      []string `json:"options"`
 	Image        string   `json:"image"`
@@ -263,8 +264,8 @@ func (s *Service) Start(ctx context.Context, authUID, studentID, week, retakeSub
 			var q PublicQuestion
 			var options []byte
 			var optImgs []byte
-			err := s.pool.QueryRow(ctx, `SELECT id, question, options, image, option_images
-				FROM questions WHERE id = $1`, qid).Scan(&q.ID, &q.Question, &options, &q.Image, &optImgs)
+			err := s.pool.QueryRow(ctx, `SELECT id, question, passage, options, image, option_images
+				FROM questions WHERE id = $1`, qid).Scan(&q.ID, &q.Question, &q.Passage, &options, &q.Image, &optImgs)
 			if err != nil {
 				continue
 			}
@@ -413,13 +414,14 @@ func (s *Service) Submit(ctx context.Context, authUID, sessionID string, answers
 			var question, explanation, image string
 			var options, optImgs []byte
 			var explImg string
-			_ = tx.QueryRow(ctx, `SELECT question, options, explanation, image, option_images, explanation_image
-				FROM questions WHERE id = $1`, qid).Scan(&question, &options, &explanation, &image, &optImgs, &explImg)
+			var passage string
+			_ = tx.QueryRow(ctx, `SELECT question, passage, options, explanation, image, option_images, explanation_image
+				FROM questions WHERE id = $1`, qid).Scan(&question, &passage, &options, &explanation, &image, &optImgs, &explImg)
 			var opts, oimgs []any
 			_ = json.Unmarshal(options, &opts)
 			_ = json.Unmarshal(optImgs, &oimgs)
 			qcontent = append(qcontent, map[string]any{
-				"id": qid, "question": question, "options": opts, "answer": nil,
+				"id": qid, "question": question, "passage": passage, "options": opts, "answer": nil,
 				"explanation": explanation, "image": image, "optionImages": oimgs, "explanationImage": explImg,
 			})
 		}

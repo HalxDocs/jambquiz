@@ -26,6 +26,7 @@ type Question struct {
 	Subject          string   `json:"subject"`
 	Week             string   `json:"week"`
 	Question         string   `json:"question"`
+	Passage          string   `json:"passage,omitempty"`
 	Options          []string `json:"options"`
 	Explanation      string   `json:"explanation,omitempty"`
 	Image            string   `json:"image,omitempty"`
@@ -38,7 +39,7 @@ type Question struct {
 // List returns public questions (no answer key).
 func (s *Service) List(ctx context.Context, subject, week string) ([]Question, error) {
 	out := []Question{}
-	q := `SELECT id, subject, week, question, options, explanation, image, option_images, explanation_image, video_url
+	q := `SELECT id, subject, week, question, passage, options, explanation, image, option_images, explanation_image, video_url
 		FROM questions WHERE ($1='' OR subject=$1) AND ($2='' OR week=$2) ORDER BY id LIMIT 500`
 	rows, err := s.pool.Query(ctx, q, subject, week)
 	if err != nil {
@@ -48,7 +49,7 @@ func (s *Service) List(ctx context.Context, subject, week string) ([]Question, e
 	for rows.Next() {
 		var qu Question
 		var options, optImgs []byte
-		if err := rows.Scan(&qu.ID, &qu.Subject, &qu.Week, &qu.Question, &options,
+		if err := rows.Scan(&qu.ID, &qu.Subject, &qu.Week, &qu.Question, &qu.Passage, &options,
 			&qu.Explanation, &qu.Image, &optImgs, &qu.ExplanationImage, &qu.VideoURL); err == nil {
 			_ = json.Unmarshal(options, &qu.Options)
 			_ = json.Unmarshal(optImgs, &qu.OptionImages)
@@ -76,9 +77,12 @@ func (s *Service) ListWithAnswers(ctx context.Context, subject, week string) ([]
 }
 
 type QuestionInput struct {
-	Subject          string   `json:"subject"`
-	Week             string   `json:"week"`
-	Question         string   `json:"question"`
+	Subject  string `json:"subject"`
+	Week     string `json:"week"`
+	Question string `json:"question"`
+	// Passage is the optional prompt text quoted above the question — a
+	// comprehension passage or a poem for English Language / Literature.
+	Passage          string   `json:"passage"`
 	Options          []string `json:"options"`
 	Explanation      string   `json:"explanation"`
 	Image            string   `json:"image"`
@@ -121,9 +125,9 @@ func (s *Service) Create(ctx context.Context, in QuestionInput) (string, error) 
 	}
 	defer tx.Rollback(ctx)
 	if _, err := tx.Exec(ctx, `INSERT INTO questions
-		(id, subject, week, question, options, explanation, image, option_images, explanation_image, video_url)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-		id, in.Subject, in.Week, in.Question, optJSON, in.Explanation, in.Image, optImgJSON,
+		(id, subject, week, question, passage, options, explanation, image, option_images, explanation_image, video_url)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		id, in.Subject, in.Week, in.Question, in.Passage, optJSON, in.Explanation, in.Image, optImgJSON,
 		in.ExplanationImage, in.VideoURL); err != nil {
 		return "", err
 	}
@@ -152,9 +156,9 @@ func (s *Service) Update(ctx context.Context, id string, in QuestionInput) error
 		return err
 	}
 	defer tx.Rollback(ctx)
-	res, err := tx.Exec(ctx, `UPDATE questions SET subject=$1, week=$2, question=$3, options=$4,
-		explanation=$5, image=$6, option_images=$7, explanation_image=$8, video_url=$9, updated_at=now() WHERE id=$10`,
-		in.Subject, in.Week, in.Question, optJSON, in.Explanation, in.Image, optImgJSON,
+	res, err := tx.Exec(ctx, `UPDATE questions SET subject=$1, week=$2, question=$3, passage=$4, options=$5,
+		explanation=$6, image=$7, option_images=$8, explanation_image=$9, video_url=$10, updated_at=now() WHERE id=$11`,
+		in.Subject, in.Week, in.Question, in.Passage, optJSON, in.Explanation, in.Image, optImgJSON,
 		in.ExplanationImage, in.VideoURL, id)
 	if err != nil {
 		return err

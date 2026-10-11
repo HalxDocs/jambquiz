@@ -2,6 +2,12 @@ export default function QuestionCard({ question, selectedAnswer, onSelectAnswer,
   const elim = Array.isArray(eliminated) ? eliminated : []
   return (
     <>
+      {question.passage && (
+        <div className="bg-[#F8F8F7] border border-[#EBEBEB] rounded-2xl p-4 sm:p-5 mt-4 mb-3 max-h-[45vh] overflow-y-auto">
+          <p className="text-[10px] font-bold text-[#AAA] uppercase tracking-wide font-label mb-2">Passage</p>
+          <p className="text-[#333] text-sm leading-relaxed font-body whitespace-pre-wrap">{question.passage}</p>
+        </div>
+      )}
       <div className="bg-white border border-[#EBEBEB] rounded-2xl p-5 mt-4 mb-4">
         <p className="text-[#111] font-semibold text-base leading-relaxed font-body">{question.question}</p>
         {question.image && <img src={question.image} alt="Question" className="mt-3 max-h-72 w-full object-contain rounded-xl border border-[#EBEBEB] bg-[#F8F8F7]" />}
