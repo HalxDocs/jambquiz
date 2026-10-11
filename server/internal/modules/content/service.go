@@ -307,9 +307,14 @@ func (s *Service) SetQuizDates(ctx context.Context, week, date1, date2 string) e
 		return ErrBadInput
 	}
 	id := "quizDates_" + sanitizeKey(week)
-	raw, _ := json.Marshal(map[string]any{"key": "quizDates_" + week, "date1": date1, "date2": date2})
+	// Merge rather than replace: the row also carries openFrom/openUntil, and
+	// the admin panel only knows about date1/date2. Overwriting the whole blob
+	// would silently close an open access window.
 	_, err := s.pool.Exec(ctx, `INSERT INTO settings (key, data, updated_at)
-		VALUES ($1,$2,now()) ON CONFLICT (key) DO UPDATE SET data=$2, updated_at=now()`, id, raw)
+		VALUES ($1, jsonb_build_object('key', $2::text, 'date1', $3::text, 'date2', $4::text), now())
+		ON CONFLICT (key) DO UPDATE SET data = settings.data
+			|| jsonb_build_object('date1', $3::text, 'date2', $4::text),
+			updated_at = now()`, id, "quizDates_"+week, date1, date2)
 	return err
 }
 

@@ -53,9 +53,18 @@ func (s *Service) rateLimit(ctx context.Context, key string, max int, windowMs i
 	return ratelimit.Allow(ctx, s.pool, key, max, windowMs)
 }
 
+// wat is West Africa Time. Fixed UTC+1 with no DST, so a literal zone avoids
+// depending on tzdata being present in the container.
+var wat = time.FixedZone("WAT", 1*60*60)
+
 type quizDates struct {
 	Date1 string `json:"date1"`
 	Date2 string `json:"date2"`
+	// OpenFrom/OpenUntil extend access beyond the two 2h slots, so an admin
+	// can open a week for a multi-day window (free week, catch-up) without
+	// changing the date1/date2 fields the admin panel still writes.
+	OpenFrom  string `json:"openFrom"`
+	OpenUntil string `json:"openUntil"`
 }
 
 func (s *Service) getQuizDates(ctx context.Context, week string) quizDates {
@@ -69,8 +78,16 @@ func (s *Service) getQuizDates(ctx context.Context, week string) quizDates {
 	return qd
 }
 
-// windowOpen mirrors the Node engine: either scheduled date within its 2h slot.
+// windowOpen mirrors the Node engine: either scheduled date within its 2h slot,
+// or inside an explicit openFrom/openUntil span when the admin has set one.
 func windowOpen(qd quizDates, now time.Time) bool {
+	if from, ok := parseSlot(qd.OpenFrom); ok {
+		if until, ok := parseSlot(qd.OpenUntil); ok {
+			if !now.Before(from) && now.Before(until) {
+				return true
+			}
+		}
+	}
 	for _, d := range []string{qd.Date1, qd.Date2} {
 		if d == "" {
 			continue
@@ -86,11 +103,27 @@ func windowOpen(qd quizDates, now time.Time) bool {
 	return false
 }
 
+func parseSlot(d string) (time.Time, bool) {
+	if d == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, d)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+// isStandardWindowDate reports whether a scheduled slot falls inside the normal
+// weekend window (Fri/Sat/Sun, 17:00-19:00). Slots are stored in UTC but the
+// window is quoted in West Africa Time, so compare in WAT (UTC+1). Comparing in
+// UTC made every slot look like 16:00 and classified all weeks as bonus.
 func isStandardWindowDate(d string) bool {
 	t, err := time.Parse(time.RFC3339, d)
 	if err != nil {
 		return false
 	}
+	t = t.In(wat)
 	day := t.Weekday()
 	if day != time.Sunday && day != time.Friday && day != time.Saturday {
 		return false
@@ -685,7 +718,7 @@ type Score struct {
 func (s *Service) ListScores(ctx context.Context, authUID, authRole, week, studentID string) ([]Score, error) {
 	out := []Score{}
 	q := `SELECT id, student_id, student_name, subject, week, score, out_of, correct, wrong,
-		unanswered, total, is_retake, created_at FROM scores`
+		unanswered, total, is_retake, created_at, date FROM scores`
 	conds := []string{}
 	args := []any{}
 	if week != "" {
@@ -699,7 +732,9 @@ func (s *Service) ListScores(ctx context.Context, authUID, authRole, week, stude
 	if len(conds) > 0 {
 		q += " WHERE " + strings.Join(conds, " AND ")
 	}
-	q += ` ORDER BY created_at DESC LIMIT 1000`
+	// Backfilled rows all carry the import time in created_at; `date` holds the
+	// real submission time, so order by whichever is actually meaningful.
+	q += ` ORDER BY COALESCE(date, created_at) DESC LIMIT 1000`
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return out, err
@@ -708,12 +743,17 @@ func (s *Service) ListScores(ctx context.Context, authUID, authRole, week, stude
 	for rows.Next() {
 		var sc Score
 		var created time.Time
+		var subDate *time.Time
 		if err := rows.Scan(&sc.ID, &sc.StudentID, &sc.StudentName, &sc.Subject, &sc.Week, &sc.Score,
-			&sc.OutOf, &sc.Correct, &sc.Wrong, &sc.Unanswered, &sc.Total, &sc.IsRetake, &created); err != nil {
+			&sc.OutOf, &sc.Correct, &sc.Wrong, &sc.Unanswered, &sc.Total, &sc.IsRetake, &created, &subDate); err != nil {
 			log.Printf("[quiz] ListScores scan skip: %v", err)
 			continue
 		}
-		sc.CreatedAt = created.UTC().Format(time.RFC3339)
+		shown := created
+		if subDate != nil {
+			shown = *subDate
+		}
+		sc.CreatedAt = shown.UTC().Format(time.RFC3339)
 		all = append(all, sc)
 	}
 	rows.Close()

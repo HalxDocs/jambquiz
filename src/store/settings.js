@@ -41,9 +41,14 @@ async function getQuizDates(week) {
   try {
     const res = await apiGet(`/api/settings/quiz-dates?week=${encodeURIComponent(week || '')}`)
     const d = res.dates || {}
-    return { date1: d.date1 || '', date2: d.date2 || '' }
+    return {
+      date1: d.date1 || '',
+      date2: d.date2 || '',
+      openFrom: d.openFrom || '',
+      openUntil: d.openUntil || '',
+    }
   } catch {
-    return { date1: '', date2: '' }
+    return { date1: '', date2: '', openFrom: '', openUntil: '' }
   }
 }
 

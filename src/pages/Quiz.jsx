@@ -18,6 +18,12 @@ import { markRevisionCompleted, revisionTopicKey } from '../lib/revisionQueue'
 
 function isInQuizWindow(quizDates) {
   const now = new Date()
+  // Explicit admin window wins: used for free weeks and catch-up access.
+  if (quizDates?.openFrom && quizDates?.openUntil) {
+    const from = new Date(quizDates.openFrom)
+    const until = new Date(quizDates.openUntil)
+    if (!isNaN(from) && !isNaN(until)) return now >= from && now < until
+  }
   if (quizDates?.date1 || quizDates?.date2) {
     for (const key of ['date1', 'date2']) {
       if (!quizDates[key]) continue

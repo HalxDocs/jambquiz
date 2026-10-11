@@ -39,8 +39,16 @@ const RANK_BADGES = {
 
 function isQuizTime(quizDates) {
   const now = Date.now()
+  // Explicit admin window wins: used for free weeks and catch-up access.
+  if (quizDates?.openFrom && quizDates?.openUntil) {
+    const from = new Date(quizDates.openFrom).getTime()
+    const until = new Date(quizDates.openUntil).getTime()
+    if (!isNaN(from) && !isNaN(until)) return now >= from && now < until
+  }
   if (quizDates && (quizDates.date1 || quizDates.date2)) {
-    const WINDOW = 60 * 60 * 1000
+    // 2 hours, matching the server's windowOpen. This used to be 1 hour, so the
+    // dashboard showed "not now" for the whole second half of the live window.
+    const WINDOW = 2 * 60 * 60 * 1000
     for (const d of [quizDates.date1, quizDates.date2]) {
       if (!d) continue
       const t = new Date(d).getTime()
@@ -58,6 +66,18 @@ function isQuizTime(quizDates) {
 
 function getTimeUntilQuiz(quizDates) {
   const now = Date.now()
+  if (quizDates?.openFrom && quizDates?.openUntil) {
+    const until = new Date(quizDates.openUntil).getTime()
+    if (!isNaN(until)) {
+      const diff = until - now
+      if (diff <= 0) return { days: 0, hours: 0, mins: 0 }
+      return {
+        days: Math.floor(diff / (1000 * 60 * 60 * 24)),
+        hours: Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+        mins: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
+      }
+    }
+  }
   if (quizDates && (quizDates.date1 || quizDates.date2)) {
     const upcoming = [quizDates.date1, quizDates.date2].filter(Boolean).map((d) => new Date(d).getTime()).filter((t) => t > now).sort((a, b) => a - b)
     if (!upcoming.length) return { days: 0, hours: 0, mins: 0 }
