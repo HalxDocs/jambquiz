@@ -10,6 +10,7 @@ import {
 } from '@hugeicons/core-free-icons'
 import SEO from '../components/seo/SEO'
 import ServerMoveBanner from '../components/ui/ServerMoveBanner'
+import Guestbook from '../components/Guestbook'
 import { apiGetPublic } from '../lib/api'
 
 const ORG_JSONLD = {
@@ -675,6 +676,9 @@ export default function Home({ setView, setHomeMode, setHomeTab }) {
             </motion.div>
           </div>
         </section>
+
+        {/* ─── Guestbook ─── */}
+        <Guestbook />
 
         {/* ─── Footer ─── */}
         <footer className="border-t border-neutral-800 py-8">

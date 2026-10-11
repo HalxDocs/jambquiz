@@ -556,16 +556,24 @@ func (s *Service) updateAggregates(ctx context.Context, studentID, week string, 
 	if err != nil {
 		return
 	}
-	weekTotal := 0
-	for _, r := range results {
-		weekTotal += r.Score
+	// Week total = best score per subject for that week, summed, read back
+	// from the scores table. Using just this session's results (the previous
+	// behaviour) overwrote the week total and dropped earlier subjects; summing
+	// every attempt instead (as the rebuild did) counted retakes repeatedly.
+	var weekTotal, weekSubjects int
+	err = tx.QueryRow(ctx, `SELECT COALESCE(SUM(best),0), COUNT(*) FROM (
+			SELECT MAX(score) AS best FROM scores
+			WHERE student_id=$1 AND week=$2 GROUP BY subject) x`,
+		studentID, week).Scan(&weekTotal, &weekSubjects)
+	if err != nil {
+		return
 	}
 	weekID := studentID + "_" + strings.ReplaceAll(week, " ", "_")
 	_, err = tx.Exec(ctx, `INSERT INTO leaderboard_week_ranks
 		(id, student_id, week, name, nickname, total, session_count, updated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,now())
 		ON CONFLICT (id) DO UPDATE SET total=$6, session_count=$7, name=$4, nickname=$5, updated_at=now()`,
-		weekID, studentID, week, name, nickname, weekTotal, len(results))
+		weekID, studentID, week, name, nickname, weekTotal, weekSubjects)
 	if err != nil {
 		return
 	}

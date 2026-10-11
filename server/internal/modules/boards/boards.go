@@ -312,16 +312,25 @@ func (s *Service) RecomputeRanks(ctx context.Context) (students, weeks int, err 
 			byWeek[r.week] = append(byWeek[r.week], r)
 		}
 		for week, wl := range byWeek {
-			wt := 0
+			// Best score per subject for this week, then summed. Summing every
+			// attempt counted retakes repeatedly and produced totals like 609
+			// for a four-subject week that can score at most 400.
+			bestInWeek := map[string]int{}
 			for _, r := range wl {
-				wt += r.score
+				if cur, ok := bestInWeek[r.subject]; !ok || r.score > cur {
+					bestInWeek[r.subject] = r.score
+				}
+			}
+			wt := 0
+			for _, v := range bestInWeek {
+				wt += v
 			}
 			weekID := sid + "_" + strings.ReplaceAll(week, " ", "_")
 			if _, err := s.pool.Exec(ctx, `INSERT INTO leaderboard_week_ranks
 				(id, student_id, week, name, nickname, total, session_count, updated_at)
 				VALUES ($1,$2,$3,$4,$5,$6,$7,now())
 				ON CONFLICT (id) DO UPDATE SET total=$6, session_count=$7, name=$4, nickname=$5, updated_at=now()`,
-				weekID, sid, week, meta.name, meta.nickname, wt, len(wl)); err != nil {
+				weekID, sid, week, meta.name, meta.nickname, wt, len(bestInWeek)); err != nil {
 				return students, weeks, err
 			}
 		}
