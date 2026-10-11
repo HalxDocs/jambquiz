@@ -161,6 +161,15 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
       else { setErr('Could not load your account. Please try again.'); setLoading(false); return }
     } catch (e) {
       const msg = (e && e.message) || ''
+      // A Firebase-era account has no migrated password. Retrying the old one
+      // can never work, so send them straight to the reset form instead of
+      // counting it as a failed attempt.
+      if (/new server|reset password|moved/i.test(msg)) {
+        setErr('Your account moved to a new server, so your old password no longer works. Set a new password below.')
+        setShowReset(true); setResetDone(false); setResetStep('name')
+        setResetName(trimmed); setResetMsg('')
+        setLoading(false); return
+      }
       if (/invalid|unauthorized|expired/i.test(msg)) { setErr('Wrong name or password'); recordAttempt() }
       else if (!navigator.onLine) setErr('No internet connection. Check your network.')
       else setErr(msg || 'Could not sign in. Server error — please try again.')
@@ -310,11 +319,16 @@ export default function Auth({ setView, setStudent, setAdminAuthed, defaultMode,
       setTeacherSession(t)
       setView('teacher-dashboard')
     } catch (e) {
-      const code = e && e.code
-      if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential' || code === 'auth/invalid-email') {
-        setErr('Wrong email or password'); recordAttempt()
-      } else if (!navigator.onLine) setErr('No internet connection. Check your network.')
-      else setErr('Could not sign in. Please try again.')
+      const msg = (e && e.message) || ''
+      if (/new server|reset password|moved/i.test(msg)) {
+        setErr('Your account moved to a new server, so your old password no longer works. Use "New server? Reset password" below.')
+        setTResetShow(true); setTResetDone(false); setTResetStep('name')
+        setTResetMsg('')
+        setLoading(false); return
+      }
+      if (/invalid name or password/i.test(msg)) { setErr('Wrong email or password'); recordAttempt() }
+      else if (!navigator.onLine) setErr('No internet connection. Check your network.')
+      else setErr(msg || 'Could not sign in. Please try again.')
     }
     setLoading(false)
   }

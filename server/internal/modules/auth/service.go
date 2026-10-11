@@ -26,8 +26,11 @@ const (
 )
 
 var (
-	ErrTaken        = errors.New("name already taken")
-	ErrBadLogin     = errors.New("invalid name or password")
+	ErrTaken    = errors.New("name already taken")
+	ErrBadLogin = errors.New("invalid name or password")
+	// ErrNeedsReset tells a Firebase-era account holder that their password did
+	// not survive the migration and to use the reset flow.
+	ErrNeedsReset   = errors.New("your account moved to a new server. tap \"New servers? Reset password\" to set a new one")
 	ErrPhoneTaken   = errors.New("phone already registered")
 	ErrEmailTaken   = errors.New("email already registered")
 	ErrBadPioneer   = errors.New("invalid pioneer code")
@@ -296,6 +299,13 @@ func (s *Service) Login(ctx context.Context, name, password string) (Student, st
 	if err != nil {
 		return empty, "", ErrBadLogin
 	}
+	// Accounts carried over from Firebase Auth have no stored hash: Google
+	// never exposed them, so these users could never log in again. Saying
+	// "invalid name or password" left them retrying a dead password forever,
+	// so name the actual problem and point them at the reset flow.
+	if pwHash == "" {
+		return empty, "", ErrNeedsReset
+	}
 	if !hash.Check(pwHash, password) {
 		return empty, "", ErrBadLogin
 	}
@@ -419,7 +429,13 @@ func (s *Service) LoginTeacher(ctx context.Context, phone, password string) (Tea
 		WHERE phone=$1 OR email=$2`, p, strings.ToLower(strings.TrimSpace(phone))).Scan(
 		&t.ID, &t.Name, &t.Email, &t.Phone, &t.IsPioneer, &pwHash,
 	)
-	if err != nil || !hash.Check(pwHash, password) {
+	if err != nil {
+		return empty, "", ErrBadLogin
+	}
+	if pwHash == "" {
+		return empty, "", ErrNeedsReset
+	}
+	if !hash.Check(pwHash, password) {
 		return empty, "", ErrBadLogin
 	}
 	tok, err := s.sign(t.ID, "teacher")

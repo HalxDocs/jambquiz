@@ -41,7 +41,7 @@ func fail(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ErrTaken) || errors.Is(err, ErrPhoneTaken) || errors.Is(err, ErrEmailTaken):
 		c.JSON(http.StatusConflict, gin.H{"ok": false, "error": err.Error()})
-	case errors.Is(err, ErrBadLogin) || errors.Is(err, ErrBadCode):
+	case errors.Is(err, ErrBadLogin) || errors.Is(err, ErrBadCode) || errors.Is(err, ErrNeedsReset):
 		c.JSON(http.StatusUnauthorized, gin.H{"ok": false, "error": err.Error()})
 	case errors.Is(err, ErrShortName) || errors.Is(err, ErrWeakPassword) ||
 		errors.Is(err, ErrBadEmail) || errors.Is(err, ErrBadPhone) || errors.Is(err, ErrBadPioneer):
