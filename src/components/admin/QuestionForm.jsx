@@ -78,7 +78,7 @@ export default function QuestionForm({
     }
     try {
       if (editingFirestoreId) {
-        await editQuestion(editingFirestoreId, qData)
+        await editQuestion(editingFirestoreId, { ...qData, subject: selectedSubject, week: selectedWeek })
         showToast('Question updated!')
       } else {
         await addQuestion(selectedSubject, selectedWeek, qData)
