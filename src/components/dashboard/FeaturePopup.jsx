@@ -25,16 +25,24 @@ const FEATURES = [
 ]
 
 export default function FeaturePopup({ onClose }) {
-  const dismiss = (remember) => {
-    try {
-      if (remember) localStorage.setItem('274lab_seen_lifelines_popup', '1')
-    } catch {}
+  // Both buttons persist the dismissal. Cancel used to close without setting
+  // the flag, so this overlay came back on every dashboard load and — on
+  // mobile, where it is a bottom sheet over the primary CTA — re-covered the
+  // Start Quiz button each time, trapping the student in a loop.
+  const dismiss = () => {
+    try { localStorage.setItem('274lab_seen_lifelines_popup', '1') } catch {}
     onClose()
   }
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/60 flex items-end sm:items-center justify-center sm:p-4">
-      <div className="w-full max-w-sm bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[88vh] overflow-hidden">
+    <div
+      className="fixed inset-0 z-[100] bg-black/60 flex items-end sm:items-center justify-center sm:p-4"
+      onClick={dismiss}
+    >
+      <div
+        className="w-full max-w-sm bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[88vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="px-5 pt-5 pb-3 text-center shrink-0">
           <div className="w-12 h-12 mx-auto bg-[#111] rounded-2xl flex items-center justify-center mb-2">
@@ -65,13 +73,13 @@ export default function FeaturePopup({ onClose }) {
         <div className="p-4 border-t border-[#F1F1F0] bg-white shrink-0 sticky bottom-0">
           <div className="flex gap-2">
             <button
-              onClick={() => dismiss(false)}
+              onClick={dismiss}
               className="flex-1 border border-[#E5E5E5] text-[#555] rounded-xl py-3 text-sm font-bold font-label hover:bg-[#F8F8F7] transition-colors"
             >
               Cancel
             </button>
             <button
-              onClick={() => dismiss(true)}
+              onClick={dismiss}
               className="flex-1 bg-[#111] text-white rounded-xl py-3 text-sm font-bold font-display hover:bg-[#222] active:scale-[0.99] transition-all"
             >
               Don't show again
