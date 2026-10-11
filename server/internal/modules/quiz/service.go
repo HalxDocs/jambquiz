@@ -202,13 +202,16 @@ func (s *Service) Start(ctx context.Context, authUID, studentID, week, retakeSub
 	if !s.rateLimit(ctx, "startQuiz:"+authUID, 20, 60*60*1000) {
 		return out, ErrRateLimited
 	}
-	acc, enrolled, ownerUID, err := s.studentAccess(ctx, studentID, now)
+	acc, enrolled, _, err := s.studentAccess(ctx, studentID, now)
 	if err != nil {
 		return out, err
 	}
-	if ownerUID != "" && ownerUID != authUID {
-		return out, ErrForbidden
-	}
+	// Ownership is the Go student id (the JWT subject). The students.uid column
+	// is a leftover Firebase Auth uid: for accounts migrated from Firebase it
+	// holds a value that can never equal the Go id, so comparing it here
+	// rejected every legacy student with "forbidden" while newer accounts,
+	// whose uid is empty, sailed through. The handler already rejects a
+	// mismatched studentId for non-admins.
 	status := access.For(acc, now)
 	if status.Status == "suspended" {
 		return out, ErrSuspended
@@ -348,7 +351,10 @@ func (s *Service) Submit(ctx context.Context, authUID, sessionID string, answers
 	if err != nil {
 		return out, ErrNotFound
 	}
-	if sessionUID != authUID {
+	// Compare against the session's student_id rather than its uid column:
+	// sessions created before the cutover stored the legacy Firebase uid,
+	// which would refuse the owner's own submission.
+	if studentID != authUID {
 		return out, ErrForbidden
 	}
 	if status == "submitted" {
@@ -585,11 +591,14 @@ func (s *Service) Details(ctx context.Context, authUID, authRole, studentID, wee
 	var out DetailsResult
 	out.Subjects = []map[string]any{}
 	out.Answers = []map[string]any{}
-	var ownerUID string
-	if err := s.pool.QueryRow(ctx, `SELECT COALESCE(uid,'') FROM students WHERE id=$1`, studentID).Scan(&ownerUID); err != nil {
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM students WHERE id=$1)`, studentID).Scan(&exists); err != nil {
 		return out, ErrNotFound
 	}
-	if authRole != "admin" && ownerUID != "" && ownerUID != authUID {
+	if !exists {
+		return out, ErrNotFound
+	}
+	if authRole != "admin" && studentID != authUID {
 		return out, ErrForbidden
 	}
 	qd := s.getQuizDates(ctx, week)
@@ -664,7 +673,8 @@ func (s *Service) ConsumeTrial(ctx context.Context, authUID, studentID string) (
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(uid,''), free_attempts_used FROM students WHERE id=$1 FOR UPDATE`, studentID).Scan(&ownerUID, &used); err != nil {
 		return out, ErrNotFound
 	}
-	if ownerUID != "" && ownerUID != authUID {
+	_ = ownerUID // legacy Firebase uid; ownership is the student id, not this
+	if studentID != authUID {
 		return out, ErrForbidden
 	}
 	out.FreeAttemptsUsed = used
