@@ -10,8 +10,7 @@ import {
 } from '@hugeicons/core-free-icons'
 import SEO from '../components/seo/SEO'
 import ServerMoveBanner from '../components/ui/ServerMoveBanner'
-
-const PORTAL_STATS_URL = 'https://getportalstats-w7cojpp2aq-uc.a.run.app'
+import { apiGetPublic } from '../lib/api'
 
 const ORG_JSONLD = {
   "@context": "https://schema.org",
@@ -28,11 +27,17 @@ function usePortalStats() {
   const [stats, setStats] = useState(null)
   useEffect(() => {
     let cancelled = false
-    fetch(PORTAL_STATS_URL)
-      .then((r) => r.json())
-      .then((d) => { if (!cancelled) setStats(d && d.stats) })
-      .catch(() => {})
-    return () => { cancelled = true }
+    // Computed live by the Go backend from the database, so poll it rather
+    // than fetching once. This used to read a Cloud Function still serving
+    // frozen Firebase numbers (207 students, "Week 10"), which is why the
+    // homepage counters never moved after the migration.
+    const load = () =>
+      apiGetPublic('/api/portal/stats')
+        .then((d) => { if (!cancelled) setStats(d && d.stats) })
+        .catch(() => {})
+    load()
+    const id = setInterval(load, 60000)
+    return () => { cancelled = true; clearInterval(id) }
   }, [])
   return stats
 }

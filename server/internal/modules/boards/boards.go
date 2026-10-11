@@ -159,18 +159,20 @@ func (s *Service) Board(ctx context.Context, id string) []map[string]any {
 	return s.board(ctx, id)
 }
 
-// RefreshPublicStats recomputes the marketing counters.
-func (s *Service) RefreshPublicStats(ctx context.Context) error {
+// computeStats derives the marketing counters straight from the database.
+// This is the single source of truth for both the live portal endpoint and the
+// cached snapshot, so the two can never disagree.
+func (s *Service) computeStats(ctx context.Context) map[string]any {
 	var students, quizzes, weekCount int
-	_ = s.pool.QueryRow(ctx, `SELECT count(*) FROM students`).Scan(&students)
+	_ = s.pool.QueryRow(ctx, `SELECT count(*) FROM students WHERE role='student'`).Scan(&students)
 	_ = s.pool.QueryRow(ctx, `SELECT count(*) FROM scores`).Scan(&quizzes)
 	week := s.activeWeek(ctx)
-	_ = s.pool.QueryRow(ctx, `SELECT count(*) FROM scores WHERE week=$1`, week).Scan(&weekCount)
+	_ = s.pool.QueryRow(ctx, `SELECT count(DISTINCT student_id) FROM scores WHERE week=$1`, week).Scan(&weekCount)
 
 	var avgPct float64
 	_ = s.pool.QueryRow(ctx, `SELECT COALESCE((data->>'averageScorePct')::float,0) FROM admin_settings WHERE id='stats_counters'`).Scan(&avgPct)
 	var activeSubs int
-	_ = s.pool.QueryRow(ctx, `SELECT COALESCE((data->>'activeSubscriptions')::int,0) FROM admin_settings WHERE id='stats_counters'`).Scan(&activeSubs)
+	_ = s.pool.QueryRow(ctx, `SELECT count(*) FROM students WHERE role='student' AND subscription_until > now()`).Scan(&activeSubs)
 
 	var topScore int
 	_ = s.pool.QueryRow(ctx, `SELECT COALESCE(max(total),0) FROM leaderboard_student_ranks`).Scan(&topScore)
@@ -183,12 +185,18 @@ func (s *Service) RefreshPublicStats(ctx context.Context) error {
 	var topWeekly int
 	_ = s.pool.QueryRow(ctx, `SELECT COALESCE(max(total),0) FROM leaderboard_week_ranks`).Scan(&topWeekly)
 
-	data, _ := json.Marshal(map[string]any{
+	return map[string]any{
 		"totalStudents": students, "activeSubscriptions": activeSubs,
 		"totalQuizzesTaken": quizzes, "studentsActiveThisWeek": weekCount,
 		"averageScorePct": avgPct, "topScore": topScore, "topScorePct": topPct,
 		"topScoreLastWeek": topLastWeek, "topWeeklyScore": topWeekly, "activeWeek": week,
-	})
+	}
+}
+
+// RefreshPublicStats recomputes the marketing counters into the cached
+// snapshot used by anything still reading public_stats.
+func (s *Service) RefreshPublicStats(ctx context.Context) error {
+	data, _ := json.Marshal(s.computeStats(ctx))
 	_, err := s.pool.Exec(ctx, `INSERT INTO public_stats (key, data, updated_at)
 		VALUES ('overview',$1,now()) ON CONFLICT (key) DO UPDATE SET data=$1, updated_at=now()`, data)
 	return err
@@ -208,15 +216,15 @@ func (s *Service) activeWeek(ctx context.Context) string {
 	return d.Value
 }
 
-// PortalStats serves the cached public overview.
+// PortalStats serves the counters computed live from the database.
+//
+// This used to read the public_stats snapshot, which only refreshes when the
+// `worker public-stats` cron runs. That job was never scheduled on Railway, so
+// the homepage froze on whatever the last manual run produced — which is how it
+// ended up advertising 207 students and "Week 10" while the database held 223
+// students on Week 9. Computing here makes it correct without any cron.
 func (s *Service) PortalStats(ctx context.Context) map[string]any {
-	var raw []byte
-	if err := s.pool.QueryRow(ctx, `SELECT data FROM public_stats WHERE key='overview'`).Scan(&raw); err != nil {
-		return nil
-	}
-	var out map[string]any
-	_ = json.Unmarshal(raw, &out)
-	return out
+	return s.computeStats(ctx)
 }
 
 // RecomputeRanks rebuilds all rank rows from scores (post-backfill repair).

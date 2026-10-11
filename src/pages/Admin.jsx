@@ -76,6 +76,14 @@ export default function Admin({ setView }) {
     })()
   }, [studentPage, studentYearFilter])
 
+  // Keep the head-count live while the page stays open. It used to refresh only
+  // when the page or year filter changed, so a student registering in another
+  // tab left the number stale until a manual reload.
+  useEffect(() => {
+    const id = setInterval(refreshStudentCount, 30000)
+    return () => clearInterval(id)
+  }, [studentYearFilter])
+
   const refreshStudentCount = async () => {
     try {
       const yearFilter = studentYearFilter !== 'all' ? studentYearFilter : null
