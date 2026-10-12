@@ -52,6 +52,10 @@ func fail(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"ok": false, "error": err.Error()})
+	case errors.Is(err, ErrForbidden):
+		// Was unmapped, so a legitimate ownership rejection fell through to the
+		// default branch and surfaced to the student as "internal error".
+		c.JSON(http.StatusForbidden, gin.H{"ok": false, "error": err.Error()})
 	case errors.Is(err, ErrBadInput) || errors.Is(err, ErrNoCoins):
 		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": err.Error()})
 	case errors.Is(err, ErrRateLimited):

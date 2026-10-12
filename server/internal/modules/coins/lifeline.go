@@ -63,14 +63,18 @@ func (s *Service) UseLifeline(ctx context.Context, authUID, studentID, sessionID
 	}
 	defer tx.Rollback(ctx)
 
-	var sessUID, week, status string
+	var sessStudentID, week, status string
 	var assignJSON, usageJSON, narrowedJSON []byte
-	if err := tx.QueryRow(ctx, `SELECT uid, week, status, assignments, lifeline_usage, narrowed
+	if err := tx.QueryRow(ctx, `SELECT student_id, week, status, assignments, lifeline_usage, narrowed
 		FROM quiz_sessions WHERE id=$1 FOR UPDATE`, sessionID,
-	).Scan(&sessUID, &week, &status, &assignJSON, &usageJSON, &narrowedJSON); err != nil {
+	).Scan(&sessStudentID, &week, &status, &assignJSON, &usageJSON, &narrowedJSON); err != nil {
 		return out, ErrNotFound
 	}
-	if sessUID != authUID {
+	// Ownership is the Go student id. The session/student uid columns hold the
+	// legacy Firebase uid, which never equals the JWT subject for migrated
+	// accounts, so comparing them locked every legacy student out of their own
+	// lifelines with a 500 "internal error".
+	if sessStudentID != authUID {
 		return out, ErrForbidden
 	}
 	if status == "submitted" {
@@ -92,7 +96,10 @@ func (s *Service) UseLifeline(ctx context.Context, authUID, studentID, sessionID
 		studentID).Scan(&stUID, &stCoins, &squad); err != nil {
 		return out, ErrNotFound
 	}
-	if stUID != "" && stUID != authUID {
+	if stUID != "" {
+		_ = stUID // legacy Firebase uid; kept only to key the coin ledger
+	}
+	if studentID != authUID {
 		return out, ErrForbidden
 	}
 
@@ -404,14 +411,14 @@ func (s *Service) PeekStatus(ctx context.Context, authUID, studentID, sessionID,
 	if len(wanted) == 0 {
 		return out, nil
 	}
-	var sessUID, week string
+	var sessStudentID, week string
 	var assignJSON []byte
 	var status string
-	if err := s.pool.QueryRow(ctx, `SELECT uid, week, status, assignments FROM quiz_sessions WHERE id=$1`,
-		sessionID).Scan(&sessUID, &week, &status, &assignJSON); err != nil {
+	if err := s.pool.QueryRow(ctx, `SELECT student_id, week, status, assignments FROM quiz_sessions WHERE id=$1`,
+		sessionID).Scan(&sessStudentID, &week, &status, &assignJSON); err != nil {
 		return out, ErrNotFound
 	}
-	if sessUID != authUID {
+	if sessStudentID != authUID {
 		return out, ErrForbidden
 	}
 	if status == "submitted" {
@@ -430,7 +437,10 @@ func (s *Service) PeekStatus(ctx context.Context, authUID, studentID, sessionID,
 		studentID).Scan(&squad, &stUID); err != nil {
 		return out, ErrNotFound
 	}
-	if stUID != "" && stUID != authUID {
+	if stUID != "" {
+		_ = stUID // legacy Firebase uid, not an ownership signal
+	}
+	if studentID != authUID {
 		return out, ErrForbidden
 	}
 	inSquad := map[string]bool{}
