@@ -325,7 +325,10 @@ func (s *Service) VerifyRecovery(ctx context.Context, authUID, studentID, code s
 	).Scan(&ownerUID, &recoveryCode, &attempts, &lastAttempt); err != nil {
 		return false, "", ErrNotFound
 	}
-	if ownerUID != "" && ownerUID != authUID {
+	if ownerUID != "" {
+		_ = ownerUID // legacy Firebase uid; ownership is the student id
+	}
+	if studentID != authUID {
 		return false, "", ErrForbidden
 	}
 	now := time.Now().UTC()

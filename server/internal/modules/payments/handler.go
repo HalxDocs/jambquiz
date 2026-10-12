@@ -50,6 +50,11 @@ func fail(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"ok": false, "error": err.Error()})
+	case errors.Is(err, ErrForbidden):
+		// Declared but unreachable today; mapped anyway so a future ownership
+		// check reports itself instead of masquerading as an "internal error",
+		// which is how the lifeline bug reached students.
+		c.JSON(http.StatusForbidden, gin.H{"ok": false, "error": err.Error()})
 	case errors.Is(err, ErrBadInput) || errors.Is(err, ErrNotSuccess) ||
 		errors.Is(err, ErrUnderpaid) || errors.Is(err, ErrBadCurrency):
 		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": err.Error()})
