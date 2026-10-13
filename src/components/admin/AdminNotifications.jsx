@@ -54,7 +54,15 @@ export default function AdminNotifications() {
     setPushTestStatus('Sending...')
     try {
       const result = await apiPost('/api/admin/test-push', {})
-      setPushTestStatus(`Sent to ${result.sent}/${result.total} device(s). Check your phone!`)
+      const sent = result.sent || 0
+      const total = result.total || 0
+      // "Sent to 0/91, check your phone!" reads as success when nothing was
+      // delivered. A zero here means every stored subscription rejected the
+      // send — usually because the device subscribed under an older VAPID key
+      // and has not reopened the app to re-subscribe yet.
+      setPushTestStatus(sent === 0
+        ? `Nothing delivered (0 of ${total}). If that is unexpected, ask students to close and reopen the app to re-enable notifications.`
+        : `Delivered to ${sent} of ${total} device(s). Check your phone!`)
     } catch (err) {
       setPushTestStatus('Error: ' + (err.message || 'Unknown'))
     }
