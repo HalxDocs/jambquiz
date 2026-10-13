@@ -1,6 +1,6 @@
 // src/services/pushNotifications.js
 
-const VAPID_PUBLIC_KEY = 'BJV0OfUDKqQg7gPD1BusnRjhhc1fhjnheW6Ghp2W9T5squ3RhMZMrNVqHiCM0M3lOeJLaq_4K_Z3WL_0PcUn_Bg'
+const VAPID_PUBLIC_KEY = '2lM9ITz7-7EpeEbbVxB7U2uraNGDisgIM3yn4lnPmEM'
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
 
 /**

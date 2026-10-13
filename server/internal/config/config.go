@@ -44,7 +44,7 @@ func Load() Config {
 		BachsResumeProductID: getenv("BACHS_RESUME_PRODUCT_ID", ""),
 		BachsWebhookToken:    getenv("BACHS_WEBHOOK_TOKEN", ""),
 		BachsWebhookSecret:   getenv("BACHS_WEBHOOK_SECRET", ""),
-		VapidPublic:          getenv("VAPID_PUBLIC_KEY", "BJV0OfUDKqQg7gPD1BusnRjhhc1fhjnheW6Ghp2W9T5squ3RhMZMrNVqHiCM0M3lOeJLaq_4K_Z3WL_0PcUn_Bg"),
+		VapidPublic:          getenv("VAPID_PUBLIC_KEY", "2lM9ITz7-7EpeEbbVxB7U2uraNGDisgIM3yn4lnPmEM"),
 		VapidPrivate:         getenv("VAPID_PRIVATE_KEY", ""),
 		VapidSubject:         getenv("VAPID_SUBJECT", "mailto:admin@274lab.com"),
 		TermiiKey:            getenv("TERMII_API_KEY", ""),

@@ -30,6 +30,7 @@ func RegisterService(r *gin.Engine, pool *pgxpool.Pool, secret string, cfg Confi
 	r.POST("/api/notify/accountability-intro", auth, h.intro)
 	r.POST("/api/notify/welcome-sms", auth, h.welcome)
 	r.POST("/api/push/subscribe", h.subscribe)
+	r.GET("/api/push/vapid-key", h.vapidKey)
 	r.POST("/api/admin/sms/clear-guards", auth, admin, h.clearGuards)
 	r.GET("/api/admin/sms/debug", auth, admin, h.debugSMS)
 	r.GET("/api/admin/settings/notifications", auth, admin, h.notifGet)
@@ -220,6 +221,19 @@ func (h *Handler) debugSMS(c *gin.Context) {
 		"scoresThisWeek": scoreCount, "students": studentCount,
 		"reminderGuards": guards, "termiiConfigured": h.svc.cfg.TermiiKey != "",
 		"pushConfigured": h.svc.sender.Configured()})
+}
+
+// vapidKey reports the public key the client must subscribe with and whether
+// the server can actually send. The public key is duplicated in the frontend
+// (pushNotifications.js), so this exists to make a mismatch or a missing
+// VAPID_PRIVATE_KEY visible without reading logs.
+func (h *Handler) vapidKey(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true,
+		"publicKey":  h.svc.cfg.VapidPublic,
+		"configured": h.svc.sender.Configured()})
 }
 
 func (h *Handler) subscribe(c *gin.Context) {
