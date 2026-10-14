@@ -24,3 +24,23 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* ── iOS safe areas ──────────────────────────────────────────────────────────
+   viewport-fit=cover in index.html makes the layout span the notch and home
+   indicator, so bottom-fixed elements (notification prompt, quiz footer) were
+   sitting under the iPhone home bar and becoming untappable. This restores the
+   inset for fixed elements only; normal flow is unaffected. */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.bottom-safe {
+  bottom: env(safe-area-inset-bottom, 0px);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+/* Left/right insets only matter in landscape on notched devices. */
+.px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}

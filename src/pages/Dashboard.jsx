@@ -28,6 +28,7 @@ import CardWarningPopup from '../components/dashboard/CardWarningPopup'
 import { notificationScheduler } from '../services/notificationSchedular'
 import { getCurrentRevisionBatch, revisionTopicKey, isRevisionCompleted } from '../lib/revisionQueue'
 import { prefetch } from '../lib/prefetch'
+import { needsIosInstall } from '../lib/platform'
 
 const RANK_BADGES = {
   gray: 'bg-[#1C1C1C] text-[#AAA] border-[#333]',
@@ -169,6 +170,11 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   const [pushPermission, setPushPermission] = useState(() =>
     typeof Notification !== 'undefined' ? Notification.permission : 'denied'
   )
+  // iOS only allows Web Push for a Home Screen install. App.jsx already shows a
+  // global "Add to Home Screen" prompt on those devices, so the notification
+  // banner stands down here to avoid two prompts stacking at the bottom.
+  const [iosInstallNeeded, setIosInstallNeeded] = useState(false)
+  useEffect(() => { setIosInstallNeeded(needsIosInstall()) }, [])
 
   useEffect(() => {
     const unsubWeek = listenActiveWeek((week) => setCurrentWeek(week))
@@ -545,8 +551,8 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         </div>
       )}
 
-      {pushPermission !== 'granted' && (
-        <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md">
+      {pushPermission !== 'granted' && !iosInstallNeeded && (
+        <div className="fixed left-4 right-4 z-50 mx-auto max-w-md bottom-safe" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}>
           <div className="bg-[#111] border border-[#333] rounded-2xl p-4 shadow-2xl flex items-center gap-3">
             <span className="text-2xl shrink-0">🔔</span>
             <div className="flex-1 min-w-0">

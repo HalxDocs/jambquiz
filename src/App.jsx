@@ -26,12 +26,7 @@ import { restoreSession } from './store/session'
 import { useUserNotificationStore } from './store/notificationStore'
 import { useToastStore } from './store/toast'
 
-function isIos() {
-  return /iphone|ipad|ipod/i.test(navigator.userAgent)
-}
-function isInStandaloneMode() {
-  return ('standalone' in window.navigator) && window.navigator.standalone
-}
+import { isIos, isInStandaloneMode } from './lib/platform'
 
 const SESSION_KEY = 'jamb_session'
 const SESSION_TS_KEY = 'jamb_session_ts'
