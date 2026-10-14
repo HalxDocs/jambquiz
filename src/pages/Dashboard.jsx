@@ -29,6 +29,7 @@ import { notificationScheduler } from '../services/notificationSchedular'
 import { getCurrentRevisionBatch, revisionTopicKey, isRevisionCompleted } from '../lib/revisionQueue'
 import { prefetch } from '../lib/prefetch'
 import { needsIosInstall } from '../lib/platform'
+import { isPromptDismissed, dismissPrompt } from '../lib/promptDismissal'
 
 const RANK_BADGES = {
   gray: 'bg-[#1C1C1C] text-[#AAA] border-[#333]',
@@ -175,6 +176,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
   // banner stands down here to avoid two prompts stacking at the bottom.
   const [iosInstallNeeded, setIosInstallNeeded] = useState(false)
   useEffect(() => { setIosInstallNeeded(needsIosInstall()) }, [])
+  const [pushPromptHidden, setPushPromptHidden] = useState(() => isPromptDismissed('push_prompt'))
 
   useEffect(() => {
     const unsubWeek = listenActiveWeek((week) => setCurrentWeek(week))
@@ -551,7 +553,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
         </div>
       )}
 
-      {pushPermission !== 'granted' && !iosInstallNeeded && (
+      {pushPermission !== 'granted' && !iosInstallNeeded && !pushPromptHidden && (
         <div className="fixed left-4 right-4 z-50 mx-auto max-w-md bottom-safe" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}>
           <div className="bg-[#111] border border-[#333] rounded-2xl p-4 shadow-2xl flex items-center gap-3">
             <span className="text-2xl shrink-0">🔔</span>
@@ -573,6 +575,15 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                 Enable
               </button>
             )}
+            {/* Previously there was no way to dismiss this at all: the only
+                exits were granting permission or editing browser settings. */}
+            <button
+              onClick={() => { dismissPrompt('push_prompt'); setPushPromptHidden(true) }}
+              aria-label="Dismiss notifications prompt"
+              className="shrink-0 text-white/40 hover:text-white text-lg leading-none transition-colors"
+            >
+              ×
+            </button>
           </div>
         </div>
       )}

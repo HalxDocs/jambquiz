@@ -27,6 +27,7 @@ import { useUserNotificationStore } from './store/notificationStore'
 import { useToastStore } from './store/toast'
 
 import { isIos, isInStandaloneMode } from './lib/platform'
+import { isPromptDismissed, dismissPrompt } from './lib/promptDismissal'
 
 const SESSION_KEY = 'jamb_session'
 const SESSION_TS_KEY = 'jamb_session_ts'
@@ -66,7 +67,12 @@ export default function App() {
   const [retakeData, setRetakeData] = useState(null)
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [showInstallToast, setShowInstallToast] = useState(false)
-  const [showIosHint, setShowIosHint] = useState(() => isIos() && !isInStandaloneMode())
+  const [showIosHint, setShowIosHint] = useState(() => isIos() && !isInStandaloneMode() && !isPromptDismissed('ios_install'))
+
+  const closeIosHint = () => {
+    dismissPrompt('ios_install')
+    setShowIosHint(false)
+  }
   const [showRegCardWarning, setShowRegCardWarning] = useState(false)
   const prevViewRef = useRef(view)
 
@@ -431,7 +437,7 @@ export default function App() {
                 </p>
               </div>
               <button
-                onClick={() => setShowIosHint(false)}
+                onClick={closeIosHint}
                 className="text-[#888] hover:text-white text-lg leading-none shrink-0"
               >
                 ×
