@@ -56,13 +56,21 @@ export default function AdminNotifications() {
       const result = await apiPost('/api/admin/test-push', {})
       const sent = result.sent || 0
       const total = result.total || 0
+      const stale = result.stale || 0
+      const gone = result.gone || 0
+      const failed = result.failed || 0
       // "Sent to 0/91, check your phone!" reads as success when nothing was
       // delivered. A zero here means every stored subscription rejected the
-      // send — usually because the device subscribed under an older VAPID key
-      // and has not reopened the app to re-subscribe yet.
+      // send. Stale devices are the common case: they subscribed under an
+      // older VAPID key and have not reopened the app to re-subscribe yet.
+      const parts = []
+      if (stale) parts.push(`${stale} need to reopen the app`)
+      if (gone) parts.push(`${gone} expired and were removed`)
+      if (failed) parts.push(`${failed} failed`)
+      const detail = parts.length ? ` (${parts.join(', ')})` : ''
       setPushTestStatus(sent === 0
-        ? `Nothing delivered (0 of ${total}). If that is unexpected, ask students to close and reopen the app to re-enable notifications.`
-        : `Delivered to ${sent} of ${total} device(s). Check your phone!`)
+        ? `Nothing delivered (0 of ${total})${detail}. Students whose device was listed as needing to reopen the app must close and reopen 274Lab to re-enable notifications.`
+        : `Delivered to ${sent} of ${total} device(s)${detail}. Check your phone!`)
     } catch (err) {
       setPushTestStatus('Error: ' + (err.message || 'Unknown'))
     }

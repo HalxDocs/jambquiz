@@ -118,12 +118,14 @@ func (h *Handler) testPush(c *gin.Context) {
 	if unavailable(c, h.svc) {
 		return
 	}
-	sent, total, err := h.svc.TestPush(c.Request.Context())
+	report, err := h.svc.TestPush(c.Request.Context())
 	if err != nil {
 		fail(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "sent": sent, "total": total})
+	c.JSON(http.StatusOK, gin.H{"ok": true,
+		"sent": report.Sent, "total": report.Total,
+		"stale": report.Stale, "gone": report.Gone, "failed": report.Failed})
 }
 
 func (h *Handler) testSMS(c *gin.Context) {

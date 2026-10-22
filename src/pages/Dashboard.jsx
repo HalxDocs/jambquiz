@@ -7,7 +7,7 @@ import {
   getStudentScores, getCoinBalance, getWeekGoats, listGoats, getStudentById,
 } from '../store/useStore'
 import { CARD_YELLOW_1, CARD_YELLOW_2, CARD_RED, computeCardLevel, isLifelinesEnabled } from '../store/constants'
-import { registerPushNotifications, savePushSubscriptionToFirestore, saveNotificationStateToFirestore } from '../services/pushNotifications'
+import { registerPushNotifications, savePushSubscriptionToFirestore, saveNotificationStateToFirestore, subscribeWithCurrentKey } from '../services/pushNotifications'
 import { useUserNotificationStore } from '../store/notificationStore'
 import { useThemeStore } from '../store/theme'
 import RankToast from '../components/dashboard/RankToast'
@@ -305,22 +305,26 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       const access = getAccessStatus(student)
       if (access.status === 'expired') return
-      navigator.serviceWorker.ready.then((reg) =>
-        reg.pushManager.getSubscription()
-      ).then((existing) => {
-        if (existing) {
-          useUserNotificationStore.getState().setPushSubscription(existing)
+      let stopped = false
+      ;(async () => {
+        try {
+          const reg = await navigator.serviceWorker.ready
+          // Always resolve a subscription bound to the CURRENT VAPID key.
+          // Returning early when one already existed left students holding
+          // subscriptions created under a rotated-out key: the server signed
+          // with the new key, FCM answered 403, and no push ever arrived.
+          const sub = await subscribeWithCurrentKey(reg)
+          if (stopped || !sub) return
+          useUserNotificationStore.getState().setPushSubscription(sub)
           useUserNotificationStore.getState().setPushPermission('granted')
-          return
+          // Always re-save. The server prunes dead endpoints, and a pruned
+          // subscription that is never re-sent stays missing forever.
+          savePushSubscriptionToFirestore(student.id, sub)
+        } catch (err) {
+          console.warn('[Push] subscription refresh failed', err)
         }
-        registerPushNotifications().then((sub) => {
-          if (sub) {
-            useUserNotificationStore.getState().setPushSubscription(sub)
-            useUserNotificationStore.getState().setPushPermission('granted')
-            savePushSubscriptionToFirestore(student.id, sub)
-          }
-        })
-      })
+      })()
+      return () => { stopped = true }
     }
   }, [student.id])
 

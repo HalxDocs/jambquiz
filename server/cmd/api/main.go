@@ -36,7 +36,7 @@ func main() {
 
 	var pool *pgxpool.Pool
 	if p, err := db.NewPool(ctx, cfg.DatabaseURL); err != nil {
-		log.Printf("[db] unavailable at boot: %v (health will report down)", err)
+		log.Printf("[db] unavailable at boot: %v (health will report down, scheduler will not run)", err)
 	} else {
 		pool = p
 		defer pool.Close()
@@ -93,6 +93,14 @@ func main() {
 			log.Fatalf("[api] listen: %v", err)
 		}
 	}()
+
+	// The periodic jobs (key points, quiz reminders, weekly SMS reports,
+	// leaderboard) used to require external cron entries that were never
+	// configured, so nothing was ever sent on a schedule. Running them in
+	// process makes them fire without any host configuration.
+	if pool != nil {
+		notify.StartScheduler(ctx, notifySvc, pool)
+	}
 
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

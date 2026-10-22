@@ -1,7 +1,37 @@
 // src/services/pushNotifications.js
 
-const VAPID_PUBLIC_KEY = 'BJqD_ezLHEOxBYdQk3j2hNXfw1ENHoSJKYvSKqez-pYgWqiqS0DQQDbxP_1YmWqNgghItgbDjBhKrylOTselddw'
+import {
+  VAPID_PUBLIC_KEY,
+  isSubscriptionCurrent,
+  urlBase64ToUint8Array,
+} from '../lib/pushKey'
+
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
+
+/**
+ * Get a subscription that is bound to the current VAPID key, creating one if
+ * needed. A subscription left over from an older key is unsubscribed first:
+ * Chrome keeps the old endpoint alive when you subscribe again, so without
+ * the explicit unsubscribe the stale row stays and keeps 403ing.
+ */
+export async function subscribeWithCurrentKey(registration) {
+  const current = urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+  const existing = await registration.pushManager.getSubscription()
+  if (existing && isSubscriptionCurrent(existing)) return existing
+  if (existing) {
+    try {
+      await existing.unsubscribe()
+      console.log('[Push] Re-subscribing: stored subscription used an older VAPID key')
+    } catch {
+      // A failed unsubscribe is not fatal — subscribing again still yields a
+      // subscription bound to the current key.
+    }
+  }
+  return registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: current,
+  })
+}
 
 /**
  * Register for push notifications
@@ -26,22 +56,7 @@ export async function registerPushNotifications() {
     }
 
     const registration = await navigator.serviceWorker.ready
-
-    // Reuse existing subscription if VAPID key matches
-    const existing = await registration.pushManager.getSubscription()
-    if (existing) {
-      const existingKey = existing.toJSON().applicationServerKey
-      const currentKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-      const same = existingKey && currentKey &&
-        existingKey.reduce((a, b, i) => a && b === currentKey[i], true)
-      if (same) return existing
-      await existing.unsubscribe()
-    }
-
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-    })
+    const subscription = await subscribeWithCurrentKey(registration)
     console.log('[Push] Successfully subscribed')
 
     return subscription
@@ -112,16 +127,4 @@ export function sendLocalNotification(point) {
 
   // Auto-close after 20 seconds
   setTimeout(() => notification.close(), 20000)
-}
-
-// Helper: convert VAPID key to Uint8Array
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
-  const rawData = window.atob(base64)
-  const outputArray = new Uint8Array(rawData.length)
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i)
-  }
-  return outputArray
 }

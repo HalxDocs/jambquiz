@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -239,4 +240,34 @@ func (s *Service) recordSmsFailure(ctx context.Context, to, text, errStr, studen
 	s.pool.Exec(ctx, `INSERT INTO sms_failures (recipient, sms, error, sender_id, student_id, week, label, source)
 		VALUES ($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,''),$7,$8)`,
 		to, text, errStr, s.cfg.TermiiSender, studentID, week, label, source)
+}
+
+// pruneSubscriptions removes rows the push service refused.
+//
+// Two different rejections need different handling:
+//
+//   - Gone (404/410): the endpoint is dead. Delete it; the browser will send
+//     a fresh subscription on its next open.
+//   - Stale (401/403): the subscription is bound to a VAPID key we no longer
+//     use, so every push we sign is refused. The row is not dead, but it is
+//     useless until the browser re-subscribes with the current key.
+//
+// The 90% guard matters. If our own VAPID subject or key pair is malformed,
+// every endpoint answers 403 and a blanket delete would wipe the entire
+// subscriber table — turning a recoverable server misconfiguration into total
+// loss of the push audience.
+func (s *Service) pruneSubscriptions(ctx context.Context, gone, stale []string, attempted int) {
+	for _, id := range gone {
+		s.pool.Exec(ctx, `DELETE FROM push_subscriptions WHERE student_id=$1`, id)
+	}
+	if len(stale) == 0 {
+		return
+	}
+	if attempted > 0 && len(stale)*10 >= attempted*9 {
+		log.Printf("[push] %d of %d subscriptions rejected as unauthorised — that looks like a server-side VAPID problem rather than stale subscriptions; keeping them", len(stale), attempted)
+		return
+	}
+	for _, id := range stale {
+		s.pool.Exec(ctx, `DELETE FROM push_subscriptions WHERE student_id=$1`, id)
+	}
 }

@@ -34,6 +34,8 @@ func (s *Service) RunQuizReminders(ctx context.Context, now time.Time) (int, err
 		return 0, nil
 	}
 	sent := 0
+	var gone, stale []string
+	attempted := 0
 	for i, t := range times {
 		for _, iv := range intervals {
 			until := t.UnixMilli() - now.UnixMilli()
@@ -59,12 +61,17 @@ func (s *Service) RunQuizReminders(ctx context.Context, now time.Time) (int, err
 				}
 				payload := map[string]any{"type": "broadcast", "title": "Quiz Reminder",
 					"message": iv.body, "broadcastId": "quiz-reminder-" + key}
-				ok, gone, _ := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 3600)
-				if gone {
-					s.pool.Exec(ctx, `DELETE FROM push_subscriptions WHERE student_id=$1`, sub.studentID)
+				res := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 3600)
+				attempted++
+				if res.Gone {
+					gone = append(gone, sub.studentID)
 					continue
 				}
-				if ok {
+				if res.Stale {
+					stale = append(stale, sub.studentID)
+					continue
+				}
+				if res.Sent {
 					sent++
 				}
 			}
@@ -72,6 +79,7 @@ func (s *Service) RunQuizReminders(ctx context.Context, now time.Time) (int, err
 				ON CONFLICT (key) DO NOTHING`, key, sent)
 		}
 	}
+	s.pruneSubscriptions(ctx, gone, stale, attempted)
 	return sent, nil
 }
 
@@ -94,6 +102,8 @@ func (s *Service) RunQuizTime(ctx context.Context, now time.Time) (int, error) {
 		return 0, nil
 	}
 	sent := 0
+	var gone, stale []string
+	attempted := 0
 	for i, t := range times {
 		diff := now.UnixMilli() - t.UnixMilli()
 		if diff < 0 || diff > 5*60*1000 {
@@ -109,16 +119,22 @@ func (s *Service) RunQuizTime(ctx context.Context, now time.Time) (int, error) {
 			"message":     "Your weekly mock test is live! Open the app and start now.",
 			"broadcastId": "quiz-time-" + itoa(int(now.UnixMilli()))}
 		for _, sub := range subs {
-			ok, gone, _ := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 3600)
-			if gone {
-				s.pool.Exec(ctx, `DELETE FROM push_subscriptions WHERE student_id=$1`, sub.studentID)
+			res := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 3600)
+			attempted++
+			if res.Gone {
+				gone = append(gone, sub.studentID)
 				continue
 			}
-			if ok {
+			if res.Stale {
+				stale = append(stale, sub.studentID)
+				continue
+			}
+			if res.Sent {
 				sent++
 			}
 		}
 		s.pool.Exec(ctx, `INSERT INTO admin_settings (id, data) VALUES ($1,'{"sentAt":"`+now.UTC().Format("2006-01-02T15:04:05Z")+`"}') ON CONFLICT (id) DO NOTHING`, guardID)
 	}
+	s.pruneSubscriptions(ctx, gone, stale, attempted)
 	return sent, nil
 }

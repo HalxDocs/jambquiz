@@ -35,6 +35,8 @@ func (s *Service) fanOutBroadcast(ctx context.Context, id, title, message, targe
 		return 0
 	}
 	sent := 0
+	var gone, stale []string
+	attempted := 0
 	for _, sub := range s.allSubs(ctx) {
 		var suspended bool
 		var streak int
@@ -57,41 +59,72 @@ func (s *Service) fanOutBroadcast(ctx context.Context, id, title, message, targe
 		}
 		payload := map[string]any{"type": "broadcast", "title": title,
 			"message": message, "broadcastId": id}
-		ok, gone, _ := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 86400)
-		if gone {
-			s.pool.Exec(ctx, `DELETE FROM push_subscriptions WHERE student_id=$1`, sub.studentID)
+		res := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 86400)
+		attempted++
+		if res.Gone {
+			gone = append(gone, sub.studentID)
 			continue
 		}
-		if ok {
+		if res.Stale {
+			stale = append(stale, sub.studentID)
+			continue
+		}
+		if res.Sent {
 			sent++
 		}
 	}
+	s.pruneSubscriptions(ctx, gone, stale, attempted)
 	return sent
 }
 
+// PushReport summarises one fan-out so the admin can tell a working push
+// apart from a silent one.
+type PushReport struct {
+	// Sent is how many devices accepted the message.
+	Sent int
+	// Total is how many subscriptions were attempted.
+	Total int
+	// Stale counts subscriptions the push service refused because they are
+	// bound to a VAPID key we no longer use. Those devices must reopen the
+	// app to re-subscribe before they can receive anything.
+	Stale int
+	// Gone counts endpoints that no longer exist and were removed.
+	Gone int
+	// Failed counts transport errors and other unexpected rejections.
+	Failed int
+}
+
 // TestPush fans a test key point out to every subscription.
-func (s *Service) TestPush(ctx context.Context) (int, int, error) {
+func (s *Service) TestPush(ctx context.Context) (PushReport, error) {
+	report := PushReport{}
 	if !s.sender.Configured() {
-		return 0, 0, errBadInput
+		return report, errBadInput
 	}
 	subs := s.allSubs(ctx)
 	if len(subs) == 0 {
-		return 0, 0, errNotFound
+		return report, errNotFound
 	}
+	report.Total = len(subs)
 	payload := map[string]any{"point": "Push notifications are working! You will receive key points every 2 hours.",
 		"subject": "Test", "id": fmt.Sprintf("test-%d", time.Now().UnixMilli()), "isQuestion": false}
-	sent := 0
+	var gone, stale []string
 	for _, sub := range subs {
-		ok, gone, _ := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 3600)
-		if gone {
-			s.pool.Exec(ctx, `DELETE FROM push_subscriptions WHERE student_id=$1`, sub.studentID)
-			continue
-		}
-		if ok {
-			sent++
+		res := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 3600)
+		switch {
+		case res.Gone:
+			gone = append(gone, sub.studentID)
+			report.Gone++
+		case res.Stale:
+			stale = append(stale, sub.studentID)
+			report.Stale++
+		case res.Sent:
+			report.Sent++
+		default:
+			report.Failed++
 		}
 	}
-	return sent, len(subs), nil
+	s.pruneSubscriptions(ctx, gone, stale, report.Total)
+	return report, nil
 }
 
 // TestSMS sends the canned test message (phone in any NG format).
@@ -206,8 +239,11 @@ func (s *Service) SaveSubscription(ctx context.Context, studentID, endpoint, p25
 		return errNotFound
 	}
 	keys, _ := json.Marshal(map[string]string{"p256dh": p256dh, "auth": auth})
-	_, err := s.pool.Exec(ctx, `INSERT INTO push_subscriptions (student_id, endpoint, keys, updated_at)
-		VALUES ($1,$2,$3,now()) ON CONFLICT (student_id) DO UPDATE
-		SET endpoint=$2, keys=$3, updated_at=now()`, studentID, endpoint, keys)
+	// created_at is refreshed on update too. A device that re-subscribes with
+	// a new endpoint and new keys is a new subscription; leaving the original
+	// timestamp made the table lie about which subscriptions were current.
+	_, err := s.pool.Exec(ctx, `INSERT INTO push_subscriptions (student_id, endpoint, keys, created_at, updated_at)
+		VALUES ($1,$2,$3,now(),now()) ON CONFLICT (student_id) DO UPDATE
+		SET endpoint=$2, keys=$3, created_at=now(), updated_at=now()`, studentID, endpoint, keys)
 	return err
 }

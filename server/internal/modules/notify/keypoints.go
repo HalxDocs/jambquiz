@@ -85,6 +85,8 @@ func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) 
 	}
 	week := s.activeWeek(ctx)
 	sent := 0
+	var gone, stale []string
+	attempted := 0
 	for _, sub := range s.allSubs(ctx) {
 		if !s.eligibleSubscriber(ctx, sub.studentID, now) {
 			continue
@@ -101,7 +103,11 @@ func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) 
 		_ = s.pool.QueryRow(ctx, `SELECT seen_points, current_cycle_index, patches_active,
 			selected_patch_subjects, last_notified_at FROM notification_state WHERE student_id=$1`,
 			sub.studentID).Scan(&seenJSON, &cycle, &patches, &patchSubs, &lastNotified)
-		if lastNotified != nil && now.Sub(*lastNotified) < 30*time.Minute {
+		// One key point every two hours per student. The job is polled far
+		// more often than that, so this guard is what sets the cadence — the
+		// Firebase function it replaces ran on "every 2 hours" and a student
+		// is meant to work through the points slowly, not every half hour.
+		if lastNotified != nil && now.Sub(*lastNotified) < 2*time.Hour {
 			continue
 		}
 		all := s.allKeyPoints(ctx, week, subjects)
@@ -165,12 +171,17 @@ func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) 
 		}
 		payload := map[string]any{"point": next.Point, "subject": next.Subject,
 			"id": next.ID, "week": next.Week, "isQuestion": next.IsQuestion}
-		ok, gone, _ := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 86400)
-		if gone {
-			s.pool.Exec(ctx, `DELETE FROM push_subscriptions WHERE student_id=$1`, sub.studentID)
+		res := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 86400)
+		attempted++
+		if res.Gone {
+			gone = append(gone, sub.studentID)
 			continue
 		}
-		if !ok {
+		if res.Stale {
+			stale = append(stale, sub.studentID)
+			continue
+		}
+		if !res.Sent {
 			continue
 		}
 		sent++
@@ -184,6 +195,7 @@ func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) 
 			patches_active=$4, selected_patch_subjects=$5, last_notified_at=$6, updated_at=now()`,
 			sub.studentID, sj, cycle, patches, patchSubs, now)
 	}
+	s.pruneSubscriptions(ctx, gone, stale, attempted)
 	return sent, nil
 }
 
