@@ -2,8 +2,28 @@ package notify
 
 import (
 	"context"
+	"log"
 	"time"
 )
+
+// reminderGrace is how late a reminder may still be sent. The Firebase
+// function fired only inside a ±60s window, so a deploy, a restart or a
+// slow database at exactly that minute dropped the reminder for good.
+// Every reminder has its own guard row, so a late send can never duplicate
+// one; three minutes is short enough that "starts in 5 minutes" is still
+// true when it arrives.
+const reminderGrace = 3 * 60 * 1000
+
+// reminderDue reports whether the reminder that belongs `intervalMs` before
+// the quiz is due, given `until` milliseconds left before the quiz starts.
+// It allows one minute early and reminderGrace late.
+func reminderDue(until, intervalMs int64) bool {
+	if until <= 0 {
+		return false
+	}
+	diff := until - intervalMs
+	return diff <= 60*1000 && diff >= -reminderGrace
+}
 
 // RunQuizReminders fires 2h / 1.5h / 15m / 5m reminders with per-key guards.
 func (s *Service) RunQuizReminders(ctx context.Context, now time.Time) (int, error) {
@@ -39,14 +59,7 @@ func (s *Service) RunQuizReminders(ctx context.Context, now time.Time) (int, err
 	for i, t := range times {
 		for _, iv := range intervals {
 			until := t.UnixMilli() - now.UnixMilli()
-			if until <= 0 {
-				continue
-			}
-			diff := until - iv.ms
-			if diff < 0 {
-				diff = -diff
-			}
-			if diff > 60*1000 {
+			if !reminderDue(until, iv.ms) {
 				continue
 			}
 			key := week + "_date" + itoa(i+1) + "_" + iv.label
@@ -55,6 +68,7 @@ func (s *Service) RunQuizReminders(ctx context.Context, now time.Time) (int, err
 			if exists {
 				continue
 			}
+			keySent := 0
 			for _, sub := range subs {
 				if !s.eligibleSubscriber(ctx, sub.studentID, now) {
 					continue
@@ -73,17 +87,33 @@ func (s *Service) RunQuizReminders(ctx context.Context, now time.Time) (int, err
 				}
 				if res.Sent {
 					sent++
+					keySent++
 				}
 			}
-			s.pool.Exec(ctx, `INSERT INTO reminder_sent (key, sent, sent_at) VALUES ($1,$2,now())
-				ON CONFLICT (key) DO NOTHING`, key, sent)
+			if _, err := s.pool.Exec(ctx, `INSERT INTO reminder_sent (key, sent, sent_at) VALUES ($1,$2,now())
+				ON CONFLICT (key) DO NOTHING`, key, keySent); err != nil {
+				log.Printf("[push] reminder guard write failed for %s: %v", key, err)
+			}
 		}
 	}
 	s.pruneSubscriptions(ctx, gone, stale, attempted)
 	return sent, nil
 }
 
-// RunQuizTime fires within 5 minutes after each quiz start.
+// RunQuizTime fires shortly after each quiz start. The Firebase function used
+// a five-minute window; that loses the notification entirely if the API or the
+// database is unavailable at that exact minute (a deploy is enough), while the
+// message stays useful for as long as the quiz is open. The per-week/date guard
+// keeps it at-most-once.
+const quizTimeWindow = 30 * time.Minute
+
+// quizTimeDue reports whether a quiz that started at `start` should get its
+// "it's live" push now.
+func quizTimeDue(now, start time.Time) bool {
+	diff := now.Sub(start)
+	return diff >= 0 && diff <= quizTimeWindow
+}
+
 func (s *Service) RunQuizTime(ctx context.Context, now time.Time) (int, error) {
 	if s.notificationsDisabled(ctx) {
 		return 0, nil
@@ -105,8 +135,7 @@ func (s *Service) RunQuizTime(ctx context.Context, now time.Time) (int, error) {
 	var gone, stale []string
 	attempted := 0
 	for i, t := range times {
-		diff := now.UnixMilli() - t.UnixMilli()
-		if diff < 0 || diff > 5*60*1000 {
+		if !quizTimeDue(now, t) {
 			continue
 		}
 		guardID := "quiz_time_reminder_" + week + "_date" + itoa(i+1)
@@ -133,7 +162,9 @@ func (s *Service) RunQuizTime(ctx context.Context, now time.Time) (int, error) {
 				sent++
 			}
 		}
-		s.pool.Exec(ctx, `INSERT INTO admin_settings (id, data) VALUES ($1,'{"sentAt":"`+now.UTC().Format("2006-01-02T15:04:05Z")+`"}') ON CONFLICT (id) DO NOTHING`, guardID)
+		if _, err := s.pool.Exec(ctx, `INSERT INTO admin_settings (id, data) VALUES ($1,'{"sentAt":"`+now.UTC().Format("2006-01-02T15:04:05Z")+`"}') ON CONFLICT (id) DO NOTHING`, guardID); err != nil {
+			log.Printf("[push] quiz-time guard write failed for %s: %v", guardID, err)
+		}
 	}
 	s.pruneSubscriptions(ctx, gone, stale, attempted)
 	return sent, nil
