@@ -93,19 +93,29 @@ func quizTimes(qd quizDates) []time.Time {
 	return out
 }
 
-// eligibleSubscriber mirrors the Node pass: paid, or trial with attempts left.
-func (s *Service) eligibleSubscriber(ctx context.Context, studentID string, now time.Time) bool {
+// accessStatus returns the student's access status: active, freebie, expired
+// or suspended.
+func (s *Service) accessStatus(ctx context.Context, studentID string, now time.Time) (string, error) {
 	var suspended bool
 	var subUntil, trialStart, joined *time.Time
 	var freeUsed int
 	if err := s.pool.QueryRow(ctx, `SELECT suspended, subscription_until, free_attempts_used,
 		trial_started_at, joined_at FROM students WHERE id=$1`, studentID,
 	).Scan(&suspended, &subUntil, &freeUsed, &trialStart, &joined); err != nil {
-		return false
+		return "", err
 	}
 	st := access.For(access.Student{Suspended: suspended, SubscriptionUntil: subUntil,
 		FreeAttemptsUsed: freeUsed, TrialStartedAt: trialStart, JoinedAt: joined}, now)
-	return st.Status == "active" || st.Status == "freebie"
+	return st.Status, nil
+}
+
+// eligibleSubscriber mirrors the Node pass: paid, or trial with attempts left.
+func (s *Service) eligibleSubscriber(ctx context.Context, studentID string, now time.Time) bool {
+	status, err := s.accessStatus(ctx, studentID, now)
+	if err != nil {
+		return false
+	}
+	return status == "active" || status == "freebie"
 }
 
 type subscription struct {

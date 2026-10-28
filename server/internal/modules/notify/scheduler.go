@@ -105,6 +105,15 @@ func StartScheduler(ctx context.Context, svc *Service, pool *pgxpool.Pool) {
 			},
 		},
 		{
+			// Nudges lapsed students every 48h during the day (WAT). The job
+			// itself decides who is due and when the campaign ends.
+			name: "renewal-nudges", interval: 15 * time.Minute, initial: 6 * time.Minute,
+			run: func(ctx context.Context) string {
+				n, err := s.svc.RunRenewalNudges(ctx, time.Now().UTC())
+				return fmtCount("sent", n, err)
+			},
+		},
+		{
 			name: "advance-week", interval: 15 * time.Minute, initial: 8 * time.Minute,
 			run: func(ctx context.Context) string {
 				// A week the admin set by hand stays under their control: the
