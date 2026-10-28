@@ -1,5 +1,5 @@
 // Command worker runs one scheduled job and exits.
-// Usage: go run ./cmd/worker <keypoints|quiz-reminders|quiz-time|advance-week|absent-sms|quiz-sms|leaderboard|public-stats>
+// Usage: go run ./cmd/worker <keypoints|quiz-reminders|quiz-time|renewal-nudges|advance-week|absent-sms|quiz-sms|leaderboard|public-stats>
 package main
 
 import (
@@ -58,6 +58,10 @@ func main() {
 	case "quiz-time":
 		var sent int
 		sent, err = svc.RunQuizTime(ctx, now)
+		out = fmt.Sprintf("sent=%d", sent)
+	case "renewal-nudges":
+		var sent int
+		sent, err = svc.RunRenewalNudges(ctx, now)
 		out = fmt.Sprintf("sent=%d", sent)
 	case "advance-week":
 		var next string
