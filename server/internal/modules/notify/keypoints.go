@@ -3,8 +3,12 @@ package notify
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"log"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type keyPoint struct {
@@ -75,6 +79,31 @@ func (s *Service) weakSubjects(ctx context.Context, subjects []string, studentID
 	return out
 }
 
+// maxTimesPerPoint mirrors MAX_TIMES_PER_POINT in the Firebase function: a
+// point is retired from the rotation after it has been pushed three times.
+const maxTimesPerPoint = 3
+
+// selectNextPoint walks the points this student has not yet seen three times,
+// picking the next one in order. It returns nil when every point is retired,
+// which tells the caller to reset the cycle.
+//
+// The Firebase original was `available[currentCycleIndex % available.length]`;
+// keeping the index modulo the *available* list is what stops a retired point
+// from being pushed a fourth time.
+func selectNextPoint(eligible []keyPoint, seen map[string]int, cycle int) *keyPoint {
+	avail := []keyPoint{}
+	for _, p := range eligible {
+		if seen[p.ID] < maxTimesPerPoint {
+			avail = append(avail, p)
+		}
+	}
+	if len(avail) == 0 {
+		return nil
+	}
+	next := avail[cycle%len(avail)]
+	return &next
+}
+
 // RunKeyPoints delivers one rotated key point per eligible subscriber.
 func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) {
 	if s.notificationsDisabled(ctx) {
@@ -85,6 +114,7 @@ func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) 
 	}
 	week := s.activeWeek(ctx)
 	sent := 0
+	stateFailed := 0
 	var gone, stale []string
 	attempted := 0
 	for _, sub := range s.allSubs(ctx) {
@@ -98,11 +128,25 @@ func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) 
 		var seenJSON []byte
 		var cycle int
 		var patches bool
-		var patchSubs []string
+		// selected_patch_subjects is NOT NULL in Postgres, so a student with no
+		// notification_state row yet has to start from an empty slice rather
+		// than nil: pgx encodes a nil slice as SQL NULL, and the write below
+		// then fails with 23502. That failure used to be swallowed, so a new
+		// subscriber was sent the first key point every two hours forever
+		// because last_notified_at was never stored.
+		patchSubs := []string{}
 		var lastNotified *time.Time
-		_ = s.pool.QueryRow(ctx, `SELECT seen_points, current_cycle_index, patches_active,
-			selected_patch_subjects, last_notified_at FROM notification_state WHERE student_id=$1`,
+		err := s.pool.QueryRow(ctx, `SELECT seen_points, current_cycle_index, patches_active,
+			COALESCE(selected_patch_subjects, '{}'::text[]), last_notified_at
+			FROM notification_state WHERE student_id=$1`,
 			sub.studentID).Scan(&seenJSON, &cycle, &patches, &patchSubs, &lastNotified)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			// First key point for this student; zero values are correct.
+		case err != nil:
+			log.Printf("[push] keypoint state read failed for %s: %v", sub.studentID, err)
+			continue
+		}
 		// One key point every two hours per student. The job is polled far
 		// more often than that, so this guard is what sets the cadence — the
 		// Firebase function it replaces ran on "every 2 hours" and a student
@@ -147,17 +191,7 @@ func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) 
 		}
 		seen := map[string]int{}
 		_ = json.Unmarshal(nullJSON(seenJSON), &seen)
-		avail := []keyPoint{}
-		for _, p := range eligible {
-			if seen[p.ID] < 3 {
-				avail = append(avail, p)
-			}
-		}
-		var next *keyPoint
-		if len(avail) > 0 {
-			n := avail[cycle%len(avail)]
-			next = &n
-		}
+		next := selectNextPoint(eligible, seen, cycle)
 		if next == nil {
 			reset := map[string]int{}
 			for _, p := range eligible {
@@ -188,14 +222,21 @@ func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) 
 		seen[next.ID]++
 		cycle = (cycle + 1) % len(eligible)
 		sj, _ := json.Marshal(seen)
-		s.pool.Exec(ctx, `INSERT INTO notification_state
+		if _, err := s.pool.Exec(ctx, `INSERT INTO notification_state
 			(student_id, seen_points, current_cycle_index, patches_active, selected_patch_subjects, last_notified_at, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,now())
+			VALUES ($1,$2,$3,$4,COALESCE($5,'{}'::text[]),$6,now())
 			ON CONFLICT (student_id) DO UPDATE SET seen_points=$2, current_cycle_index=$3,
-			patches_active=$4, selected_patch_subjects=$5, last_notified_at=$6, updated_at=now()`,
-			sub.studentID, sj, cycle, patches, patchSubs, now)
+			patches_active=$4, selected_patch_subjects=COALESCE($5,'{}'::text[]),
+			last_notified_at=$6, updated_at=now()`,
+			sub.studentID, sj, cycle, patches, patchSubs, now); err != nil {
+			stateFailed++
+			log.Printf("[push] keypoint state write failed for %s: %v", sub.studentID, err)
+		}
 	}
 	s.pruneSubscriptions(ctx, gone, stale, attempted)
+	if stateFailed > 0 {
+		log.Printf("[push] keypoints: %d of %d delivered point(s) could not be recorded; those students will be sent the same point again", stateFailed, sent)
+	}
 	return sent, nil
 }
 
