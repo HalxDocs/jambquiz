@@ -116,6 +116,8 @@ func corsMiddleware() gin.HandlerFunc {
 	allowed := map[string]bool{
 		"https://www.274lab.com":                    true,
 		"https://274lab.com":                        true,
+		"https://halxdocs.com":                      true,
+		"https://www.halxdocs.com":                  true,
 		"https://fitness-gym-fc040.web.app":         true,
 		"https://fitness-gym-fc040.firebaseapp.com": true,
 		"http://localhost:5173":                     true,

@@ -26,6 +26,8 @@ func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string) {
 	r.GET("/api/portal/rank/:studentId", h.rank)
 	r.GET("/api/guestbook", h.guestbookList)
 	r.POST("/api/guestbook", h.guestbookPost)
+	r.GET("/api/portfolio/guestbook", h.portfolioGuestbookList)
+	r.POST("/api/portfolio/guestbook", h.portfolioGuestbookPost)
 	r.POST("/api/admin/boards/refresh", auth, admin, h.refresh)
 	r.GET("/api/admin/stats", auth, admin, h.adminStats)
 	r.GET("/api/admin/growth", auth, admin, h.growth)
@@ -96,6 +98,14 @@ func (h *Handler) growth(c *gin.Context) {
 }
 
 func (h *Handler) guestbookList(c *gin.Context) {
+	h.listGuestbook(c, "guestbook")
+}
+
+func (h *Handler) portfolioGuestbookList(c *gin.Context) {
+	h.listGuestbook(c, "portfolio_guestbook")
+}
+
+func (h *Handler) listGuestbook(c *gin.Context, table string) {
 	if unavailable(c, h.svc) {
 		return
 	}
@@ -104,7 +114,7 @@ func (h *Handler) guestbookList(c *gin.Context) {
 		limit = 50
 	}
 	rows, err := h.svc.pool.Query(c.Request.Context(),
-		`SELECT id, name, message, signature, created_at FROM guestbook ORDER BY created_at DESC LIMIT $1`, limit)
+		`SELECT id, name, message, signature, created_at FROM `+table+` ORDER BY created_at DESC LIMIT $1`, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "failed to fetch entries"})
 		return
@@ -123,10 +133,18 @@ func (h *Handler) guestbookList(c *gin.Context) {
 }
 
 func (h *Handler) guestbookPost(c *gin.Context) {
+	h.createGuestbook(c, "guestbook")
+}
+
+func (h *Handler) portfolioGuestbookPost(c *gin.Context) {
+	h.createGuestbook(c, "portfolio_guestbook")
+}
+
+func (h *Handler) createGuestbook(c *gin.Context, table string) {
 	if unavailable(c, h.svc) {
 		return
 	}
-	if !ratelimit.Allow(c.Request.Context(), h.svc.pool, "guestbook:"+c.ClientIP(), 5, 60*60*1000) {
+	if !ratelimit.Allow(c.Request.Context(), h.svc.pool, table+":"+c.ClientIP(), 5, 60*60*1000) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"ok": false, "error": "Too many entries. Try again later."})
 		return
 	}
@@ -156,7 +174,7 @@ func (h *Handler) guestbookPost(c *gin.Context) {
 		msg = msg[:500]
 	}
 	id := ids.New()
-	if _, err := h.svc.pool.Exec(c.Request.Context(), `INSERT INTO guestbook (id, name, message, signature, ip)
+	if _, err := h.svc.pool.Exec(c.Request.Context(), `INSERT INTO `+table+` (id, name, message, signature, ip)
 		VALUES ($1,$2,$3,$4,$5)`, id, name, msg, in.Signature, c.ClientIP()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "Failed to save entry"})
 		return
