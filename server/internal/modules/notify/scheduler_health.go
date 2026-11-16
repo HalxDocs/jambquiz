@@ -81,6 +81,7 @@ func ReadSchedulerHealth(ctx context.Context, pool *pgxpool.Pool, now time.Time)
 	if err := rows.Err(); err != nil {
 		return health, err
 	}
+	rows.Close()
 
 	if err := pool.QueryRow(ctx, `SELECT
 		count(*) FILTER (WHERE status IN ('queued','sending')),
