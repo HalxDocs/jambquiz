@@ -58,7 +58,7 @@ export default function QuizCard({
               ? [quizDates.date1, quizDates.date2].filter(Boolean).map((d) =>
                   new Date(d).toLocaleString('en-NG', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                 ).join(' & ')
-              : 'Fri & Sat · 5:00 pm – 6:00 pm login window'}
+              : 'Sat & Sun · 5:00 pm – 6:00 pm login window'}
           </p>
         </div>
       )}

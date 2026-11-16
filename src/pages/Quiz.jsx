@@ -702,7 +702,7 @@ export default function Quiz({ student, setStudent, setView, setLastScore, retak
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-8 max-w-sm w-full text-center">
           <span className="text-3xl">🔒</span>
           <h2 className="text-xl font-bold text-[#111] font-display mt-3 mb-2">Quiz Locked</h2>
-          <p className="text-sm text-[#888] font-label mb-1">Login window: <strong className="text-[#111]">Fri, Sat & Sun · 5:00pm – 6:00pm</strong></p>
+          <p className="text-sm text-[#888] font-label mb-1">Login window: <strong className="text-[#111]">Sat & Sun · 5:00pm – 6:00pm</strong></p>
           <p className="text-sm text-[#888] font-label mb-6">Once started: <strong className="text-[#111]">1 hour</strong> for all subjects</p>
           <button onClick={() => setView('dashboard')} className="bg-[#111] text-white px-6 py-3 rounded-xl text-sm font-bold font-display">Back to Dashboard</button>
         </div>

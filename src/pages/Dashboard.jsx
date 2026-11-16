@@ -108,7 +108,7 @@ function getTimeUntilQuiz(quizDates) {
   }
 }
 
-export default function Dashboard({ student, setView, setStudent, setSelectedSubjectDetail, setRetakeData }) {
+export default function Dashboard({ student, setView, setStudent, setSelectedSubjectDetail, setRetakeData, onRequestSignOut }) {
   const [quizDates, setQuizDates] = useState(null)
   const [quizTime, setQuizTime] = useState(false)
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, mins: 0 })
@@ -644,7 +644,7 @@ export default function Dashboard({ student, setView, setStudent, setSelectedSub
                 >
                   <HugeiconsIcon icon={isDark ? Sun01Icon : Moon01Icon} size={14} color="currentColor" />
                 </button>
-                <button onClick={() => { if (setStudent) setStudent(null); setView('home') }}
+                <button onClick={onRequestSignOut}
                   className="text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-3 py-2 font-label transition-colors shrink-0">Log out</button>
               </div>
               <CoinPill coins={student.coins ?? null} onGetMore={() => setView('coins')} />

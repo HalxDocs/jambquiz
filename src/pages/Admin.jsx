@@ -17,7 +17,7 @@ import CoinPacksEditor from '../components/admin/CoinPacksEditor'
 import { useToastStore } from '../store/toast'
 import SEO from '../components/seo/SEO'
 
-export default function Admin({ setView }) {
+export default function Admin({ onRequestSignOut }) {
   const [tab, setTab] = useState('students')
 
   // Student pagination
@@ -307,7 +307,7 @@ export default function Admin({ setView }) {
               {activeWeek}
             </span>
             <button
-              onClick={() => setView('home')}
+              onClick={onRequestSignOut}
               className="text-[11px] sm:text-xs text-[#888] hover:text-[#111] border border-[#E5E5E5] bg-white rounded-xl px-2.5 sm:px-3 py-2 font-label transition-colors whitespace-nowrap"
             >
               Log out

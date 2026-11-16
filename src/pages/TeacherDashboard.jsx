@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { CrownIcon } from '@hugeicons/core-free-icons'
-import { signOut } from '../store/session'
 import { getTeacherDashboard, teacherUpdateDetails, teacherUpdatePhone, getPioneerDashboard } from '../store/useStore'
 import { useToastStore } from '../store/toast'
 import SEO from '../components/seo/SEO'
@@ -30,7 +29,7 @@ function monthShort(m) {
   }
 }
 
-export default function TeacherDashboard({ teacher, setTeacher, setView }) {
+export default function TeacherDashboard({ teacher, setTeacher, onRequestSignOut }) {
   const [students, setStudents] = useState([])
   const [monthsEarnings, setMonthsEarnings] = useState({})
   const [qualifiedCounts, setQualifiedCounts] = useState({})
@@ -141,12 +140,6 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
     setSaving(false)
   }
 
-  const handleSignOut = async () => {
-    signOut()
-    setTeacher(null)
-    setView('landing')
-  }
-
   const goMonth = (dir) => {
     const idx = months.indexOf(selected)
     const next = months[idx + dir]
@@ -183,7 +176,7 @@ export default function TeacherDashboard({ teacher, setTeacher, setView }) {
                 <p className="text-[10px] text-[#888] font-label mt-0.5 truncate max-w-[180px]">{teacher?.name}</p>
               </div>
             </div>
-            <button onClick={handleSignOut} className="text-xs font-semibold text-[#888] hover:text-[#111] transition-colors font-label">
+            <button onClick={onRequestSignOut} className="text-xs font-semibold text-[#888] hover:text-[#111] transition-colors font-label">
               Sign out
             </button>
           </div>

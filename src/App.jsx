@@ -16,13 +16,14 @@ import Supporters from './pages/Supporters'
 import Contact from './pages/Contact'
 import TeacherDashboard from './pages/TeacherDashboard'
 import GlobalToast from './components/ui/GlobalToast'
+import SignoutScorePrompt from './components/ui/SignoutScorePrompt'
 import ErrorBoundary from './components/ui/ErrorBoundary'
 import CardWarningPopup from './components/dashboard/CardWarningPopup'
 import { stripSensitive, stripPersisted, getTeacherByUid } from './store/useStore'
 import { useThemeStore } from './store/theme'
 import { applyDarkTheme } from './lib/darkTheme'
 import { setStudentUid, clearStudentUid, isRegistering } from './store/studentSession'
-import { restoreSession } from './store/session'
+import { restoreSession, signOut } from './store/session'
 import { useUserNotificationStore } from './store/notificationStore'
 import { useToastStore } from './store/toast'
 
@@ -63,6 +64,7 @@ export default function App() {
   const [teacher, setTeacherState] = useState(savedTeacherSession)
   const [lastScore, setLastScore] = useState(null)
   const [adminAuthed, setAdminAuthed] = useState(false)
+  const [showSignoutScorePrompt, setShowSignoutScorePrompt] = useState(false)
   const [selectedSubjectDetail, setSelectedSubjectDetail] = useState(null)
   const [retakeData, setRetakeData] = useState(null)
   const [deferredPrompt, setDeferredPrompt] = useState(null)
@@ -117,6 +119,17 @@ export default function App() {
       if (t) localStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(t))
       else localStorage.removeItem(TEACHER_SESSION_KEY)
     } catch {}
+  }
+
+  const finishSignOut = () => {
+    signOut()
+    setStudent(null)
+    setTeacher(null)
+    setAdminAuthed(false)
+    setShowSignoutScorePrompt(false)
+    setView('landing')
+    setHomeMode('login')
+    setHomeTab('student')
   }
 
   const dismissIntro = () => {
@@ -321,6 +334,7 @@ export default function App() {
           setStudent={setStudent}
           setSelectedSubjectDetail={setSelectedSubjectDetail}
           setRetakeData={setRetakeData}
+          onRequestSignOut={() => setShowSignoutScorePrompt(true)}
         />
       )}
       {view === 'subject-detail' && student && selectedSubjectDetail && (
@@ -347,10 +361,10 @@ export default function App() {
         <Leaderboard student={student} setStudent={setStudent} setView={setView} />
       )}
       {view === 'admin' && adminAuthed && (
-        <Admin setView={setView} />
+        <Admin onRequestSignOut={() => setShowSignoutScorePrompt(true)} />
       )}
       {view === 'teacher-dashboard' && teacher && (
-        <TeacherDashboard teacher={teacher} setTeacher={setTeacher} setView={setView} />
+        <TeacherDashboard teacher={teacher} setTeacher={setTeacher} onRequestSignOut={() => setShowSignoutScorePrompt(true)} />
       )}
       {view === 'contact' && student && (
         <Contact student={student} setView={setView} />
@@ -454,6 +468,13 @@ export default function App() {
       )}
 
       <GlobalToast />
+
+      {showSignoutScorePrompt && (
+        <SignoutScorePrompt
+          onCancel={() => setShowSignoutScorePrompt(false)}
+          onSignOut={finishSignOut}
+        />
+      )}
 
       {showRegCardWarning && (
         <CardWarningPopup

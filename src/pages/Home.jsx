@@ -77,8 +77,8 @@ function PortalStats() {
 function LiveWeekBadge() {
   const stats = usePortalStats()
 
-  if (stats?.activeWeek) return `Week ${stats.activeWeek.replace(/^Week\s+/i, '')} is live — Friday & Saturday 5PM`
-  return 'Live — Friday & Saturday 5PM'
+  if (stats?.activeWeek) return `Week ${stats.activeWeek.replace(/^Week\s+/i, '')} is live — Saturday & Sunday 5PM`
+  return 'Live — Saturday & Sunday 5PM'
 }
 
 /* ───────────────────────────────────────────────
@@ -260,7 +260,7 @@ function RealDashboardMockup() {
               <div><span className="text-xl font-bold text-[#EDEDED] font-display">16</span><span className="text-[10px] text-neutral-500 ml-0.5 font-label">hr</span></div>
               <div><span className="text-xl font-bold text-[#EDEDED] font-display">42</span><span className="text-[10px] text-neutral-500 ml-0.5 font-label">min</span></div>
             </div>
-            <p className="text-[10px] text-neutral-600 font-label">Fri & Sat · 5:00 pm – 6:00 pm login window</p>
+            <p className="text-[10px] text-neutral-600 font-label">Sat & Sun · 5:00 pm – 6:00 pm login window</p>
           </div>
 
           {/* ── Bottom Nav ── */}
@@ -520,7 +520,7 @@ export default function Home({ setView, setHomeMode, setHomeTab }) {
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {[
-                { icon: BookOpen01Icon, title: 'Weekly Mock Tests', desc: 'Every Friday & Saturday at 5PM. Real JAMB-style questions with instant grading and detailed feedback.', color: 'bg-amber-500/10 text-amber-400' },
+                { icon: BookOpen01Icon, title: 'Weekly Mock Tests', desc: 'Every Saturday & Sunday at 5PM. Real JAMB-style questions with instant grading and detailed feedback.', color: 'bg-amber-500/10 text-amber-400' },
                 { icon: Target01Icon, title: 'Weak Spot Analysis', desc: 'Automatically identifies your weak subjects and serves targeted revision content until you improve.', color: 'bg-purple-500/10 text-purple-400' },
                 { icon: HeartAddIcon, title: 'Expert Mentorship', desc: 'Add parents or teachers as accountability partners. They receive weekly SMS reports on your progress.', color: 'bg-blue-500/10 text-blue-400' },
                 { icon: RankingIcon, title: 'Live Leaderboard', desc: 'Compete with thousands of students. Track your rank, consistency, and improvement in real time.', color: 'bg-emerald-500/10 text-emerald-400' },

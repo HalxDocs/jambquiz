@@ -6,7 +6,7 @@ import {
 import SEO from '../components/seo/SEO'
 
 const FEATURES = [
-  { icon: BookOpen01Icon, title: 'Weekly Quizzes', body: 'Real exam-styled questions on assigned topics every Friday and Saturday at 5pm.' },
+  { icon: BookOpen01Icon, title: 'Weekly Quizzes', body: 'Real exam-styled questions on assigned topics every Saturday and Sunday at 5pm.' },
   { icon: ChartLineData01Icon, title: 'Progress Tracking', body: 'Live scores, rankings, and consistency streaks. Know exactly where you stand.' },
   { icon: Mail01Icon, title: 'SMS Reports', body: 'Your accountability partner gets an automated weekly SMS with topic-by-topic scores.' },
   { icon: Notification01Icon, title: 'Push Reminders', body: 'Quiz countdowns, key points, and weak-topic revision alerts straight to your phone.' },

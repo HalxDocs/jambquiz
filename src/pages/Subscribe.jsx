@@ -287,7 +287,7 @@ export default function Subscribe({ student, setStudent, setView }) {
           </p>
 
           <ul className="text-xs text-[#555] font-body space-y-1.5 mb-4">
-            <li>✓ Friday & Saturday weekly quizzes</li>
+            <li>✓ Saturday & Sunday weekly quizzes</li>
             <li>• Learn something everyday with 247chops</li>
             <li>✓ Corrections, explanations, retakes</li>
             <li>✓ Topic videos & study guides</li>
