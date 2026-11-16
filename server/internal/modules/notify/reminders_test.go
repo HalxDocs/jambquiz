@@ -62,3 +62,42 @@ func TestQuizTimeDue(t *testing.T) {
 		}
 	}
 }
+
+func TestPushRetryDelayIsCapped(t *testing.T) {
+	cases := []struct {
+		attempt int
+		want    time.Duration
+	}{
+		{1, 15 * time.Second},
+		{2, 30 * time.Second},
+		{3, time.Minute},
+		{7, 15 * time.Minute},
+		{20, 15 * time.Minute},
+	}
+	for _, tc := range cases {
+		if got := pushRetryDelay(tc.attempt); got != tc.want {
+			t.Errorf("attempt %d: got %s want %s", tc.attempt, got, tc.want)
+		}
+	}
+}
+
+func TestSchedulerHealthStalenessThresholds(t *testing.T) {
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		job  string
+		age  time.Duration
+		want bool
+	}{
+		{"recent reminder", "quiz-reminders", 4 * time.Minute, false},
+		{"stale reminder", "quiz-reminders", 6 * time.Minute, true},
+		{"recent keypoints", "keypoints", 40 * time.Minute, false},
+		{"unknown job", "made-up-job", time.Hour, false},
+	}
+	for _, tc := range cases {
+		got := schedulerJobStale(tc.job, "succeeded", now.Add(-tc.age), now)
+		if got != tc.want {
+			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
+		}
+	}
+}

@@ -125,20 +125,24 @@ type subscription struct {
 	auth      string
 }
 
-func (s *Service) allSubs(ctx context.Context) []subscription {
+func (s *Service) allSubs(ctx context.Context) ([]subscription, error) {
 	rows, err := s.pool.Query(ctx, `SELECT student_id, endpoint, keys->>'p256dh', keys->>'auth' FROM push_subscriptions`)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	out := []subscription{}
 	for rows.Next() {
 		var sub subscription
-		if err := rows.Scan(&sub.studentID, &sub.endpoint, &sub.p256dh, &sub.auth); err == nil {
-			out = append(out, sub)
+		if err := rows.Scan(&sub.studentID, &sub.endpoint, &sub.p256dh, &sub.auth); err != nil {
+			return nil, err
 		}
+		out = append(out, sub)
 	}
-	return out
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // --- SMS body (weekly report) ---

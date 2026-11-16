@@ -42,3 +42,15 @@ func TestJWTSecretKeepsTheDevSecretOnADeveloperMachine(t *testing.T) {
 		t.Fatalf("expected the development secret locally, got %q", got)
 	}
 }
+
+func TestRunSchedulerDefaultsOnAndCanBeDisabled(t *testing.T) {
+	t.Setenv("RUN_SCHEDULER", "")
+	if got := Load().RunScheduler; !got {
+		t.Fatal("scheduler should remain enabled by default for existing deployments")
+	}
+
+	t.Setenv("RUN_SCHEDULER", "false")
+	if got := Load().RunScheduler; got {
+		t.Fatal("RUN_SCHEDULER=false should disable the API scheduler")
+	}
+}

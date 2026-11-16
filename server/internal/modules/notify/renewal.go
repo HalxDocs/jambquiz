@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -61,12 +63,14 @@ func (s *Service) RunRenewalNudges(ctx context.Context, now time.Time) (int, err
 		return 0, nil
 	}
 
-	sent := 0
-	stateFailed := 0
-	var gone, stale []string
-	attempted := 0
+	subs, err := s.allSubs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	queued := 0
+	var firstErr error
 
-	for _, sub := range s.allSubs(ctx) {
+	for _, sub := range subs {
 		status, err := s.accessStatus(ctx, sub.studentID, now)
 		if err != nil || status == "suspended" {
 			continue
@@ -82,8 +86,13 @@ func (s *Service) RunRenewalNudges(ctx context.Context, now time.Time) (int, err
 
 		var firstSent, lastSent *time.Time
 		var sentCount int
-		_ = s.pool.QueryRow(ctx, `SELECT first_sent_at, last_sent_at, sent_count
+		err = s.pool.QueryRow(ctx, `SELECT first_sent_at, last_sent_at, sent_count
 			FROM renewal_nudges WHERE student_id=$1`, sub.studentID).Scan(&firstSent, &lastSent, &sentCount)
+		if err != nil && err != pgx.ErrNoRows {
+			firstErr = err
+			log.Printf("[push] renewal state read failed for %s: %v", sub.studentID, err)
+			continue
+		}
 		if !renewalDue(now, firstSent, lastSent, sentCount) {
 			continue
 		}
@@ -96,38 +105,17 @@ func (s *Service) RunRenewalNudges(ctx context.Context, now time.Time) (int, err
 				"and progress tracking. Tap to open the app.",
 			"broadcastId": fmt.Sprintf("renewal-%s-%d", sub.studentID, next),
 		}
-		res := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 86400)
-		attempted++
-		if res.Gone {
-			gone = append(gone, sub.studentID)
+		accepted, err := s.enqueuePush(ctx, fmt.Sprintf("renewal:%s:%d", sub.studentID, next),
+			sub, payload, 86400, "renewal", next)
+		if err != nil {
+			firstErr = err
+			log.Printf("[push] renewal enqueue failed for %s: %v", sub.studentID, err)
 			continue
 		}
-		if res.Stale {
-			stale = append(stale, sub.studentID)
-			continue
-		}
-		if !res.Sent {
-			continue
-		}
-		sent++
-
-		first := now
-		if firstSent != nil {
-			first = *firstSent
-		}
-		if _, err := s.pool.Exec(ctx, `INSERT INTO renewal_nudges
-			(student_id, first_sent_at, last_sent_at, sent_count)
-			VALUES ($1,$2,$3,$4)
-			ON CONFLICT (student_id) DO UPDATE SET last_sent_at=$3, sent_count=$4`,
-			sub.studentID, first, now, next); err != nil {
-			stateFailed++
-			log.Printf("[push] renewal state write failed for %s: %v", sub.studentID, err)
+		if accepted {
+			queued++
 		}
 	}
 
-	s.pruneSubscriptions(ctx, gone, stale, attempted)
-	if stateFailed > 0 {
-		log.Printf("[push] renewal: %d of %d nudge(s) could not be recorded", stateFailed, sent)
-	}
-	return sent, nil
+	return queued, firstErr
 }

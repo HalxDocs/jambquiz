@@ -25,7 +25,7 @@ func reminderDue(until, intervalMs int64) bool {
 	return diff <= 60*1000 && diff >= -reminderGrace
 }
 
-// RunQuizReminders fires 2h / 1.5h / 15m / 5m reminders with per-key guards.
+// RunQuizReminders queues 2h / 1.5h / 15m / 5m reminders with per-key guards.
 func (s *Service) RunQuizReminders(ctx context.Context, now time.Time) (int, error) {
 	if s.notificationsDisabled(ctx) {
 		return 0, nil
@@ -49,13 +49,15 @@ func (s *Service) RunQuizReminders(ctx context.Context, now time.Time) (int, err
 		{"15m", 15 * 60 * 1000, "Quiz starts in 15 minutes! Log in now."},
 		{"5m", 5 * 60 * 1000, "5 minutes to quiz time! Find a quiet spot."},
 	}
-	subs := s.allSubs(ctx)
+	subs, err := s.allSubs(ctx)
+	if err != nil {
+		return 0, err
+	}
 	if len(subs) == 0 {
 		return 0, nil
 	}
-	sent := 0
-	var gone, stale []string
-	attempted := 0
+	queued := 0
+	var firstErr error
 	for i, t := range times {
 		for _, iv := range intervals {
 			until := t.UnixMilli() - now.UnixMilli()
@@ -64,40 +66,42 @@ func (s *Service) RunQuizReminders(ctx context.Context, now time.Time) (int, err
 			}
 			key := week + "_date" + itoa(i+1) + "_" + iv.label
 			var exists bool
-			_ = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM reminder_sent WHERE key=$1)`, key).Scan(&exists)
+			if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM reminder_sent WHERE key=$1)`, key).Scan(&exists); err != nil {
+				firstErr = err
+				continue
+			}
 			if exists {
 				continue
 			}
-			keySent := 0
+			keyQueued := 0
+			keyFailed := false
 			for _, sub := range subs {
 				if !s.eligibleSubscriber(ctx, sub.studentID, now) {
 					continue
 				}
 				payload := map[string]any{"type": "broadcast", "title": "Quiz Reminder",
 					"message": iv.body, "broadcastId": "quiz-reminder-" + key}
-				res := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 3600)
-				attempted++
-				if res.Gone {
-					gone = append(gone, sub.studentID)
-					continue
-				}
-				if res.Stale {
-					stale = append(stale, sub.studentID)
-					continue
-				}
-				if res.Sent {
-					sent++
-					keySent++
+				accepted, err := s.enqueuePush(ctx, "reminder:"+sub.studentID+":"+key, sub, payload, 3600, "quiz-reminder", 0)
+				if err != nil {
+					firstErr = err
+					keyFailed = true
+					log.Printf("[push] reminder enqueue failed for %s: %v", sub.studentID, err)
+				} else if accepted {
+					queued++
+					keyQueued++
 				}
 			}
+			if keyFailed {
+				continue
+			}
 			if _, err := s.pool.Exec(ctx, `INSERT INTO reminder_sent (key, sent, sent_at) VALUES ($1,$2,now())
-				ON CONFLICT (key) DO NOTHING`, key, keySent); err != nil {
+				ON CONFLICT (key) DO NOTHING`, key, keyQueued); err != nil {
+				firstErr = err
 				log.Printf("[push] reminder guard write failed for %s: %v", key, err)
 			}
 		}
 	}
-	s.pruneSubscriptions(ctx, gone, stale, attempted)
-	return sent, nil
+	return queued, firstErr
 }
 
 // RunQuizTime fires shortly after each quiz start. The Firebase function used
@@ -127,45 +131,50 @@ func (s *Service) RunQuizTime(ctx context.Context, now time.Time) (int, error) {
 	if len(times) == 0 {
 		return 0, nil
 	}
-	subs := s.allSubs(ctx)
+	subs, err := s.allSubs(ctx)
+	if err != nil {
+		return 0, err
+	}
 	if len(subs) == 0 {
 		return 0, nil
 	}
-	sent := 0
-	var gone, stale []string
-	attempted := 0
+	queued := 0
+	var firstErr error
 	for i, t := range times {
 		if !quizTimeDue(now, t) {
 			continue
 		}
 		guardID := "quiz_time_reminder_" + week + "_date" + itoa(i+1)
 		var exists bool
-		_ = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM admin_settings WHERE id=$1)`, guardID).Scan(&exists)
+		if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM admin_settings WHERE id=$1)`, guardID).Scan(&exists); err != nil {
+			firstErr = err
+			continue
+		}
 		if exists {
 			continue
 		}
 		payload := map[string]any{"type": "broadcast", "title": "Quiz Time!",
 			"message":     "Your weekly mock test is live! Open the app and start now.",
-			"broadcastId": "quiz-time-" + itoa(int(now.UnixMilli()))}
+			"broadcastId": "quiz-time-" + week + "-date" + itoa(i+1)}
+		enqueueFailed := false
 		for _, sub := range subs {
-			res := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 3600)
-			attempted++
-			if res.Gone {
-				gone = append(gone, sub.studentID)
-				continue
-			}
-			if res.Stale {
-				stale = append(stale, sub.studentID)
-				continue
-			}
-			if res.Sent {
-				sent++
+			accepted, err := s.enqueuePush(ctx, "quiz-time:"+sub.studentID+":"+week+":date"+itoa(i+1),
+				sub, payload, 3600, "quiz-time", 0)
+			if err != nil {
+				firstErr = err
+				enqueueFailed = true
+				log.Printf("[push] quiz-time enqueue failed for %s: %v", sub.studentID, err)
+			} else if accepted {
+				queued++
 			}
 		}
+		if enqueueFailed {
+			continue
+		}
 		if _, err := s.pool.Exec(ctx, `INSERT INTO admin_settings (id, data) VALUES ($1,'{"sentAt":"`+now.UTC().Format("2006-01-02T15:04:05Z")+`"}') ON CONFLICT (id) DO NOTHING`, guardID); err != nil {
+			firstErr = err
 			log.Printf("[push] quiz-time guard write failed for %s: %v", guardID, err)
 		}
 	}
-	s.pruneSubscriptions(ctx, gone, stale, attempted)
-	return sent, nil
+	return queued, firstErr
 }

@@ -77,13 +77,41 @@ func main() {
 	r.GET("/healthz", func(c *gin.Context) {
 		status := "up"
 		code := http.StatusOK
+		response := gin.H{"ok": true, "service": "274lab-server", "db": "up"}
 		if pool == nil {
 			status = "degraded"
+			code = http.StatusServiceUnavailable
 		} else if err := pool.Ping(c.Request.Context()); err != nil {
 			status = "down"
 			code = http.StatusServiceUnavailable
+		} else if scheduler, err := notify.ReadSchedulerHealth(c.Request.Context(), pool, time.Now().UTC()); err == nil {
+			response["scheduler"] = scheduler
+		} else {
+			response["scheduler"] = gin.H{"status": "unknown"}
 		}
-		c.JSON(code, gin.H{"ok": code == http.StatusOK, "service": "274lab-server", "db": status})
+		response["ok"] = code == http.StatusOK
+		response["db"] = status
+		c.JSON(code, response)
+	})
+	r.GET("/schedulerz", func(c *gin.Context) {
+		if pool == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"ok": false, "error": "database unavailable"})
+			return
+		}
+		if err := pool.Ping(c.Request.Context()); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"ok": false, "error": "database unavailable"})
+			return
+		}
+		health, err := notify.ReadSchedulerHealth(c.Request.Context(), pool, time.Now().UTC())
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"ok": false, "error": "scheduler health unavailable"})
+			return
+		}
+		code := http.StatusOK
+		if !health.OK {
+			code = http.StatusServiceUnavailable
+		}
+		c.JSON(code, health)
 	})
 
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: r}
@@ -98,8 +126,11 @@ func main() {
 	// leaderboard) used to require external cron entries that were never
 	// configured, so nothing was ever sent on a schedule. Running them in
 	// process makes them fire without any host configuration.
-	if pool != nil {
-		notify.StartScheduler(ctx, notifySvc, pool)
+	var schedulerDone <-chan struct{}
+	if pool != nil && cfg.RunScheduler {
+		schedulerDone = notify.StartScheduler(ctx, notifySvc, pool)
+	} else if pool != nil {
+		log.Printf("[scheduler] disabled in API process by RUN_SCHEDULER=false")
 	}
 
 	<-ctx.Done()
@@ -107,6 +138,13 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("[api] shutdown: %v", err)
+	}
+	if schedulerDone != nil {
+		select {
+		case <-schedulerDone:
+		case <-shutdownCtx.Done():
+			log.Printf("[scheduler] shutdown timed out")
+		}
 	}
 }
 

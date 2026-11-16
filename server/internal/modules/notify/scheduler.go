@@ -3,6 +3,8 @@ package notify
 import (
 	"context"
 	"log"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/274lab/server/internal/modules/boards"
@@ -39,18 +41,41 @@ type scheduledJob struct {
 }
 
 // StartScheduler begins the periodic jobs and returns immediately.
-func StartScheduler(ctx context.Context, svc *Service, pool *pgxpool.Pool) {
+func StartScheduler(ctx context.Context, svc *Service, pool *pgxpool.Pool) <-chan struct{} {
+	done := make(chan struct{})
 	if svc == nil || pool == nil {
-		return
+		close(done)
+		return done
 	}
 	s := &Scheduler{svc: svc, boards: boards.NewService(pool), pool: pool}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.heartbeat(ctx)
+	}()
 	jobs := []scheduledJob{
+		{
+			// Drain a small bounded batch frequently so scheduled pushes survive
+			// a process restart and transient push-service failures.
+			name: "push-outbox", interval: 15 * time.Second, initial: 10 * time.Second,
+			run: func(ctx context.Context) string {
+				report, err := s.svc.DrainPushOutbox(ctx, pushOutboxBatchSize)
+				if err != nil {
+					return "error: " + err.Error()
+				}
+				if report.Failed > 0 {
+					return "error: " + report.String()
+				}
+				return report.String()
+			},
+		},
 		{
 			// Fires within 5 minutes after each quiz start.
 			name: "quiz-time", interval: time.Minute, initial: 20 * time.Second,
 			run: func(ctx context.Context) string {
 				n, err := s.svc.RunQuizTime(ctx, time.Now().UTC())
-				return fmtCount("sent", n, err)
+				return fmtCount("queued", n, err)
 			},
 		},
 		{
@@ -59,7 +84,7 @@ func StartScheduler(ctx context.Context, svc *Service, pool *pgxpool.Pool) {
 			name: "quiz-reminders", interval: time.Minute, initial: 40 * time.Second,
 			run: func(ctx context.Context) string {
 				n, err := s.svc.RunQuizReminders(ctx, time.Now().UTC())
-				return fmtCount("sent", n, err)
+				return fmtCount("queued", n, err)
 			},
 		},
 		{
@@ -68,7 +93,7 @@ func StartScheduler(ctx context.Context, svc *Service, pool *pgxpool.Pool) {
 			name: "keypoints", interval: 15 * time.Minute, initial: 3 * time.Minute,
 			run: func(ctx context.Context) string {
 				n, err := s.svc.RunKeyPoints(ctx, time.Now().UTC())
-				return fmtCount("sent", n, err)
+				return fmtCount("queued", n, err)
 			},
 		},
 		{
@@ -110,7 +135,16 @@ func StartScheduler(ctx context.Context, svc *Service, pool *pgxpool.Pool) {
 			name: "renewal-nudges", interval: 15 * time.Minute, initial: 6 * time.Minute,
 			run: func(ctx context.Context) string {
 				n, err := s.svc.RunRenewalNudges(ctx, time.Now().UTC())
-				return fmtCount("sent", n, err)
+				return fmtCount("queued", n, err)
+			},
+		},
+		{
+			name: "scheduler-maintenance", interval: 24 * time.Hour, initial: 30 * time.Minute,
+			run: func(ctx context.Context) string {
+				if err := s.maintainSchedulerState(ctx); err != nil {
+					return "error: " + err.Error()
+				}
+				return "ok"
 			},
 		},
 		{
@@ -133,9 +167,18 @@ func StartScheduler(ctx context.Context, svc *Service, pool *pgxpool.Pool) {
 		},
 	}
 	for _, j := range jobs {
-		go s.loop(ctx, j)
+		wg.Add(1)
+		go func(job scheduledJob) {
+			defer wg.Done()
+			s.loop(ctx, job)
+		}(j)
 	}
 	log.Printf("[scheduler] started %d periodic jobs", len(jobs))
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	return done
 }
 
 func fmtCount(label string, n int, err error) string {
@@ -182,9 +225,112 @@ func (s *Scheduler) runLocked(ctx context.Context, j scheduledJob) {
 	}
 	defer conn.Exec(ctx, `SELECT pg_advisory_unlock(hashtext($1))`, key)
 
+	started := time.Now()
+	var runID int64
+	if err := s.pool.QueryRow(ctx, `INSERT INTO scheduler_job_runs (job_name, worker_id, status)
+		VALUES ($1,$2,'running') RETURNING id`, j.name, schedulerWorkerID()).Scan(&runID); err != nil {
+		log.Printf("[scheduler] %s: could not record start: %v", j.name, err)
+	}
+
 	runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	start := time.Now()
 	summary := j.run(runCtx)
-	log.Printf("[scheduler] %s: %s (%s)", j.name, summary, time.Since(start).Round(time.Millisecond))
+	elapsed := time.Since(started)
+	status := "succeeded"
+	errText := ""
+	if len(summary) >= len("error: ") && summary[:len("error: ")] == "error: " {
+		status = "failed"
+		errText = summary[len("error: "):]
+	}
+	if runID != 0 {
+		if _, err := s.pool.Exec(ctx, `UPDATE scheduler_job_runs
+			SET status=$2, finished_at=now(), duration_ms=$3, summary=$4, error=$5
+			WHERE id=$1`, runID, status, elapsed.Milliseconds(), truncateRunText(summary), truncateRunText(errText)); err != nil {
+			log.Printf("[scheduler] %s: could not record completion: %v", j.name, err)
+		}
+	}
+	log.Printf("[scheduler] %s: %s (%s)", j.name, summary, elapsed.Round(time.Millisecond))
+}
+
+func schedulerWorkerID() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "unknown"
+	}
+	return host + "-" + itoa(os.Getpid())
+}
+
+func (s *Scheduler) heartbeat(ctx context.Context) {
+	workerID := schedulerWorkerID()
+	role := os.Getenv("SERVICE_ROLE")
+	if role == "" {
+		role = "api"
+	}
+	pulse := func() {
+		if _, err := s.pool.Exec(ctx, `INSERT INTO scheduler_workers (worker_id, role, started_at, last_seen_at)
+			VALUES ($1,$2,now(),now())
+			ON CONFLICT (worker_id) DO UPDATE SET role=$2, last_seen_at=now()`, workerID, role); err != nil {
+			log.Printf("[scheduler] heartbeat failed: %v", err)
+			return
+		}
+		_, _ = s.pool.Exec(ctx, `DELETE FROM scheduler_workers WHERE last_seen_at < now() - interval '7 days'`)
+	}
+	pulse()
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_, _ = s.pool.Exec(cleanupCtx, `DELETE FROM scheduler_workers WHERE worker_id=$1`, workerID)
+			return
+		case <-ticker.C:
+			pulse()
+		}
+	}
+}
+
+func truncateRunText(text string) string {
+	const max = 2000
+	if len(text) > max {
+		return text[:max]
+	}
+	return text
+}
+
+func (s *Scheduler) maintainSchedulerState(ctx context.Context) error {
+	for {
+		tag, err := s.pool.Exec(ctx, `WITH old_runs AS (
+			SELECT id FROM scheduler_job_runs
+			WHERE started_at < now() - interval '90 days'
+			ORDER BY id LIMIT 5000
+		)
+		DELETE FROM scheduler_job_runs r USING old_runs
+		WHERE r.id=old_runs.id`)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() < 5000 {
+			break
+		}
+	}
+	for {
+		tag, err := s.pool.Exec(ctx, `WITH old_deliveries AS (
+			SELECT id FROM push_outbox
+			WHERE status IN ('sent','failed','gone','stale','cancelled')
+			  AND updated_at < now() - interval '90 days'
+			ORDER BY id LIMIT 5000
+		)
+		DELETE FROM push_outbox d USING old_deliveries
+		WHERE d.id=old_deliveries.id`)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() < 5000 {
+			break
+		}
+	}
+	_, err := s.pool.Exec(ctx, `DELETE FROM scheduler_workers WHERE last_seen_at < now() - interval '7 days'`)
+	return err
 }

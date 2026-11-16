@@ -104,7 +104,7 @@ func selectNextPoint(eligible []keyPoint, seen map[string]int, cycle int) *keyPo
 	return &next
 }
 
-// RunKeyPoints delivers one rotated key point per eligible subscriber.
+// RunKeyPoints queues one rotated key point per eligible subscriber.
 func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) {
 	if s.notificationsDisabled(ctx) {
 		return 0, nil
@@ -112,12 +112,15 @@ func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) 
 	if !s.sender.Configured() {
 		return 0, nil
 	}
+	subs, err := s.allSubs(ctx)
+	if err != nil {
+		return 0, err
+	}
 	week := s.activeWeek(ctx)
-	sent := 0
+	queued := 0
 	stateFailed := 0
-	var gone, stale []string
-	attempted := 0
-	for _, sub := range s.allSubs(ctx) {
+	var firstErr error
+	for _, sub := range subs {
 		if !s.eligibleSubscriber(ctx, sub.studentID, now) {
 			continue
 		}
@@ -198,27 +201,33 @@ func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) 
 				reset[p.ID] = 0
 			}
 			rj, _ := json.Marshal(reset)
-			s.pool.Exec(ctx, `INSERT INTO notification_state (student_id, seen_points, current_cycle_index, updated_at)
+			if _, err := s.pool.Exec(ctx, `INSERT INTO notification_state (student_id, seen_points, current_cycle_index, updated_at)
 				VALUES ($1,$2,0,now()) ON CONFLICT (student_id) DO UPDATE
-				SET seen_points=$2, current_cycle_index=0, updated_at=now()`, sub.studentID, rj)
+				SET seen_points=$2, current_cycle_index=0, updated_at=now()`, sub.studentID, rj); err != nil {
+				stateFailed++
+				firstErr = err
+				log.Printf("[push] keypoint cycle reset failed for %s: %v", sub.studentID, err)
+			}
 			continue
 		}
 		payload := map[string]any{"point": next.Point, "subject": next.Subject,
 			"id": next.ID, "week": next.Week, "isQuestion": next.IsQuestion}
-		res := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 86400)
-		attempted++
-		if res.Gone {
-			gone = append(gone, sub.studentID)
+		stateVersion := "first"
+		if lastNotified != nil {
+			stateVersion = lastNotified.UTC().Format(time.RFC3339Nano)
+		}
+		deliveryKey := "keypoint:" + sub.studentID + ":" + stateVersion
+		accepted, err := s.enqueuePush(ctx, deliveryKey, sub, payload, 86400, "keypoint", 0)
+		if err != nil {
+			stateFailed++
+			firstErr = err
+			log.Printf("[push] keypoint enqueue failed for %s: %v", sub.studentID, err)
 			continue
 		}
-		if res.Stale {
-			stale = append(stale, sub.studentID)
+		if !accepted {
 			continue
 		}
-		if !res.Sent {
-			continue
-		}
-		sent++
+		queued++
 		seen[next.ID]++
 		cycle = (cycle + 1) % len(eligible)
 		sj, _ := json.Marshal(seen)
@@ -230,14 +239,14 @@ func (s *Service) RunKeyPoints(ctx context.Context, now time.Time) (int, error) 
 			last_notified_at=$6, updated_at=now()`,
 			sub.studentID, sj, cycle, patches, patchSubs, now); err != nil {
 			stateFailed++
+			firstErr = err
 			log.Printf("[push] keypoint state write failed for %s: %v", sub.studentID, err)
 		}
 	}
-	s.pruneSubscriptions(ctx, gone, stale, attempted)
 	if stateFailed > 0 {
-		log.Printf("[push] keypoints: %d of %d delivered point(s) could not be recorded; those students will be sent the same point again", stateFailed, sent)
+		log.Printf("[push] keypoints: %d state/enqueue failure(s) across %d queued point(s)", stateFailed, queued)
 	}
-	return sent, nil
+	return queued, firstErr
 }
 
 func (s *Service) notificationsDisabled(ctx context.Context) bool {

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"log"
 	"os"
+	"strconv"
 )
 
 // devJWTSecret is the signing secret used for local development only.
@@ -36,6 +37,7 @@ type Config struct {
 	VapidSubject         string
 	TermiiKey            string
 	TermiiSender         string
+	RunScheduler         bool
 }
 
 func getenv(key, fallback string) string {
@@ -43,6 +45,19 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		log.Printf("[config] invalid %s=%q; using %t", key, value, fallback)
+		return fallback
+	}
+	return parsed
 }
 
 // jwtSecret decides the key that signs API tokens.
@@ -92,5 +107,6 @@ func Load() Config {
 		VapidSubject:         getenv("VAPID_SUBJECT", "mailto:admin@274lab.com"),
 		TermiiKey:            getenv("TERMII_API_KEY", ""),
 		TermiiSender:         getenv("TERMII_SENDER_ID", "274Lab"),
+		RunScheduler:         envBool("RUN_SCHEDULER", true),
 	}
 }

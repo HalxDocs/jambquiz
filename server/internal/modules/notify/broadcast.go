@@ -26,18 +26,20 @@ func (s *Service) CreateBroadcast(ctx context.Context, title, message, target st
 		VALUES ($1,$2,$3,$4,$5)`, id, title, message, target, now); err != nil {
 		return "", 0, err
 	}
-	sent := s.fanOutBroadcast(ctx, id, title, message, target, now)
-	return id, sent, nil
+	sent, err := s.fanOutBroadcast(ctx, id, title, message, target, now)
+	return id, sent, err
 }
 
-func (s *Service) fanOutBroadcast(ctx context.Context, id, title, message, target string, now time.Time) int {
+func (s *Service) fanOutBroadcast(ctx context.Context, id, title, message, target string, now time.Time) (int, error) {
 	if !s.sender.Configured() {
-		return 0
+		return 0, nil
 	}
-	sent := 0
-	var gone, stale []string
-	attempted := 0
-	for _, sub := range s.allSubs(ctx) {
+	subs, err := s.allSubs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	tasks := make([]directPushTask, 0, len(subs))
+	for _, sub := range subs {
 		var suspended bool
 		var streak int
 		var subUntil *time.Time
@@ -59,8 +61,14 @@ func (s *Service) fanOutBroadcast(ctx context.Context, id, title, message, targe
 		}
 		payload := map[string]any{"type": "broadcast", "title": title,
 			"message": message, "broadcastId": id}
-		res := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 86400)
-		attempted++
+		tasks = append(tasks, directPushTask{sub: sub, payload: payload, ttl: 86400})
+	}
+
+	sent := 0
+	var gone, stale []string
+	for _, result := range s.sendDirectBatch(ctx, tasks) {
+		sub := result.sub
+		res := result.res
 		if res.Gone {
 			gone = append(gone, sub.studentID)
 			continue
@@ -73,8 +81,8 @@ func (s *Service) fanOutBroadcast(ctx context.Context, id, title, message, targe
 			sent++
 		}
 	}
-	s.pruneSubscriptions(ctx, gone, stale, attempted)
-	return sent
+	s.pruneSubscriptions(ctx, gone, stale, len(tasks))
+	return sent, nil
 }
 
 // PushReport summarises one fan-out so the admin can tell a working push
@@ -100,16 +108,24 @@ func (s *Service) TestPush(ctx context.Context) (PushReport, error) {
 	if !s.sender.Configured() {
 		return report, errBadInput
 	}
-	subs := s.allSubs(ctx)
+	subs, err := s.allSubs(ctx)
+	if err != nil {
+		return report, err
+	}
 	if len(subs) == 0 {
 		return report, errNotFound
 	}
 	report.Total = len(subs)
 	payload := map[string]any{"point": "Push notifications are working! You will receive key points every 2 hours.",
 		"subject": "Test", "id": fmt.Sprintf("test-%d", time.Now().UnixMilli()), "isQuestion": false}
-	var gone, stale []string
+	tasks := make([]directPushTask, 0, len(subs))
 	for _, sub := range subs {
-		res := s.sender.Send(sub.endpoint, sub.p256dh, sub.auth, payload, 3600)
+		tasks = append(tasks, directPushTask{sub: sub, payload: payload, ttl: 3600})
+	}
+	var gone, stale []string
+	for _, result := range s.sendDirectBatch(ctx, tasks) {
+		sub := result.sub
+		res := result.res
 		switch {
 		case res.Gone:
 			gone = append(gone, sub.studentID)

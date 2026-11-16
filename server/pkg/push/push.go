@@ -42,6 +42,13 @@ type Result struct {
 
 // Send delivers payload to one subscription.
 func (s *Sender) Send(endpoint, p256dh, auth string, payload any, ttl int) Result {
+	return s.SendContext(context.Background(), endpoint, p256dh, auth, payload, ttl)
+}
+
+// SendContext delivers a push while respecting the caller's shutdown and
+// per-job deadline. The legacy Send method remains as a background-context
+// wrapper for synchronous callers.
+func (s *Sender) SendContext(parent context.Context, endpoint, p256dh, auth string, payload any, ttl int) Result {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return Result{Err: err}
@@ -50,7 +57,7 @@ func (s *Sender) Send(endpoint, p256dh, auth string, payload any, ttl int) Resul
 	if ttl <= 0 {
 		ttl = 86400
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
 	resp, err := webpush.SendNotificationWithContext(ctx, raw, sub, &webpush.Options{
 		Subscriber:      s.Subject,

@@ -1,5 +1,6 @@
-// Command worker runs one scheduled job and exits.
-// Usage: go run ./cmd/worker <keypoints|quiz-reminders|quiz-time|renewal-nudges|advance-week|absent-sms|quiz-sms|leaderboard|public-stats>
+// Command worker runs one scheduled job and exits, or runs the long-lived
+// scheduler when invoked with "scheduler".
+// Usage: worker <scheduler|push-outbox|retry-pushes|keypoints|quiz-reminders|quiz-time|renewal-nudges|advance-week|absent-sms|quiz-sms|leaderboard|public-stats>
 package main
 
 import (
@@ -7,6 +8,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/274lab/server/internal/config"
@@ -28,11 +31,12 @@ func boardsSvc(ctx context.Context, pool *pgxpool.Pool, job string) error {
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatalf("usage: worker <keypoints|quiz-reminders|quiz-time|advance-week|absent-sms|quiz-sms>")
+		log.Fatalf("usage: worker <scheduler|push-outbox|retry-pushes|keypoints|quiz-reminders|quiz-time|renewal-nudges|advance-week|absent-sms|quiz-sms|leaderboard|public-stats>")
 	}
 	job := os.Args[1]
 	cfg := config.Load()
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	pool, err := db.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("[worker] db: %v", err)
@@ -42,27 +46,46 @@ func main() {
 		VapidPublic: cfg.VapidPublic, VapidPrivate: cfg.VapidPrivate,
 		VapidSubject: cfg.VapidSubject, TermiiKey: cfg.TermiiKey, TermiiSender: cfg.TermiiSender,
 	})
+	if job == "scheduler" {
+		done := notify.StartScheduler(ctx, svc, pool)
+		log.Printf("[worker] scheduler process started")
+		<-ctx.Done()
+		log.Printf("[worker] shutting down scheduler")
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			log.Printf("[worker] scheduler shutdown timed out")
+		}
+		return
+	}
 	now := time.Now().UTC()
 	start := time.Now()
-	var n any
 	var out string
 	switch job {
 	case "keypoints":
 		var sent int
 		sent, err = svc.RunKeyPoints(ctx, now)
-		out = fmt.Sprintf("sent=%d", sent)
+		out = fmt.Sprintf("queued=%d", sent)
 	case "quiz-reminders":
 		var sent int
 		sent, err = svc.RunQuizReminders(ctx, now)
-		out = fmt.Sprintf("sent=%d", sent)
+		out = fmt.Sprintf("queued=%d", sent)
 	case "quiz-time":
 		var sent int
 		sent, err = svc.RunQuizTime(ctx, now)
-		out = fmt.Sprintf("sent=%d", sent)
+		out = fmt.Sprintf("queued=%d", sent)
 	case "renewal-nudges":
 		var sent int
 		sent, err = svc.RunRenewalNudges(ctx, now)
-		out = fmt.Sprintf("sent=%d", sent)
+		out = fmt.Sprintf("queued=%d", sent)
+	case "push-outbox":
+		var report notify.PushDrainReport
+		report, err = svc.DrainPushOutbox(ctx, 0)
+		out = report.String()
+	case "retry-pushes":
+		var retried int
+		retried, err = svc.RetryFailedPushes(ctx, 0)
+		out = fmt.Sprintf("requeued=%d", retried)
 	case "advance-week":
 		var next string
 		next, err = svc.RunAdvanceWeek(ctx, now)
@@ -88,5 +111,4 @@ func main() {
 		log.Fatalf("[worker:%s] %v", job, err)
 	}
 	log.Printf("[worker:%s] %s elapsed=%s", job, out, time.Since(start).Round(time.Millisecond))
-	_ = n
 }
