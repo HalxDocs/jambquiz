@@ -64,12 +64,9 @@ func (s *Service) RunAdvanceWeek(ctx context.Context, now time.Time) (string, er
 			return "", nil
 		}
 		targetWeek := fmt.Sprintf("Week %d", target)
-		realign := time.Duration(elapsed+1) * 7 * day
-		d1 := times[0].Add(realign).UTC().Format(time.RFC3339)
-		d2 := ""
-		if len(times) > 1 {
-			d2 = times[1].Add(realign).UTC().Format(time.RFC3339)
-		}
+		d1Time, d2Time := nextWeekendQuizTimes(lastQuizEnd, elapsed+1)
+		d1 := d1Time.UTC().Format(time.RFC3339)
+		d2 := d2Time.UTC().Format(time.RFC3339)
 		targetID := "quizDates_" + sanitizeWeek(targetWeek)
 		s.pool.Exec(ctx, `INSERT INTO settings (key, data) VALUES ($1,$2)
 			ON CONFLICT (key) DO UPDATE SET data=$2, updated_at=now()`,
@@ -113,12 +110,9 @@ func (s *Service) RunAdvanceWeek(ctx context.Context, now time.Time) (string, er
 	var hasNext bool
 	_ = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM settings WHERE key=$1)`, nextID).Scan(&hasNext)
 	if !hasNext && len(times) > 0 {
-		const weekDur = 7 * 24 * time.Hour
-		nd1 := times[0].Add(weekDur).UTC().Format(time.RFC3339)
-		nd2 := ""
-		if len(times) > 1 {
-			nd2 = times[1].Add(weekDur).UTC().Format(time.RFC3339)
-		}
+		nd1Time, nd2Time := nextWeekendQuizTimes(lastQuizEnd, 1)
+		nd1 := nd1Time.UTC().Format(time.RFC3339)
+		nd2 := nd2Time.UTC().Format(time.RFC3339)
 		s.pool.Exec(ctx, `INSERT INTO settings (key, data) VALUES ($1,$2) ON CONFLICT (key) DO NOTHING`,
 			nextID, fmt.Sprintf(`{"key":"quizDates_%s","date1":%q,"date2":%q,"autoScheduled":true}`, next, nd1, nd2))
 	}
@@ -174,6 +168,23 @@ func (s *Service) RunAdvanceWeek(ctx context.Context, now time.Time) (string, er
 		ON CONFLICT (id) DO UPDATE SET data=$2, updated_at=now()`,
 		guardID, fmt.Sprintf(`{"week":%q,"advancedTo":%q}`, week, next))
 	return next, nil
+}
+
+// nextWeekendQuizTimes returns Saturday and Sunday slots at 5pm Lagos time.
+// weeksAhead is measured from the weekend containing the last scheduled quiz,
+// so an old Friday/Saturday schedule rolls forward into the new Saturday/Sunday
+// pattern as weeks advance.
+func nextWeekendQuizTimes(lastQuizEnd time.Time, weeksAhead int) (time.Time, time.Time) {
+	wat := time.FixedZone("WAT", 3600)
+	local := lastQuizEnd.In(wat)
+	saturdayOffset := (int(time.Saturday) - int(local.Weekday()) + 7) % 7
+	if local.Weekday() == time.Sunday {
+		saturdayOffset = -1
+	}
+	saturday := time.Date(local.Year(), local.Month(), local.Day()+saturdayOffset,
+		17, 0, 0, 0, wat).AddDate(0, 0, 7*weeksAhead)
+	sunday := saturday.AddDate(0, 0, 1)
+	return saturday, sunday
 }
 
 func (s *Service) sendSuspensionSMS(ctx context.Context, studentID, name string, streak int) {

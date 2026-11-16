@@ -30,3 +30,23 @@ func TestPickDeterministic(t *testing.T) {
 		t.Fatal("count")
 	}
 }
+
+func TestStandardQuizWindowUsesSaturdayAndSunday(t *testing.T) {
+	cases := []struct {
+		name string
+		date string
+		want bool
+	}{
+		{"Saturday at 5pm WAT", "2026-11-21T16:00:00Z", true},
+		{"Sunday at 5pm WAT", "2026-11-22T16:00:00Z", true},
+		{"Friday at 5pm WAT", "2026-11-20T16:00:00Z", false},
+		{"Saturday before window", "2026-11-21T15:00:00Z", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isStandardWindowDate(tc.date); got != tc.want {
+				t.Fatalf("isStandardWindowDate(%q) = %v, want %v", tc.date, got, tc.want)
+			}
+		})
+	}
+}

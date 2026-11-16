@@ -66,13 +66,13 @@ function listenQuizDates(week, callback) {
   return () => { stopped = true }
 }
 
-// Normal weekend window: Fri / Sat / Sun, session starting 5–6pm (2h session).
+// Normal weekend window: Saturday and Sunday, with a 5–6pm login window.
 function isStandardWindowDate(d) {
   if (!d) return false
   const t = new Date(d)
   if (Number.isNaN(t.getTime())) return false
   const day = t.getDay()
-  if (day !== 0 && day !== 5 && day !== 6) return false
+  if (day !== 0 && day !== 6) return false
   const mins = t.getHours() * 60 + t.getMinutes()
   return mins >= 17 * 60 && mins < 19 * 60
 }

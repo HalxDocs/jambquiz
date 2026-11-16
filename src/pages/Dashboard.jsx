@@ -63,7 +63,7 @@ function isQuizTime(quizDates) {
   const h = nowD.getHours()
   const m = nowD.getMinutes()
   const mins = h * 60 + m
-  return (day === 0 || day === 5 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
+  return (day === 0 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
 }
 
 function getTimeUntilQuiz(quizDates) {
@@ -94,9 +94,8 @@ function getTimeUntilQuiz(quizDates) {
   const day = nowD.getDay()
   const h = nowD.getHours()
   let daysUntil
-  if ((day === 5 || day === 6) && h < 17) daysUntil = 0
-  else if (day === 5 && h >= 17) daysUntil = 1
-  else daysUntil = (5 - day + 7) % 7 || 7
+  if (day === 6 && h < 17) daysUntil = 0
+  else daysUntil = (6 - day + 7) % 7 || 7
   const target = new Date(nowD)
   target.setDate(nowD.getDate() + daysUntil)
   target.setHours(17, 0, 0, 0)

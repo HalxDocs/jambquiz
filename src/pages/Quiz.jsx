@@ -35,7 +35,7 @@ function isInQuizWindow(quizDates) {
   }
   const day = now.getDay(), h = now.getHours(), m = now.getMinutes()
   const mins = h * 60 + m
-  return (day === 0 || day === 5 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
+  return (day === 0 || day === 6) && mins >= 17 * 60 && mins < 19 * 60
 }
 
 const ABBR = {
@@ -153,7 +153,7 @@ export default function Quiz({ student, setStudent, setView, setLastScore, retak
   }
 
   // Gate check: once dates + week are ready, decide what to show.
-  // Bonus quizzes (admin-scheduled outside the Fri/Sat/Sun 5–6pm window) are
+  // Bonus quizzes (admin-scheduled outside the Sat/Sun 5–6pm window) are
   // free practice: they never touch the free trial and never block on expiry.
   const isBonus = !retakeData && isBonusQuiz(quizDates)
   useEffect(() => {

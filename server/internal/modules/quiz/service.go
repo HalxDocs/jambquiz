@@ -115,7 +115,7 @@ func parseSlot(d string) (time.Time, bool) {
 }
 
 // isStandardWindowDate reports whether a scheduled slot falls inside the normal
-// weekend window (Fri/Sat/Sun, 17:00-19:00). Slots are stored in UTC but the
+// weekend window (Sat/Sun, 17:00-19:00). Slots are stored in UTC but the
 // window is quoted in West Africa Time, so compare in WAT (UTC+1). Comparing in
 // UTC made every slot look like 16:00 and classified all weeks as bonus.
 func isStandardWindowDate(d string) bool {
@@ -125,7 +125,7 @@ func isStandardWindowDate(d string) bool {
 	}
 	t = t.In(wat)
 	day := t.Weekday()
-	if day != time.Sunday && day != time.Friday && day != time.Saturday {
+	if day != time.Sunday && day != time.Saturday {
 		return false
 	}
 	mins := t.Hour()*60 + t.Minute()
