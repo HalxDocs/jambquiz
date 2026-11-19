@@ -28,6 +28,8 @@ func RegisterRoutes(r *gin.Engine, pool *pgxpool.Pool, secret string) {
 	r.POST("/api/guestbook", h.guestbookPost)
 	r.GET("/api/portfolio/guestbook", h.portfolioGuestbookList)
 	r.POST("/api/portfolio/guestbook", h.portfolioGuestbookPost)
+	r.GET("/api/portfolio/blog/likes", h.blogLikesGet)
+	r.POST("/api/portfolio/blog/likes", h.blogLikesPost)
 	r.POST("/api/admin/boards/refresh", auth, admin, h.refresh)
 	r.GET("/api/admin/stats", auth, admin, h.adminStats)
 	r.GET("/api/admin/growth", auth, admin, h.growth)
@@ -180,6 +182,102 @@ func (h *Handler) createGuestbook(c *gin.Context, table string) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"ok": true, "id": id})
+}
+
+// Anonymous blog likes. A visitor is identified by a random ID kept in
+// localStorage, so one browser can like a post once and undo it. Counts are
+// shared by every visitor because they live in the database.
+func (h *Handler) blogLikesGet(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	slug := trimSpace(c.Query("slug"))
+	visitor := trimSpace(c.Query("visitorId"))
+	if !validLikeKey(slug, 120) || !validLikeKey(visitor, 128) {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid request"})
+		return
+	}
+	ctx := c.Request.Context()
+	var liked bool
+	if err := h.svc.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM portfolio_blog_likes WHERE slug=$1 AND visitor_id=$2)`,
+		slug, visitor).Scan(&liked); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "failed to read likes"})
+		return
+	}
+	var count int64
+	if err := h.svc.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM portfolio_blog_likes WHERE slug=$1`, slug).Scan(&count); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "failed to count likes"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "likes": count, "liked": liked})
+}
+
+func (h *Handler) blogLikesPost(c *gin.Context) {
+	if unavailable(c, h.svc) {
+		return
+	}
+	var in struct {
+		Slug      string `json:"slug"`
+		VisitorID string `json:"visitorId"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid body"})
+		return
+	}
+	slug := trimSpace(in.Slug)
+	visitor := trimSpace(in.VisitorID)
+	if !validLikeKey(slug, 120) || !validLikeKey(visitor, 128) {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "invalid request"})
+		return
+	}
+	ctx := c.Request.Context()
+	if !ratelimit.Allow(ctx, h.svc.pool, "portfolio_blog_likes:"+visitor, 60, 60*60*1000) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"ok": false, "error": "Too many likes. Try again later."})
+		return
+	}
+	var liked bool
+	if err := h.svc.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM portfolio_blog_likes WHERE slug=$1 AND visitor_id=$2)`,
+		slug, visitor).Scan(&liked); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "failed to read likes"})
+		return
+	}
+	var err error
+	if liked {
+		_, err = h.svc.pool.Exec(ctx,
+			`DELETE FROM portfolio_blog_likes WHERE slug=$1 AND visitor_id=$2`, slug, visitor)
+	} else {
+		_, err = h.svc.pool.Exec(ctx,
+			`INSERT INTO portfolio_blog_likes (slug, visitor_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+			slug, visitor)
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "failed to save like"})
+		return
+	}
+	var count int64
+	if err := h.svc.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM portfolio_blog_likes WHERE slug=$1`, slug).Scan(&count); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "failed to count likes"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "likes": count, "liked": !liked})
+}
+
+func validLikeKey(s string, max int) bool {
+	if s == "" || len(s) > max {
+		return false
+	}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+			r == '-' || r == '_' || r == '/' || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func trimSpace(s string) string {
