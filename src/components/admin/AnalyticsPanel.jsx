@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { apiGet } from '../../lib/api'
 
 const RANGES = [
@@ -91,17 +91,18 @@ function summarize(events, rangeKey) {
 export default function AnalyticsPanel() {
   const [loading, setLoading] = useState(true)
   const [rawEvents, setRawEvents] = useState([])
+  const [students, setStudents] = useState([])
   const [loadError, setLoadError] = useState('')
   const [range, setRange] = useState('14d')
 
-  const loadAnalytics = async () => {
+  const loadAnalytics = useCallback(async (rangeKey) => {
     setLoading(true)
     setLoadError('')
     try {
-      const res = await apiGet('/api/admin/usage?limit=500')
+      const res = await apiGet(`/api/admin/usage?limit=500&range=${rangeKey}`)
       const events = (res.logs || []).map((l, i) => {
         let metadata = {}
-        try { metadata = typeof l.meta === 'string' ? JSON.parse(l.meta) : (l.meta || {}) } catch {}
+        try { metadata = typeof l.meta === 'string' ? JSON.parse(l.meta) : (l.meta || {}) } catch { /* ignore malformed metadata */ }
         const ts = l.createdAt || ''
         return {
           id: `${ts}-${i}`,
@@ -117,6 +118,14 @@ export default function AnalyticsPanel() {
       })
       events.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
       setRawEvents(events)
+      setStudents((res.students || []).map((s) => ({
+        id: s.studentId || '',
+        name: s.studentName || s.nickname || (s.studentId ? `${s.studentId.slice(0, 8)}…` : 'Unknown student'),
+        nickname: s.nickname || '',
+        phone: s.phone || '',
+        count: s.events || 0,
+        lastAt: s.lastAt || '',
+      })))
     } catch (e) {
       const msg = e?.message || ''
       if (msg.includes('denied') || msg.includes('forbidden') || msg.includes('unauthorized')) {
@@ -126,11 +135,12 @@ export default function AnalyticsPanel() {
       }
     }
     setLoading(false)
-  }
+  }, [])
 
-  useEffect(() => { loadAnalytics() }, [])
+  useEffect(() => { loadAnalytics(range) }, [range, loadAnalytics])
 
   const stats = useMemo(() => rawEvents.length ? summarize(rawEvents, range) : null, [rawEvents, range])
+  const studentRows = students.length ? students : (stats?.students || [])
   const recent = useMemo(() => {
     if (!rawEvents.length) return []
     const cutoff = getCutoff(range)
@@ -150,7 +160,7 @@ export default function AnalyticsPanel() {
     return (
       <div className="bg-white border border-[#EBEBEB] rounded-2xl p-10 text-center">
         <p className="text-xs font-bold text-red-500 font-label">{loadError}</p>
-        <button onClick={loadAnalytics} disabled={loading}
+        <button onClick={() => loadAnalytics(range)} disabled={loading}
           className="mt-3 text-[10px] font-bold text-[#888] hover:text-[#111] font-label transition-colors">
           {loading ? 'Retrying…' : '↻ Retry'}
         </button>
@@ -189,7 +199,7 @@ export default function AnalyticsPanel() {
         </div>
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4">
           <p className="text-[10px] font-bold text-[#888] uppercase tracking-wide font-label mb-0.5">Active Students</p>
-          <p className="text-2xl font-bold font-display text-[#111]">{stats.uniqueStudents}</p>
+          <p className="text-2xl font-bold font-display text-[#111]">{studentRows.length}</p>
         </div>
         <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4">
           <p className="text-[10px] font-bold text-[#888] uppercase tracking-wide font-label mb-0.5">Quizzes Taken</p>
@@ -249,11 +259,11 @@ export default function AnalyticsPanel() {
       {/* Students who generated events */}
       <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-xs font-bold text-[#111] font-display">Students ({stats.students.length})</p>
+          <p className="text-xs font-bold text-[#111] font-display">Students ({studentRows.length})</p>
           <p className="text-[10px] text-[#AAA] font-label">{RANGES.find((r) => r.key === range)?.label}</p>
         </div>
         <div className="space-y-1 max-h-72 overflow-y-auto">
-          {stats.students.slice(0, 50).map((s) => (
+          {studentRows.slice(0, 100).map((s) => (
             <div key={s.id} className="flex justify-between items-center gap-2 py-1.5 border-b border-[#F3F3F2] last:border-0">
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-bold text-[#111] font-body truncate">
@@ -268,7 +278,7 @@ export default function AnalyticsPanel() {
               </span>
             </div>
           ))}
-          {stats.students.length === 0 && (
+          {studentRows.length === 0 && (
             <p className="text-xs text-[#CCC] font-label">No students tracked yet</p>
           )}
         </div>
@@ -278,7 +288,7 @@ export default function AnalyticsPanel() {
       <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4">
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-bold text-[#111] font-display">Recent Events</p>
-          <button onClick={loadAnalytics} disabled={loading}
+          <button onClick={() => loadAnalytics(range)} disabled={loading}
             className="text-[10px] font-bold text-[#888] hover:text-[#111] font-label transition-colors disabled:opacity-40">
             {loading ? 'Refreshing…' : '↻ Refresh'}
           </button>
