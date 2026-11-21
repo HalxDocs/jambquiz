@@ -70,8 +70,13 @@ func (h *Handler) usage(c *gin.Context) {
 	if limit < 1 || limit > 500 {
 		limit = 100
 	}
-	rs, err := h.pool.Query(c.Request.Context(), `SELECT student_id, event_type, meta, created_at
-		FROM usage_logs WHERE ($1='' OR event_type=$1) ORDER BY created_at DESC LIMIT $2`,
+	rs, err := h.pool.Query(c.Request.Context(), `SELECT u.student_id,
+			COALESCE(s.name,''), COALESCE(s.nickname,''), COALESCE(s.phone,''),
+			u.event_type, u.meta, u.created_at
+		FROM usage_logs u
+		LEFT JOIN students s ON s.id = u.student_id
+		WHERE ($1='' OR u.event_type=$1)
+		ORDER BY u.created_at DESC LIMIT $2`,
 		c.Query("eventType"), limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "internal error"})
@@ -80,11 +85,12 @@ func (h *Handler) usage(c *gin.Context) {
 	defer rs.Close()
 	out := []map[string]any{}
 	for rs.Next() {
-		var sid, et string
+		var sid, name, nickname, phone, et string
 		var meta []byte
 		var created time.Time
-		if err := rs.Scan(&sid, &et, &meta, &created); err == nil {
-			out = append(out, map[string]any{"studentId": sid, "eventType": et,
+		if err := rs.Scan(&sid, &name, &nickname, &phone, &et, &meta, &created); err == nil {
+			out = append(out, map[string]any{"studentId": sid, "studentName": name,
+				"nickname": nickname, "phone": phone, "eventType": et,
 				"meta": string(meta), "createdAt": created.UTC().Format(time.RFC3339)})
 		}
 	}

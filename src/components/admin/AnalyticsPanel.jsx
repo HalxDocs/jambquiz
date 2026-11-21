@@ -19,6 +19,12 @@ function getCutoff(rangeKey) {
   }
 }
 
+function studentLabel(e) {
+  if (e.studentName) return e.studentName
+  if (e.nickname) return e.nickname
+  return e.studentId ? `${e.studentId.slice(0, 8)}…` : 'Unknown student'
+}
+
 function summarize(events, rangeKey) {
   const cutoff = getCutoff(rangeKey)
   const filtered = cutoff ? events.filter((e) => (e.date || '') >= cutoff) : events
@@ -27,9 +33,25 @@ function summarize(events, rangeKey) {
   const dailyActive = {}
   const quizCompletions = { count: 0, totalScore: 0 }
   const uniqueStudents = new Set()
+  const byStudent = new Map()
 
   filtered.forEach((e) => {
-    uniqueStudents.add(e.studentId)
+    if (e.studentId) uniqueStudents.add(e.studentId)
+
+    if (e.studentId) {
+      const row = byStudent.get(e.studentId) || {
+        id: e.studentId,
+        name: studentLabel(e),
+        nickname: e.nickname || '',
+        phone: e.phone || '',
+        count: 0,
+        lastAt: '',
+      }
+      row.count++
+      if (!row.lastAt || e.timestamp > row.lastAt) row.lastAt = e.timestamp
+      if (!row.name && e.studentName) row.name = e.studentName
+      byStudent.set(e.studentId, row)
+    }
 
     if (e.eventType === 'page_view') {
       const page = e.metadata?.page || 'unknown'
@@ -44,6 +66,8 @@ function summarize(events, rangeKey) {
     const date = e.date || e.timestamp?.split('T')[0] || 'unknown'
     dailyActive[date] = (dailyActive[date] || 0) + 1
   })
+
+  const students = [...byStudent.values()].sort((a, b) => b.count - a.count)
 
   const avgScore = quizCompletions.count > 0
     ? Math.round(quizCompletions.totalScore / quizCompletions.count)
@@ -60,6 +84,7 @@ function summarize(events, rangeKey) {
     quizCount: quizCompletions.count,
     sortedDates,
     topPages,
+    students,
   }
 }
 
@@ -81,6 +106,9 @@ export default function AnalyticsPanel() {
         return {
           id: `${ts}-${i}`,
           studentId: l.studentId || '',
+          studentName: l.studentName || '',
+          nickname: l.nickname || '',
+          phone: l.phone || '',
           eventType: l.eventType || '',
           metadata,
           timestamp: ts,
@@ -218,6 +246,34 @@ export default function AnalyticsPanel() {
         </div>
       </div>
 
+      {/* Students who generated events */}
+      <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-bold text-[#111] font-display">Students ({stats.students.length})</p>
+          <p className="text-[10px] text-[#AAA] font-label">{RANGES.find((r) => r.key === range)?.label}</p>
+        </div>
+        <div className="space-y-1 max-h-72 overflow-y-auto">
+          {stats.students.slice(0, 50).map((s) => (
+            <div key={s.id} className="flex justify-between items-center gap-2 py-1.5 border-b border-[#F3F3F2] last:border-0">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-[#111] font-body truncate">
+                  {s.name}{s.nickname ? <span className="text-[#AAA] font-label font-normal"> · {s.nickname}</span> : null}
+                </p>
+                <p className="text-[10px] text-[#AAA] font-label truncate">
+                  {s.phone || 'No phone'} · last seen {new Date(s.lastAt).toLocaleString('en-NG')}
+                </p>
+              </div>
+              <span className="text-[10px] font-bold text-[#555] font-label shrink-0 bg-[#F3F3F2] rounded-full px-2 py-0.5">
+                {s.count} {s.count === 1 ? 'event' : 'events'}
+              </span>
+            </div>
+          ))}
+          {stats.students.length === 0 && (
+            <p className="text-xs text-[#CCC] font-label">No students tracked yet</p>
+          )}
+        </div>
+      </div>
+
       {/* Recent events */}
       <div className="bg-white border border-[#EBEBEB] rounded-2xl p-4">
         <div className="flex items-center justify-between mb-3">
@@ -240,9 +296,13 @@ export default function AnalyticsPanel() {
                      e.eventType === 'quiz_completed' ? `✅ Quiz done ${subjects ? `(${subjects.length} subjects)` : ''}` :
                      `❓ ${e.eventType}`}
                   </p>
-                  <p className="text-[10px] text-[#CCC] font-label">{new Date(e.timestamp).toLocaleString('en-NG')}</p>
+                  <p className="text-[10px] text-[#CCC] font-label truncate">
+                    {studentLabel(e)} · {new Date(e.timestamp).toLocaleString('en-NG')}
+                  </p>
                 </div>
-                <span className="text-[10px] text-[#AAA] font-label shrink-0">{e.studentId?.slice(0, 8)}…</span>
+                <span className="text-[10px] text-[#AAA] font-label shrink-0" title={e.studentId}>
+                  {e.phone || e.studentId?.slice(0, 8) + '…'}
+                </span>
               </div>
             )
           })}
